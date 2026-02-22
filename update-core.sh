@@ -38,7 +38,7 @@ echo -e "${GREEN}[OK]${NC}   Termux detected"
 if ! command -v openclaw &>/dev/null; then
     echo -e "${RED}[FAIL]${NC} openclaw command not found"
     echo "       Run the full installer first:"
-    echo "       curl -sL $REPO_BASE/bootstrap.sh | bash"
+    echo "       curl -sL myopenclawhub.com/install | bash"
     exit 1
 fi
 echo -e "${GREEN}[OK]${NC}   openclaw $(openclaw --version 2>/dev/null || echo "")"
