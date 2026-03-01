@@ -10,7 +10,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OA_VERSION="1.0.1"
+OA_VERSION="1.0.2"
 
 echo ""
 echo -e "${BOLD}========================================${NC}"

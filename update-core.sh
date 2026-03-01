@@ -13,7 +13,7 @@ NC='\033[0m'
 
 REPO_BASE="https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
 OPENCLAW_DIR="$HOME/.openclaw-android"
-OA_VERSION="1.0.1"
+OA_VERSION="1.0.2"
 
 echo ""
 echo -e "${BOLD}========================================${NC}"
