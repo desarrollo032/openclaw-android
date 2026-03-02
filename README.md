@@ -10,15 +10,6 @@
 
 Because Android deserves a shell.
 
-## Why?
-
-An Android phone is a great environment for running an OpenClaw server:
-
-- **Sufficient performance** — Even models from a few years ago have more than enough specs to run OpenClaw
-- **Repurpose old phones** — Put that phone sitting in your drawer to good use. No need to buy a mini PC
-- **Low power + built-in UPS** — Runs 24/7 on a fraction of the power a PC would consume, and the battery keeps it alive through power outages
-- **No personal data at risk** — Install OpenClaw on a factory-reset phone with no accounts logged in, and there's zero personal data on the device. Dedicating a PC to this feels wasteful — a spare phone is perfect
-
 ## No Linux install required
 
 The standard approach to running OpenClaw on Android requires installing proot-distro with Linux, adding 700MB-1GB of overhead. OpenClaw on Android eliminates this by installing a lightweight glibc runtime directly into Termux, letting you run OpenClaw without a full Linux distribution.
@@ -78,42 +69,16 @@ The standard approach to running OpenClaw on Android requires installing proot-d
 
 ## Step-by-Step Setup (from a fresh phone)
 
-1. [Enable Developer Options and Stay Awake](#step-1-enable-developer-options-and-stay-awake)
+1. [Prepare Your Phone](#step-1-prepare-your-phone)
 2. [Install Termux](#step-2-install-termux)
 3. [Initial Termux Setup](#step-3-initial-termux-setup)
 4. [Install OpenClaw](#step-4-install-openclaw) — one command
 5. [Start OpenClaw Setup](#step-5-start-openclaw-setup)
 6. [Start OpenClaw (Gateway)](#step-6-start-openclaw-gateway)
 
-### Step 1: Enable Developer Options and Stay Awake
+### Step 1: Prepare Your Phone
 
-OpenClaw runs as a server, so the screen turning off can cause Android to throttle or kill the process. Keeping the screen on while charging ensures stable operation.
-
-**A. Enable Developer Options**
-
-1. Go to **Settings** > **About phone** (or **Device information**)
-2. Tap **Build number** 7 times
-3. You'll see "Developer mode has been enabled"
-4. Enter your lock screen password if prompted
-
-> On some devices, Build number is under **Settings** > **About phone** > **Software information**.
-
-**B. Stay Awake While Charging**
-
-1. Go to **Settings** > **Developer options** (the menu you just enabled)
-2. Turn on **Stay awake**
-3. The screen will now stay on whenever the device is charging (USB or wireless)
-
-> The screen will still turn off normally when unplugged. Keep the charger connected when running the server for extended periods.
-
-**C. Set Charge Limit (Required)**
-
-Keeping a phone plugged in 24/7 at 100% can cause battery swelling. Limiting the maximum charge to 80% greatly improves battery lifespan and safety.
-
-- **Samsung**: **Settings** > **Battery** > **Battery Protection** → Select **Maximum 80%**
-- **Google Pixel**: **Settings** > **Battery** > **Battery Protection** → ON
-
-> Menu names vary by manufacturer. Search for "battery protection" or "charge limit" in your settings. If your device doesn't have this feature, consider managing the charger manually or using a smart plug.
+Configure Developer Options, Stay Awake, charge limit, and battery optimization. See the [Keeping Processes Alive guide](docs/disable-phantom-process-killer.md) for step-by-step instructions.
 
 ### Step 2: Install Termux
 
@@ -133,13 +98,6 @@ pkg update -y && pkg install -y curl
 
 > You may be asked to choose a mirror on first run. Pick any — a geographically closer mirror will be faster.
 
-**Disable Battery Optimization for Termux**
-
-1. Go to Android **Settings** > **Battery** (or **Battery and device care**)
-2. Open **Battery optimization** (or **App power management**)
-3. Find **Termux** and set it to **Not optimized** (or **Unrestricted**)
-
-> The exact menu path varies by manufacturer (Samsung, LG, etc.) and Android version. Search your settings for "battery optimization" to find it.
 
 ### Step 4: Install OpenClaw
 
@@ -188,31 +146,13 @@ openclaw gateway
 
 > To stop the gateway, press `Ctrl+C`. Do not use `Ctrl+Z` — it only suspends the process without terminating it.
 
-## Disable Phantom Process Killer (Android 12+)
+## Keeping Processes Alive
 
-Android 12 and above may forcibly kill background processes like `openclaw gateway` and `sshd` without warning (you'll see `[Process completed (signal 9)]`). Disabling the Phantom Process Killer prevents this. The setting persists across reboots — you only need to do it once.
-
-See the [step-by-step guide with screenshots](docs/disable-phantom-process-killer.md) to disable it using ADB from within Termux.
+Android may kill background processes or throttle them when the screen is off. See the [Keeping Processes Alive guide](docs/disable-phantom-process-killer.md) for all recommended settings (Developer Options, Stay Awake, charge limit, battery optimization, and Phantom Process Killer).
 
 ## Access the Dashboard from Your PC
 
-To manage OpenClaw from your PC browser, you need to set up an SSH connection to your phone. See the [Termux SSH Setup Guide](docs/termux-ssh-guide.md) to configure SSH access first. Open another new tab on the phone for `sshd` (same method as Step 6).
-
-Once SSH is ready, find your phone's IP address. Run the following in Termux and look for the `inet` address under `wlan0` (e.g. `192.168.0.100`).
-
-```bash
-ifconfig
-```
-
-Then open a new terminal on your PC and set up an SSH tunnel:
-
-```bash
-ssh -N -L 18789:127.0.0.1:18789 -p 8022 <phone-ip>
-```
-
-Then open in your PC browser: `http://localhost:18789/`
-
-> Run `openclaw dashboard` on the phone to get the full URL with token.
+See the [Termux SSH Setup Guide](docs/termux-ssh-guide.md) for SSH access and dashboard tunnel setup.
 
 ## Managing Multiple Devices
 
@@ -233,14 +173,6 @@ After installation, the `oa` command is available for managing your installation
 | `oa --status` | Show installation status and all installed components |
 | `oa --version` | Show version |
 | `oa --help` | Show available options |
-
-## Status Check
-
-```bash
-oa --status
-```
-
-Shows the installation status of OpenClaw and all installed components — code-server, ttyd, dufs, OpenCode, oh-my-opencode, AI CLI tools (Claude Code, Gemini CLI, Codex CLI), glibc environment, and system configuration. Useful for diagnosing issues or verifying your setup at a glance.
 
 
 ## Update
@@ -264,13 +196,6 @@ Already up-to-date components are skipped. Components you haven't installed are 
 > curl -sL myopenclawhub.com/update | bash && source ~/.bashrc
 > ```
 
-## Uninstall
-
-```bash
-oa --uninstall
-```
-
-This removes the OpenClaw package, patches, environment variables, and temp files. You'll be prompted individually for OpenCode, oh-my-opencode, installation directory, OpenClaw data, and AI CLI tools.
 
 ## Troubleshooting
 
@@ -286,59 +211,6 @@ The installer automatically resolves the differences between Termux and standard
 4. **Temp folder setup** — Configures an accessible temp folder for Android
 5. **Service manager bypass** — Configures normal operation without systemd
 6. **OpenCode integration** — If selected, installs OpenCode + oh-my-opencode using proot + ld.so concatenation for Bun standalone binaries
-
-## Installed Components
-
-The installer sets up infrastructure, platform packages, and optional tools across multiple package managers. Core infrastructure and platform dependencies are installed automatically; optional tools are individually prompted during install.
-
-### Core Infrastructure 
-
-| Component | Role | Install Method |
-|-----------|------|----------------|
-| git | Version control, npm git dependencies | `pkg install` |
-
-### Agent Platform Runtime Dependencies
-
-These are controlled by the platform's `config.env` flags. For OpenClaw, all are installed:
-
-| Component | Role | Install Method |
-|-----------|------|----------------|
-| [pacman](https://wiki.archlinux.org/title/Pacman) | Package manager for glibc packages | `pkg install` |
-| [glibc-runner](https://github.com/termux-pacman/glibc-packages) | glibc dynamic linker — enables standard Linux binaries on Android | `pacman -Sy` |
-| [Node.js](https://nodejs.org/) v22 LTS (linux-arm64) | JavaScript runtime for OpenClaw | Direct download from nodejs.org |
-| python | Build scripts for native C/C++ addons (node-gyp) | `pkg install` |
-| make | Makefile execution for native modules | `pkg install` |
-| cmake | CMake-based native module builds | `pkg install` |
-| clang | C/C++ compiler for native modules | `pkg install` |
-| binutils | Binary utilities (llvm-ar) for native builds | `pkg install` |
-
-### OpenClaw Platform 
-
-| Component | Role | Install Method |
-|-----------|------|----------------|
-| [OpenClaw](https://github.com/openclaw/openclaw) | AI agent platform (core) | `npm install -g` |
-| [clawdhub](https://github.com/AidanPark/clawdhub) | Skill manager for OpenClaw | `npm install -g` |
-| [PyYAML](https://pyyaml.org/) | YAML parser for `.skill` packaging | `pip install` |
-| libvips | Image processing headers for sharp build | `pkg install` (on update) |
-
-### Optional Tools (prompted during install)
-
-Each tool is offered via an individual Y/n prompt. You choose which ones to install.
-
-| Component | Role | Install Method |
-|-----------|------|----------------|
-| [tmux](https://github.com/tmux/tmux) | Terminal multiplexer for background sessions | `pkg install` |
-| [ttyd](https://github.com/tsl0922/ttyd) | Web terminal — access Termux from a browser | `pkg install` |
-| [dufs](https://github.com/sigoden/dufs) | HTTP/WebDAV file server for browser-based file transfer | `pkg install` |
-| [android-tools](https://developer.android.com/tools/adb) | ADB for disabling Phantom Process Killer | `pkg install` |
-| [code-server](https://github.com/coder/code-server) | Browser-based VS Code IDE | Direct download from GitHub |
-| [OpenCode](https://opencode.ai/) | AI coding assistant (TUI) | `bun install -g` |
-| [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) | Plugin framework for OpenCode | `bun install -g` |
-| [Bun](https://bun.sh/) | JavaScript runtime for OpenCode | Direct download from bun.sh |
-| [proot](https://proot-me.github.io/) | Syscall interceptor (for Bun standalone binaries) | `pkg install` |
-| [Claude Code](https://github.com/anthropics/claude-code) (Anthropic) | AI CLI tool | `npm install -g` |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google) | AI CLI tool | `npm install -g` |
-| [Codex CLI](https://github.com/openai/codex) (OpenAI) | AI CLI tool | `npm install -g` |
 
 ## Performance
 
@@ -365,6 +237,57 @@ For experimentation, small models like TinyLlama 1.1B (Q4, ~670MB) can run on th
 
 <details>
 <summary>Technical Documentation for Developers</summary>
+
+## Installed Components
+
+The installer sets up infrastructure, platform packages, and optional tools across multiple package managers. Core infrastructure and platform dependencies are installed automatically; optional tools are individually prompted during install.
+
+### Core Infrastructure
+
+| Component | Role | Install Method |
+|-----------|------|----------------|
+| git | Version control, npm git dependencies | `pkg install` |
+
+### Agent Platform Runtime Dependencies
+
+These are controlled by the platform's `config.env` flags. For OpenClaw, all are installed:
+
+| Component | Role | Install Method |
+|-----------|------|----------------|
+| [pacman](https://wiki.archlinux.org/title/Pacman) | Package manager for glibc packages | `pkg install` |
+| [glibc-runner](https://github.com/termux-pacman/glibc-packages) | glibc dynamic linker — enables standard Linux binaries on Android | `pacman -Sy` |
+| [Node.js](https://nodejs.org/) v22 LTS (linux-arm64) | JavaScript runtime for OpenClaw | Direct download from nodejs.org |
+| python | Build scripts for native C/C++ addons (node-gyp) | `pkg install` |
+| make | Makefile execution for native modules | `pkg install` |
+| cmake | CMake-based native module builds | `pkg install` |
+| clang | C/C++ compiler for native modules | `pkg install` |
+| binutils | Binary utilities (llvm-ar) for native builds | `pkg install` |
+
+### OpenClaw Platform
+
+| Component | Role | Install Method |
+|-----------|------|----------------|
+| [OpenClaw](https://github.com/openclaw/openclaw) | AI agent platform (core) | `npm install -g` |
+| [clawdhub](https://github.com/AidanPark/clawdhub) | Skill manager for OpenClaw | `npm install -g` |
+| [PyYAML](https://pyyaml.org/) | YAML parser for `.skill` packaging | `pip install` |
+| libvips | Image processing headers for sharp build | `pkg install` (on update) |
+
+### Optional Tools (prompted during install)
+
+Each tool is offered via an individual Y/n prompt. You choose which ones to install.
+
+| Component | Role | Install Method |
+|-----------|------|----------------|
+| [tmux](https://github.com/tmux/tmux) | Terminal multiplexer for background sessions | `pkg install` |
+| [ttyd](https://github.com/tsl0922/ttyd) | Web terminal — access Termux from a browser | `pkg install` |
+| [dufs](https://github.com/sigoden/dufs) | HTTP/WebDAV file server for browser-based file transfer | `pkg install` |
+| [android-tools](https://developer.android.com/tools/adb) | ADB for disabling Phantom Process Killer | `pkg install` |
+| [code-server](https://github.com/coder/code-server) | Browser-based VS Code IDE | Direct download from GitHub |
+| [OpenCode](https://opencode.ai/) | AI coding assistant (TUI). Auto-installs [Bun](https://bun.sh/) and [proot](https://proot-me.github.io/) as dependencies | `bun install -g` |
+| [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) | Plugin framework for OpenCode | `bun install -g` |
+| [Claude Code](https://github.com/anthropics/claude-code) (Anthropic) | AI CLI tool | `npm install -g` |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google) | AI CLI tool | `npm install -g` |
+| [Codex CLI](https://github.com/openai/codex) (OpenAI) | AI CLI tool | `npm install -g` |
 
 ## Project Structure
 
@@ -519,7 +442,6 @@ Conditionally installs runtime dependencies based on the platform's `config.env`
 | `PLATFORM_NEEDS_GLIBC=true` | `scripts/install-glibc.sh` | pacman, glibc-runner (provides `ld-linux-aarch64.so.1`) |
 | `PLATFORM_NEEDS_NODEJS=true` | `scripts/install-nodejs.sh` | Node.js v22 LTS linux-arm64, grun-style wrapper scripts |
 | `PLATFORM_NEEDS_BUILD_TOOLS=true` | `scripts/install-build-tools.sh` | python, make, cmake, clang, binutils |
-| `PLATFORM_NEEDS_PROOT=true` | `pkg install proot` | proot (syscall interceptor for Bun binaries) |
 
 Each script is self-contained with pre-checks and idempotent behavior (skips if already installed).
 
@@ -649,31 +571,6 @@ Updates tools that are already installed:
 - **AI CLI tools** (Claude Code, Gemini CLI, Codex CLI): Compares installed vs latest npm version, updates if needed. Tools not installed are not offered for installation
 
 </details>
-
-## Additional Install Options
-
-The installer includes these additional components. All are selected during the installation process via individual Y/n prompts. You can also manage them later with `oa --update` and `oa --uninstall`.
-
-| Tool | Description | Install |
-|------|-------------|---------|
-| [code-server](https://github.com/coder/code-server) | Browser-based VS Code IDE | Prompted during install |
-| [ttyd](https://github.com/tsl0922/ttyd) | Web terminal — access Termux from a browser | Prompted during install |
-| [dufs](https://github.com/sigoden/dufs) | File server — upload/download files via browser | Prompted during install |
-| [OpenCode](https://opencode.ai/) | AI coding assistant (TUI) | Prompted during install |
-| [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) | Plugin framework for OpenCode | Prompted during install (with OpenCode) |
-| [Claude Code](https://github.com/anthropics/claude-code) (Anthropic) | AI CLI tool | Prompted during install |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) (Google) | AI CLI tool | Prompted during install |
-| [Codex CLI](https://github.com/openai/codex) (OpenAI) | AI CLI tool | Prompted during install |
-
-The glibc environment installed by this project provides a standard Linux runtime, enabling these tools to install and run on Android.
-
-Run each tool directly from the command line (e.g., `code-server --auth none`, `opencode`).
-
-<p>
-  <img src="docs/images/run_claude.png" alt="Claude Code on Termux" width="32%">
-  <img src="docs/images/run_gemini.png" alt="Gemini CLI on Termux" width="32%">
-  <img src="docs/images/run_codex.png" alt="Codex CLI on Termux" width="32%">
-</p>
 
 ## License
 
