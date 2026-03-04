@@ -1,6 +1,6 @@
+.agent/
 .claude/
 .obsidian/
-CLAUDE.md
 .plan/
 node_modules/
 *.log
