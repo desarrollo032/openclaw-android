@@ -307,9 +307,9 @@ class JsBridge(
                     "npm install -g @google/gemini-cli"
                 "codex-cli" ->
                     "npm install -g @openai/codex"
-                // OpenCode (Bun-based)
+                // OpenCode (Bun-based) — requires proot + ld.so concatenation
                 "opencode" ->
-                    "npm install -g opencode"
+                    "curl -fsSL https://raw.githubusercontent.com/AidanPark/openclaw-android/main/scripts/install-opencode.sh | bash"
                 else -> "echo 'Unknown tool: $id'"
             }
             eventBridge.emit("install_progress",
@@ -342,7 +342,7 @@ class JsBridge(
                 "codex-cli" ->
                     "npm uninstall -g @openai/codex"
                 "opencode" ->
-                    "npm uninstall -g opencode"
+                    "rm -f \$PREFIX/bin/opencode \$HOME/.openclaw-android/bin/ld.so.opencode \$PREFIX/tmp/ld.so.opencode && rm -rf \$HOME/.config/opencode"
                 else -> "echo 'Unknown tool: $id'"
             }
             CommandRunner.runSync(cmd, env, bootstrapManager.homeDir)
