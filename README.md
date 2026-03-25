@@ -321,7 +321,7 @@ openclaw-android/
 ├── update-core.sh              # Lightweight updater for existing installations
 ├── uninstall.sh                # Clean removal (orchestrator)
 ├── patches/
-│   ├── glibc-compat.js        # Node.js runtime patches (os.cpus, networkInterfaces)
+│   ├── glibc-compat.js        # Node.js runtime patches (os.cpus, networkInterfaces, Bonjour loopback guard)
 │   ├── argon2-stub.js          # JS stub for argon2 native module (code-server)
 │   ├── termux-compat.h         # C header for Bionic native builds (sharp)
 │   ├── spawn.h                 # POSIX spawn stub header

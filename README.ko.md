@@ -319,7 +319,7 @@ openclaw-android/
 ├── update-core.sh              # 기존 설치 환경 경량 업데이터
 ├── uninstall.sh                # 깔끔한 제거 (오케스트레이터)
 ├── patches/
-│   ├── glibc-compat.js        # Node.js 런타임 패치 (os.cpus, networkInterfaces)
+│   ├── glibc-compat.js        # Node.js 런타임 패치 (os.cpus, networkInterfaces, Bonjour loopback guard)
 │   ├── argon2-stub.js          # argon2 네이티브 모듈용 JS 스텅 (code-server)
 │   ├── termux-compat.h         # Bionic 네이티브 빌드용 C 헤더 (sharp)
 │   ├── spawn.h                 # POSIX spawn 스텅 헤더

@@ -11,6 +11,7 @@
  * What's still needed (kernel/Android-level restrictions, not libc):
  * - os.cpus() fallback: SELinux blocks /proc/stat on Android 8+
  * - os.networkInterfaces() safety: EACCES on some Android configurations
+ * - Bonjour auto-disable on loopback-only hosts: some Android/Termux setups only expose `lo`
  * - /bin/sh path shim: Android 7-8 lacks /bin/sh (Android 9+ has it)
  *
  * Loaded via node wrapper script: node --require <path>/glibc-compat.js
@@ -63,27 +64,55 @@ os.cpus = function cpus() {
 // ─── os.networkInterfaces() safety ──────────────────────────
 // Some Android configurations throw EACCES when reading network
 // interface information. Wrap with try-catch to prevent crashes.
+//
+// Additionally, some Android/Termux setups only expose the loopback
+// interface (`lo`) to Node.js. In that situation, OpenClaw's Bonjour
+// advertiser can't provide real LAN discovery and may log noisy
+// goodbye timeouts on shutdown. Auto-disable Bonjour when only
+// loopback interfaces are visible.
 
 const _originalNetworkInterfaces = os.networkInterfaces;
 
-os.networkInterfaces = function networkInterfaces() {
+function createLoopbackInterfaces() {
+  return {
+    lo: [
+      {
+        address: '127.0.0.1',
+        netmask: '255.0.0.0',
+        family: 'IPv4',
+        mac: '00:00:00:00:00:00',
+        internal: true,
+        cidr: '127.0.0.1/8',
+      },
+    ],
+  };
+}
+
+function hasNonLoopbackInterface(interfaces) {
   try {
-    return _originalNetworkInterfaces.call(os);
+    return Object.values(interfaces).some(entries =>
+      Array.isArray(entries) && entries.some(entry => entry && entry.internal === false)
+    );
   } catch {
-    // Return minimal loopback interface
-    return {
-      lo: [
-        {
-          address: '127.0.0.1',
-          netmask: '255.0.0.0',
-          family: 'IPv4',
-          mac: '00:00:00:00:00:00',
-          internal: true,
-          cidr: '127.0.0.1/8',
-        },
-      ],
-    };
+    return false;
   }
+}
+
+function maybeDisableBonjour(interfaces) {
+  if (process.env.OPENCLAW_DISABLE_BONJOUR) return;
+  if (hasNonLoopbackInterface(interfaces)) return;
+  process.env.OPENCLAW_DISABLE_BONJOUR = '1';
+}
+
+os.networkInterfaces = function networkInterfaces() {
+  let interfaces;
+  try {
+    interfaces = _originalNetworkInterfaces.call(os);
+  } catch {
+    interfaces = createLoopbackInterfaces();
+  }
+  maybeDisableBonjour(interfaces);
+  return interfaces;
 };
 
 // ─── /bin/sh path shim (Android 7-8 only) ───────────────────
