@@ -21,6 +21,7 @@ set -eo pipefail
 
 OCA_DIR="$HOME/.openclaw-android"
 NODE_DIR="$OCA_DIR/node"
+BIN_DIR="$OCA_DIR/bin"
 NODE_VERSION="22.22.0"
 GLIBC_LDSO="$PREFIX/glibc/lib/ld-linux-aarch64.so.1"
 MARKER="$OCA_DIR/.post-setup-done"
@@ -228,40 +229,42 @@ echo -e "  Linker: $GLIBC_LDSO"
 echo -e "▸ ${YELLOW}[3/7]${NC} Installing Node.js v${NODE_VERSION}..."
 mkdir -p "$NODE_DIR/bin"
 
-if [ -f "$NODE_DIR/bin/node.real" ] && "$NODE_DIR/bin/node" --version &>/dev/null; then
-    INSTALLED_VER=$("$NODE_DIR/bin/node" --version 2>/dev/null || echo "")
+_NODE_CMD=""
+if [ -x "$BIN_DIR/node" ]; then _NODE_CMD="$BIN_DIR/node"
+elif [ -f "$NODE_DIR/bin/node.real" ] && [ -x "$NODE_DIR/bin/node" ]; then _NODE_CMD="$NODE_DIR/bin/node"
+fi
+if [ -n "$_NODE_CMD" ] && "$_NODE_CMD" --version &>/dev/null; then
+    INSTALLED_VER=$("$_NODE_CMD" --version 2>/dev/null || echo "")
     echo -e "  ${GREEN}[SKIP]${NC} Node.js already installed ($INSTALLED_VER)"
-    # Repair npm/npx wrappers — older installs may have shebang-only patch
-    # which fails because bin/npm's relative require('../lib/cli.js') doesn't resolve
+    # Repair wrappers in BIN_DIR (safe from npm overwrites)
+    mkdir -p "$BIN_DIR"
     if [ -f "$NODE_DIR/lib/node_modules/npm/bin/npm-cli.js" ]; then
-        rm -f "$NODE_DIR/bin/npm"
-        cat > "$NODE_DIR/bin/npm" << NPMWRAP
+        cat > "$BIN_DIR/npm" << NPMWRAP
 #!$PREFIX/bin/bash
-"$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/npm/bin/npm-cli.js" "\$@"
+"$BIN_DIR/node" "$NODE_DIR/lib/node_modules/npm/bin/npm-cli.js" "\$@"
 _npm_exit=\$?
 case "\$*" in *-g*openclaw*|*--global*openclaw*|*openclaw*-g*|*openclaw*--global*)
     _oc_bin="$PREFIX/bin/openclaw"
     _oc_mjs="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
     if [ -f "\$_oc_mjs" ]; then
-        printf '#!$PREFIX/bin/bash\nexec "$NODE_DIR/bin/node" "%s" "\$@"\n' "\$_oc_mjs" > "\$_oc_bin"
+        printf '#!$PREFIX/bin/bash\nexec "$BIN_DIR/node" "%s" "\$@"\n' "\$_oc_mjs" > "\$_oc_bin"
         chmod +x "\$_oc_bin"
     fi
     ;;
 esac
 exit \$_npm_exit
 NPMWRAP
-        chmod +x "$NODE_DIR/bin/npm"
+        chmod +x "$BIN_DIR/npm"
     fi
     if [ -f "$NODE_DIR/lib/node_modules/npm/bin/npx-cli.js" ]; then
-        rm -f "$NODE_DIR/bin/npx"
-        cat > "$NODE_DIR/bin/npx" << NPXWRAP
+        cat > "$BIN_DIR/npx" << NPXWRAP
 #!$PREFIX/bin/bash
-exec "$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/npm/bin/npx-cli.js" "\$@"
+exec "$BIN_DIR/node" "$NODE_DIR/lib/node_modules/npm/bin/npx-cli.js" "\$@"
 NPXWRAP
-        chmod +x "$NODE_DIR/bin/npx"
+        chmod +x "$BIN_DIR/npx"
     fi
     if [ -f "$NODE_DIR/bin/corepack" ] && head -1 "$NODE_DIR/bin/corepack" 2>/dev/null | grep -q '#!/usr/bin/env node'; then
-        sed -i "1s|#!/usr/bin/env node|#!$NODE_DIR/bin/node|" "$NODE_DIR/bin/corepack"
+        sed -i "1s|#!/usr/bin/env node|#!$BIN_DIR/node|" "$NODE_DIR/bin/corepack"
     fi
 else
     NODE_TAR="node-v${NODE_VERSION}-linux-arm64"
@@ -280,11 +283,9 @@ else
 
     rm -f "$TMPDIR/${NODE_TAR}.tar.xz"
 
-    # Create grun-style node wrapper
-    # - Unsets LD_PRELOAD (bionic libtermux-exec must not load into glibc process)
-    # - Auto-loads glibc-compat.js via NODE_OPTIONS
-    # - Moves leading --options to NODE_OPTIONS (ld.so misparses them)
-    cat > "$NODE_DIR/bin/node" << WRAPPER
+    # Create grun-style node wrapper in BIN_DIR (safe from npm overwrites)
+    mkdir -p "$BIN_DIR"
+    cat > "$BIN_DIR/node" << WRAPPER
 #!${PREFIX}/bin/bash
 [ -n "\$LD_PRELOAD" ] && export _OA_ORIG_LD_PRELOAD="\$LD_PRELOAD"
 unset LD_PRELOAD
@@ -309,51 +310,47 @@ if [ \$_COUNT -gt 0 ] && [ \$_COUNT -lt \$# ]; then
     done
     export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }\$_LEADING_OPTS"
 fi
-exec "$GLIBC_LDSO" --library-path "$PREFIX/glibc/lib" "\$(dirname "\$0")/node.real" "\$@"
+exec "$GLIBC_LDSO" --library-path "$PREFIX/glibc/lib" "$NODE_DIR/bin/node.real" "\$@"
 WRAPPER
-    chmod +x "$NODE_DIR/bin/node"
+    chmod +x "$BIN_DIR/node"
 
-    # Create npm/npx wrapper scripts
-    # bin/npm and bin/npx from the Node.js tarball use relative requires
-    # (e.g. require('../lib/cli.js')) that don't resolve in Termux's install path.
+    # Create npm/npx wrappers in BIN_DIR
     if [ -f "$NODE_DIR/lib/node_modules/npm/bin/npm-cli.js" ]; then
-        rm -f "$NODE_DIR/bin/npm"
-        cat > "$NODE_DIR/bin/npm" << NPMWRAP
+        cat > "$BIN_DIR/npm" << NPMWRAP
 #!$PREFIX/bin/bash
-"$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/npm/bin/npm-cli.js" "\$@"
+"$BIN_DIR/node" "$NODE_DIR/lib/node_modules/npm/bin/npm-cli.js" "\$@"
 _npm_exit=\$?
 case "\$*" in *-g*openclaw*|*--global*openclaw*|*openclaw*-g*|*openclaw*--global*)
     _oc_bin="$PREFIX/bin/openclaw"
     _oc_mjs="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
     if [ -f "\$_oc_mjs" ]; then
-        printf '#!$PREFIX/bin/bash\nexec "$NODE_DIR/bin/node" "%s" "\$@"\n' "\$_oc_mjs" > "\$_oc_bin"
+        printf '#!$PREFIX/bin/bash\nexec "$BIN_DIR/node" "%s" "\$@"\n' "\$_oc_mjs" > "\$_oc_bin"
         chmod +x "\$_oc_bin"
     fi
     ;;
 esac
 exit \$_npm_exit
 NPMWRAP
-        chmod +x "$NODE_DIR/bin/npm"
+        chmod +x "$BIN_DIR/npm"
     fi
     if [ -f "$NODE_DIR/lib/node_modules/npm/bin/npx-cli.js" ]; then
-        rm -f "$NODE_DIR/bin/npx"
-        cat > "$NODE_DIR/bin/npx" << NPXWRAP
+        cat > "$BIN_DIR/npx" << NPXWRAP
 #!$PREFIX/bin/bash
-exec "$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/npm/bin/npx-cli.js" "\$@"
+exec "$BIN_DIR/node" "$NODE_DIR/lib/node_modules/npm/bin/npx-cli.js" "\$@"
 NPXWRAP
-        chmod +x "$NODE_DIR/bin/npx"
+        chmod +x "$BIN_DIR/npx"
     fi
     # corepack: shebang patch only
     if [ -f "$NODE_DIR/bin/corepack" ] && head -1 "$NODE_DIR/bin/corepack" 2>/dev/null | grep -q '#!/usr/bin/env node'; then
-        sed -i "1s|#!/usr/bin/env node|#!$NODE_DIR/bin/node|" "$NODE_DIR/bin/corepack"
+        sed -i "1s|#!/usr/bin/env node|#!$BIN_DIR/node|" "$NODE_DIR/bin/corepack"
     fi
 
     # Configure npm
-    export PATH="$NODE_DIR/bin:$PATH"
-    "$NODE_DIR/bin/npm" config set script-shell "$PREFIX/bin/sh" 2>/dev/null || true
+    export PATH="$BIN_DIR:$NODE_DIR/bin:$PATH"
+    "$BIN_DIR/npm" config set script-shell "$PREFIX/bin/sh" 2>/dev/null || true
 
     # Verify
-    NODE_VER=$("$NODE_DIR/bin/node" --version 2>/dev/null) || {
+    NODE_VER=$("$BIN_DIR/node" --version 2>/dev/null) || {
         echo -e "  ${RED}✗${NC} Node.js verification failed"
         exit 1
     }
@@ -362,7 +359,7 @@ fi
 
 # ─── [4/7] OpenClaw ─────────────────────────
 echo -e "▸ ${YELLOW}[4/7]${NC} Installing OpenClaw..."
-export PATH="$NODE_DIR/bin:$PATH"
+export PATH="$BIN_DIR:$NODE_DIR/bin:$PATH"
 
 # Auto-detect GitHub mirror for restricted networks
 resolve_repo_base
@@ -499,7 +496,7 @@ cat > "$HOME/.bashrc" << BASHRC
 export PREFIX="$PREFIX"
 export HOME="$HOME"
 export TMPDIR="$TMPDIR"
-export PATH="$NODE_DIR/bin:\$PREFIX/bin:\$PATH"
+export PATH="$BIN_DIR:$NODE_DIR/bin:\$PREFIX/bin:\$PATH"
 export LD_LIBRARY_PATH="$PREFIX/lib"
 export LD_PRELOAD="$PREFIX/lib/libtermux-exec.so"
 export TERMUX__PREFIX="$PREFIX"

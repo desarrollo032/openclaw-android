@@ -14,7 +14,7 @@ PATH_LINE="export PATH=\"\$HOME/.local/bin:\$PATH\""
 if [ -n "$PLATFORM" ]; then
     load_platform_config "$PLATFORM" "$(dirname "$(dirname "$0")")" 2>/dev/null || true
     if [ "${PLATFORM_NEEDS_NODEJS:-}" = true ]; then
-        PATH_LINE="export PATH=\"\$HOME/.openclaw-android/node/bin:\$HOME/.local/bin:\$PATH\""
+        PATH_LINE="export PATH=\"\$HOME/.openclaw-android/bin:\$HOME/.openclaw-android/node/bin:\$HOME/.local/bin:\$PATH\""
     fi
 fi
 

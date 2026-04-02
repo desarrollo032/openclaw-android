@@ -178,8 +178,16 @@ fi
 bash "$RELEASE_TMP/scripts/setup-env.sh"
 
 GLIBC_NODE_DIR="$PROJECT_DIR/node"
+GLIBC_BIN_DIR="$PROJECT_DIR/bin"
 if [ "$IS_GLIBC" = true ]; then
-    export PATH="$GLIBC_NODE_DIR/bin:$HOME/.local/bin:$PATH"
+    # Migrate wrappers from node/bin/ to bin/ (safe from npm overwrites)
+    if [ ! -d "$GLIBC_BIN_DIR" ] || [ ! -x "$GLIBC_BIN_DIR/node" ]; then
+        echo ""
+        echo -e "${BOLD}[MIGRATE] Moving wrappers to $GLIBC_BIN_DIR${NC}"
+        bash "$RELEASE_TMP/scripts/install-nodejs.sh" || true
+        echo -e "${GREEN}[OK]${NC}   Wrapper migration complete"
+    fi
+    export PATH="$GLIBC_BIN_DIR:$GLIBC_NODE_DIR/bin:$HOME/.local/bin:$PATH"
     export OA_GLIBC=1
 fi
 export TMPDIR="$PREFIX/tmp"
