@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Script v1.0.17] - 2026-04-03
+
+### Fixed
+
+- Fix false-positive "glibc node wrapper not found" in install verification — verify-install.sh and status.sh referenced old `node/bin/` path instead of new `bin/` path ([#87](https://github.com/AidanPark/openclaw-android/issues/87))
+- Add `BIN_DIR` constant to lib.sh to prevent path hardcoding drift across verification scripts
+
 ## [Script v1.0.16] - 2026-04-02
 
 ### Fixed

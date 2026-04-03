@@ -78,7 +78,7 @@ else
     check_fail "glibc dynamic linker not found at $GLIBC_LDSO"
 fi
 
-NODE_WRAPPER="$PROJECT_DIR/node/bin/node"
+NODE_WRAPPER="$BIN_DIR/node"
 if [ -f "$NODE_WRAPPER" ] && head -1 "$NODE_WRAPPER" 2>/dev/null | grep -q "bash"; then
     check_pass "glibc node wrapper script"
 else

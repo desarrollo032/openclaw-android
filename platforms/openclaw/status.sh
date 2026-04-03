@@ -90,7 +90,7 @@ for file in "${GLIBC_FILES[@]}"; do
     fi
 done
 
-NODE_WRAPPER="$PROJECT_DIR/node/bin/node"
+NODE_WRAPPER="$BIN_DIR/node"
 if [ -f "$NODE_WRAPPER" ] && grep -q "bash" "$NODE_WRAPPER"; then
     echo -e "  ${GREEN}[OK]${NC}   glibc node wrapper"
 else

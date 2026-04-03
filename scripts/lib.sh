@@ -12,6 +12,7 @@ NC='\033[0m'
 
 # ── Project constants ──
 PROJECT_DIR="$HOME/.openclaw-android"
+BIN_DIR="$PROJECT_DIR/bin"
 PLATFORM_MARKER="$PROJECT_DIR/.platform"
 REPO_BASE_ORIGIN="https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
 REPO_BASE_MIRRORS=(
@@ -43,7 +44,7 @@ REPO_BASE="$REPO_BASE_ORIGIN"
 
 BASHRC_MARKER_START="# >>> OpenClaw on Android >>>"
 BASHRC_MARKER_END="# <<< OpenClaw on Android <<<"
-OA_VERSION="1.0.16"
+OA_VERSION="1.0.17"
 
 # ── Platform detection ──
 # 1. Explicit marker file (new install and after first update)
