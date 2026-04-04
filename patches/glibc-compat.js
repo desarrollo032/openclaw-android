@@ -29,9 +29,9 @@ const path = require('path');
 // bypassing the wrapper's LD_PRELOAD unset and compat loading.
 // Fix: point process.execPath to the wrapper script.
 
-const _wrapperPath = path.join(
+const _wrapperPath = process.env._OA_WRAPPER_PATH || path.join(
   process.env.HOME || '/data/data/com.termux/files/home',
-  '.openclaw-android', 'node', 'bin', 'node'
+  '.openclaw-android', 'bin', 'node'
 );
 try {
   if (fs.existsSync(_wrapperPath)) {

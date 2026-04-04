@@ -64,8 +64,9 @@ if [ "${PLATFORM_NEEDS_BUILD_TOOLS:-false}" = true ]; then bash "$SCRIPT_DIR/scr
 if [ "${PLATFORM_NEEDS_PROOT:-false}" = true ]; then pkg install -y proot; fi
 
 # Source environment for current session (needed by platform install)
+GLIBC_BIN_DIR="$PROJECT_DIR/bin"
 GLIBC_NODE_DIR="$PROJECT_DIR/node"
-export PATH="$GLIBC_NODE_DIR/bin:$HOME/.local/bin:$PATH"
+export PATH="$GLIBC_BIN_DIR:$GLIBC_NODE_DIR/bin:$HOME/.local/bin:$PATH"
 export TMPDIR="$PREFIX/tmp"
 export TMP="$TMPDIR"
 export TEMP="$TMPDIR"

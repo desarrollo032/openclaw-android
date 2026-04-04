@@ -40,11 +40,11 @@ echo "--- Axis 1: LD_PRELOAD lifecycle ---"
 # 1a: node.real itself must not have libtermux-exec loaded in its own process
 #     (if it did, glibc/bionic mismatch would crash — the fact that we're
 #     running means it didn't, but verify the wrapper structure)
-WRAPPER="$HOME/.openclaw-android/node/bin/node"
-if [ -f "$WRAPPER" ] && grep -q "unset LD_PRELOAD" "$WRAPPER"; then
+WRAPPER=$(node -e "process.stdout.write(process.env._OA_WRAPPER_PATH || '')" 2>/dev/null)
+if [ -n "$WRAPPER" ] && [ -f "$WRAPPER" ] && grep -q "unset LD_PRELOAD" "$WRAPPER"; then
     pass "1a: node wrapper unsets LD_PRELOAD before exec"
 else
-    fail "1a: node wrapper missing 'unset LD_PRELOAD'"
+    fail "1a: node wrapper missing or missing 'unset LD_PRELOAD' (path: ${WRAPPER:-not set})"
 fi
 
 # 1b: LD_PRELOAD must be restored in node's environment (for child inheritance)
@@ -87,9 +87,8 @@ rm -f "$TMPSCRIPT"
 
 # 2b: our wrappers do NOT use #!/usr/bin/env
 OUR_WRAPPERS_OK=true
-for f in "$HOME/.openclaw-android/node/bin/node" \
-         "$HOME/.openclaw-android/node/bin/npm" \
-         "$HOME/.openclaw-android/node/bin/npx"; do
+WRAPPER_DIR=$(dirname "$WRAPPER" 2>/dev/null)
+for f in "$WRAPPER_DIR/node" "$WRAPPER_DIR/npm" "$WRAPPER_DIR/npx"; do
     if [ -f "$f" ] && head -1 "$f" | grep -q "/usr/bin/env"; then
         fail "2b: $f uses #!/usr/bin/env (will break)"
         OUR_WRAPPERS_OK=false
@@ -108,10 +107,10 @@ node_check "3a: process.platform === 'linux'" \
     "if (process.platform !== 'linux') process.exit(1)"
 
 EXEC_PATH=$(node -e "process.stdout.write(process.execPath)" 2>/dev/null)
-if echo "$EXEC_PATH" | grep -q "node/bin/node$"; then
-    pass "3b: process.execPath → wrapper (not ld.so)"
+if [ -x "$EXEC_PATH" ] && ! file "$EXEC_PATH" 2>/dev/null | grep -q ELF; then
+    pass "3b: process.execPath → wrapper script (not ld.so)"
 else
-    fail "3b: process.execPath unexpected: $EXEC_PATH"
+    fail "3b: process.execPath is not a wrapper script: $EXEC_PATH"
 fi
 
 # ─────────────────────────────────────────────────

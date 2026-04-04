@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="termuxActivityDrawerBackground" format="reference" />
+    <attr name="termuxActivityDrawerImageTint" format="reference" />
+
+    <!-- Termux:API styles -->
+    <declare-styleable name="ButtonBarContainerTheme">
+        <attr name="metaButtonBarStyle" format="reference" />
+        <attr name="metaButtonBarButtonStyle" format="reference" />
+    </declare-styleable>
+</resources>

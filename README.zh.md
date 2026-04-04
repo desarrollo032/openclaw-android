@@ -519,7 +519,7 @@ PLATFORM_NEEDS_BUILD_TOOLS=true
 | glibc-compat.js | 文件存在于 `~/.openclaw-android/patches/` |
 | .glibc-arch | 标记文件存在 |
 | glibc 动态链接器 | `ld-linux-aarch64.so.1` 存在 |
-| glibc node 包装器 | 包装脚本位于 `~/.openclaw-android/node/bin/node` |
+| glibc node 包装器 | 包装脚本位于 `~/.openclaw-android/bin/node` |
 | 目录 | `~/.openclaw-android`、`$PREFIX/tmp` 存在 |
 | .bashrc | 包含环境变量块 |
 

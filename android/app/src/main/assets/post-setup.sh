@@ -289,6 +289,7 @@ else
 #!${PREFIX}/bin/bash
 [ -n "\$LD_PRELOAD" ] && export _OA_ORIG_LD_PRELOAD="\$LD_PRELOAD"
 unset LD_PRELOAD
+export _OA_WRAPPER_PATH="$BIN_DIR/node"
 _OA_COMPAT="\$HOME/.openclaw-android/patches/glibc-compat.js"
 if [ -f "\$_OA_COMPAT" ]; then
     case "\${NODE_OPTIONS:-}" in

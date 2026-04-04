@@ -514,7 +514,7 @@ Runs a two-tier verification:
 | glibc-compat.js | File exists in `~/.openclaw-android/patches/` |
 | .glibc-arch | Marker file exists |
 | glibc dynamic linker | `ld-linux-aarch64.so.1` exists |
-| glibc node wrapper | Wrapper script at `~/.openclaw-android/node/bin/node` |
+| glibc node wrapper | Wrapper script at `~/.openclaw-android/bin/node` |
 | Directories | `~/.openclaw-android`, `$PREFIX/tmp` exist |
 | .bashrc | Contains environment variable block |
 

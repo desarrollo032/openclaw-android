@@ -512,7 +512,7 @@ PLATFORM_NEEDS_BUILD_TOOLS=true
 | glibc-compat.js | `~/.openclaw-android/patches/`에 파일 존재 |
 | .glibc-arch | 마커 파일 존재 |
 | glibc 동적 링커 | `ld-linux-aarch64.so.1` 존재 |
-| glibc node 래퍼 | `~/.openclaw-android/node/bin/node`에 래퍼 스크립트 존재 |
+| glibc node 래퍼 | `~/.openclaw-android/bin/node`에 래퍼 스크립트 존재 |
 | 디렉토리 | `~/.openclaw-android`, `$PREFIX/tmp` 존재 |
 | .bashrc | 환경변수 블록 포함 |
 
