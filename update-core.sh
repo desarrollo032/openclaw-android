@@ -9,7 +9,7 @@ NC='\033[0m'
 
 PROJECT_DIR="$HOME/.openclaw-android"
 PLATFORM_MARKER="$PROJECT_DIR/.platform"
-OA_VERSION="1.0.21"
+OA_VERSION="1.0.22"
 
 echo ""
 echo -e "${BOLD}========================================${NC}"
@@ -148,6 +148,29 @@ cp "$RELEASE_TMP/patches/glibc-compat.js" "$PROJECT_DIR/patches/glibc-compat.js"
 cp "$RELEASE_TMP/patches/argon2-stub.js" "$PROJECT_DIR/patches/argon2-stub.js"
 cp "$RELEASE_TMP/patches/spawn.h" "$PROJECT_DIR/patches/spawn.h"
 cp "$RELEASE_TMP/patches/systemctl" "$PROJECT_DIR/patches/systemctl"
+
+# Deploy supplementary glibc libraries (e.g., libcap.so.2 for native binary support)
+if [ -d "$RELEASE_TMP/patches/glibc-libs" ] && [ -d "$PREFIX/glibc/lib" ]; then
+    for _lib in "$RELEASE_TMP/patches/glibc-libs"/*.so.*; do
+        [ -f "$_lib" ] || continue
+        _fn=$(basename "$_lib")
+        if [ ! -f "$PREFIX/glibc/lib/$_fn" ]; then
+            cp "$_lib" "$PREFIX/glibc/lib/$_fn"
+            _sn=$(echo "$_fn" | sed -E 's/^(lib[^.]+\.so\.[0-9]+)\..*/\1/')
+            [ "$_sn" != "$_fn" ] && ln -sf "$_fn" "$PREFIX/glibc/lib/$_sn"
+            echo -e "${GREEN}[OK]${NC}   Installed glibc lib: $_sn"
+        fi
+    done
+fi
+
+# Ensure glibc /etc/hosts exists (localhost resolution)
+if [ -d "$PREFIX/glibc/etc" ] && [ ! -f "$PREFIX/glibc/etc/hosts" ]; then
+    cat > "$PREFIX/glibc/etc/hosts" <<'HOSTS'
+127.0.0.1 localhost localhost.localdomain
+::1 localhost ip6-localhost ip6-loopback
+HOSTS
+    echo -e "${GREEN}[OK]${NC}   Created glibc /etc/hosts"
+fi
 
 cp "$RELEASE_TMP/oa.sh" "$PREFIX/bin/oa"
 chmod +x "$PREFIX/bin/oa"

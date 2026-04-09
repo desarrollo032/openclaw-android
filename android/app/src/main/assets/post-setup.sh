@@ -223,6 +223,30 @@ else
     touch "$OCA_DIR/.glibc-arch"
     echo -e "  ${GREEN}✓${NC} glibc installed"
 fi
+
+# Install supplementary glibc libraries (libcap etc.)
+_GLIBC_LIBS_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/patches/glibc-libs"
+if [ -d "$PREFIX/glibc/lib" ] && [ -d "$_GLIBC_LIBS_SRC" ]; then
+    for _lib in "$_GLIBC_LIBS_SRC"/*.so.*; do
+        [ -f "$_lib" ] || continue
+        _fn=$(basename "$_lib")
+        if [ ! -f "$PREFIX/glibc/lib/$_fn" ]; then
+            cp "$_lib" "$PREFIX/glibc/lib/$_fn"
+            _sn=$(echo "$_fn" | sed -E 's/^(lib[^.]+\.so\.[0-9]+)\..*/\1/')
+            [ "$_sn" != "$_fn" ] && ln -sf "$_fn" "$PREFIX/glibc/lib/$_sn"
+            echo -e "  ${GREEN}✓${NC} Installed $_sn"
+        fi
+    done
+fi
+
+# Ensure glibc /etc/hosts exists (localhost resolution)
+if [ -d "$PREFIX/glibc/etc" ] && [ ! -f "$PREFIX/glibc/etc/hosts" ]; then
+    cat > "$PREFIX/glibc/etc/hosts" <<'HOSTS'
+127.0.0.1 localhost localhost.localdomain
+::1 localhost ip6-localhost ip6-loopback
+HOSTS
+    echo -e "  ${GREEN}✓${NC} Created glibc /etc/hosts"
+fi
 echo -e "  Linker: $GLIBC_LDSO"
 
 # ─── [3/7] Node.js ──────────────────────────

@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Script v1.0.22] - 2026-04-10
+
+### Added
+
+- ELF binary auto-wrapping: detect glibc binaries via PT_INTERP and route through ld.so, enabling npx-installed native binaries like codex-acp to run on Android ([#103](https://github.com/AidanPark/openclaw-android/issues/103))
+- Shebang resolution: handle `#!/usr/bin/env` scripts without libtermux-exec.so by resolving interpreters from PATH in JavaScript
+- Shell invocation interception: detect `spawn('sh', ['-c', 'cmd'])` pattern used by npm/npx and resolve commands directly
+- Supplementary glibc library deployment: bundle libcap.so.2 for third-party native binary support
+- Localhost DNS shortcut: return 127.0.0.1 immediately for localhost lookups without querying external DNS ([#105](https://github.com/AidanPark/openclaw-android/issues/105))
+- Create `$PREFIX/glibc/etc/hosts` if missing, ensuring getaddrinfo can resolve localhost ([#105](https://github.com/AidanPark/openclaw-android/issues/105))
+
+### Changed
+
+- Stop restoring LD_PRELOAD in glibc-compat.js — libtermux-exec.so re-injects it via execve hook, crashing glibc child processes with "Could not find a PHDR" errors
+- Always use Termux shell for exec/execSync on all Android versions (previously only Android 7-8)
+
 ## [Script v1.0.21] - 2026-04-07
 
 ### Fixed

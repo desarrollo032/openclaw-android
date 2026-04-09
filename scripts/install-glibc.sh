@@ -35,6 +35,43 @@ if [ "$ARCH" != "aarch64" ]; then
     exit 1
 fi
 
+# ── Install supplementary glibc libraries (always runs) ──
+# glibc-runner provides core libraries but not all libraries that
+# third-party binaries may need (e.g., libcap.so.2 for codex-acp).
+# This runs on both fresh install and update to ensure libraries are current.
+
+GLIBC_LIB_DIR="$PREFIX/glibc/lib"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GLIBC_LIBS_SRC="$SCRIPT_DIR/../patches/glibc-libs"
+
+if [ -d "$GLIBC_LIB_DIR" ] && [ -d "$GLIBC_LIBS_SRC" ]; then
+    for lib in "$GLIBC_LIBS_SRC"/*.so.*; do
+        [ -f "$lib" ] || continue
+        filename=$(basename "$lib")
+        soname=$(echo "$filename" | sed -E 's/^(lib[^.]+\.so\.[0-9]+)\..*/\1/')
+        if [ ! -f "$GLIBC_LIB_DIR/$filename" ]; then
+            cp "$lib" "$GLIBC_LIB_DIR/$filename"
+            [ "$soname" != "$filename" ] && ln -sf "$filename" "$GLIBC_LIB_DIR/$soname"
+            echo -e "${GREEN}[OK]${NC}   Installed $soname"
+        fi
+    done
+fi
+
+# ── Ensure glibc /etc/hosts exists (always runs) ──
+# glibc's getaddrinfo reads $PREFIX/glibc/etc/hosts for localhost resolution.
+# Neither glibc nor glibc-runner packages include this file; it comes from
+# resolv-conf (via openssl-glibc) which may not be installed.
+# Without it, dns.lookup('localhost') can return 0.0.0.0 → gateway bind failure.
+
+GLIBC_ETC="$PREFIX/glibc/etc"
+if [ -d "$GLIBC_ETC" ] && [ ! -f "$GLIBC_ETC/hosts" ]; then
+    cat > "$GLIBC_ETC/hosts" <<'HOSTS'
+127.0.0.1 localhost localhost.localdomain
+::1 localhost ip6-localhost ip6-loopback
+HOSTS
+    echo -e "${GREEN}[OK]${NC}   Created glibc /etc/hosts"
+fi
+
 # Check if already installed
 if [ -f "$OPENCLAW_DIR/.glibc-arch" ] && [ -x "$GLIBC_LDSO" ]; then
     echo -e "${GREEN}[SKIP]${NC} glibc-runner already installed"
