@@ -52,6 +52,32 @@ resolve_repo_base() {
     return 1
 }
 
+# Kept in sync with scripts/lib.sh resolve_npm_registry()
+NPM_REGISTRY_ORIGIN="https://registry.npmjs.org/"
+NPM_REGISTRY_MIRROR="https://registry.npmmirror.com/"
+resolve_npm_registry() {
+    local choice
+    local cache_file="$OCA_DIR/.npm-registry"
+    local reachable=0
+    if curl -sI --connect-timeout 5 "$NPM_REGISTRY_ORIGIN" >/dev/null 2>&1; then
+        choice="$NPM_REGISTRY_ORIGIN"
+        reachable=1
+    elif curl -sI --connect-timeout 5 "$NPM_REGISTRY_MIRROR" >/dev/null 2>&1; then
+        echo -e "  ${YELLOW}[MIRROR]${NC} Using npm mirror: ${NPM_REGISTRY_MIRROR}"
+        choice="$NPM_REGISTRY_MIRROR"
+        reachable=1
+    else
+        choice="$NPM_REGISTRY_ORIGIN"
+    fi
+    mkdir -p "$(dirname "$cache_file")"
+    printf '%s' "$choice" > "$cache_file.tmp" && mv "$cache_file.tmp" "$cache_file"
+    export NPM_CONFIG_REGISTRY="$choice"
+    if [ "$reachable" -eq 1 ]; then
+        return 0
+    fi
+    return 1
+}
+
 # SSL cert for curl (bootstrap curl looks at hardcoded com.termux path)
 export CURL_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
 export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
@@ -391,21 +417,17 @@ export PATH="$BIN_DIR:$NODE_DIR/bin:$PATH"
 # Auto-detect GitHub mirror for restricted networks
 resolve_repo_base
 
-# Auto-detect slow npm registry and switch to Chinese mirror
-if ! curl -sI --connect-timeout 3 https://registry.npmjs.org >/dev/null 2>&1; then
-    echo "  npm registry unreachable, switching to npmmirror.com..."
-    npm config set registry https://registry.npmmirror.com
-fi
+# Auto-detect npm registry (session-scoped via NPM_CONFIG_REGISTRY env var).
+# Does NOT write to ~/.npmrc — see CHANGELOG v1.0.24.
+resolve_npm_registry || true
 
-# Force git to use HTTPS instead of SSH (no SSH client available)
-# Write .gitconfig directly to avoid --add/--replace-all issues on repeated runs
-cat > "$HOME/.gitconfig" << GITCFG
-[http]
-    sslCAInfo = $PREFIX/etc/tls/cert.pem
-[url "https://github.com/"]
-    insteadOf = ssh://git@github.com/
-    insteadOf = git@github.com:
-GITCFG
+# Force git to use HTTPS instead of SSH (no SSH client available).
+# Preserve any existing user .gitconfig (name, email, aliases); only set our keys.
+touch "$HOME/.gitconfig"
+git config --global http.sslCAInfo "$PREFIX/etc/tls/cert.pem"
+git config --global --unset-all url."https://github.com/".insteadOf 2>/dev/null || true
+git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+git config --global --add url."https://github.com/".insteadOf "git@github.com:"
 
 # Git wrapper: replace $PREFIX/bin/git with a wrapper that:
 #   1. Strips --recurse-submodules (triggers open() on hardcoded com.termux path)
@@ -541,6 +563,9 @@ export GIT_EXEC_PATH="$PREFIX/libexec/git-core"
 export GIT_TEMPLATE_DIR="$PREFIX/share/git-core/templates"
 export CLAWDHUB_WORKDIR="$HOME/.openclaw/workspace"
 export CPATH="$PREFIX/include/glib-2.0:$PREFIX/lib/glib-2.0/include"
+# npm registry (auto-detected by OpenClaw Android, safe to override manually)
+[ -z "\${NPM_CONFIG_REGISTRY:-}" ] && [ -s "\$HOME/.openclaw-android/.npm-registry" ] && \\
+    export NPM_CONFIG_REGISTRY="\$(cat "\$HOME/.openclaw-android/.npm-registry")"
 BASHRC
 
 echo -e "  ${GREEN}✓${NC} ~/.bashrc configured"

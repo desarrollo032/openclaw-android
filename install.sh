@@ -72,6 +72,10 @@ export TMP="$TMPDIR"
 export TEMP="$TMPDIR"
 export OA_GLIBC=1
 
+# Auto-detect npm registry (session-scoped via NPM_CONFIG_REGISTRY env var).
+# Does NOT write to ~/.npmrc — see CHANGELOG v1.0.24.
+command -v resolve_npm_registry >/dev/null 2>&1 && resolve_npm_registry || true
+
 step 6 "Platform Package Install (L2)"
 bash "$SCRIPT_DIR/platforms/$SELECTED_PLATFORM/install.sh"
 

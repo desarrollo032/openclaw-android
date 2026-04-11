@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Script v1.0.24] - 2026-04-11
+
+### Fixed
+
+- Stop permanently polluting user's `~/.npmrc` during install — previously `post-setup.sh` would detect slow `registry.npmjs.org` access and write `registry=https://registry.npmmirror.com` to `~/.npmrc`, affecting all of the user's npm projects forever with no self-recovery. Now the installer uses session-scoped `NPM_CONFIG_REGISTRY` env var and caches the chosen registry at `~/.openclaw-android/.npm-registry`, re-exporting from `~/.bashrc` on each login. Users bitten by v1.0.22/v1.0.23 are auto-rescued on next `oa --update` because env vars override `~/.npmrc`, and their personal npmrc is left untouched (preserving auth tokens, scope registries, etc.) ([#107](https://github.com/AidanPark/openclaw-android/issues/107))
+- Cover all three install paths for the npm registry detection — App Install (`post-setup.sh`), Termux Install (`install.sh`), and Update (`update-core.sh`). `scripts/setup-env.sh` now injects the `NPM_CONFIG_REGISTRY` re-export line inside the `# >>> OpenClaw on Android >>>` marker block of `~/.bashrc` so Termux-install and update paths get the same session-to-session re-evaluation as App Install.
+
+## [Script v1.0.23] - 2026-04-11
+
+### Fixed
+
+- Preserve user's existing `~/.gitconfig` during post-setup — previously `cat > ~/.gitconfig` overwrote all user settings (name, email, aliases). Now uses `git config --global` to set only `http.sslCAInfo` and `url.https://github.com/.insteadOf` keys while keeping user entries intact ([#107](https://github.com/AidanPark/openclaw-android/issues/107))
+
 ## [Script v1.0.22] - 2026-04-10
 
 ### Added

@@ -20,6 +20,9 @@ REPO_BASE_MIRRORS=(
     "https://ghproxy.net/https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
     "https://mirror.ghproxy.com/https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
 )
+NPM_REGISTRY_ORIGIN="https://registry.npmjs.org/"
+NPM_REGISTRY_MIRROR="https://registry.npmmirror.com/"
+NPM_REGISTRY_CACHE="$PROJECT_DIR/.npm-registry"
 
 # Detect reachable REPO_BASE (origin first, then mirrors)
 resolve_repo_base() {
@@ -39,12 +42,36 @@ resolve_repo_base() {
     return 1
 }
 
+# Detect reachable npm registry and export NPM_CONFIG_REGISTRY (origin first, then mirror)
+resolve_npm_registry() {
+    local choice
+    local cache_file="$NPM_REGISTRY_CACHE"
+    local reachable=0
+    if curl -sI --connect-timeout 5 "$NPM_REGISTRY_ORIGIN" >/dev/null 2>&1; then
+        choice="$NPM_REGISTRY_ORIGIN"
+        reachable=1
+    elif curl -sI --connect-timeout 5 "$NPM_REGISTRY_MIRROR" >/dev/null 2>&1; then
+        echo -e "  ${YELLOW}[MIRROR]${NC} Using npm mirror: ${NPM_REGISTRY_MIRROR}"
+        choice="$NPM_REGISTRY_MIRROR"
+        reachable=1
+    else
+        choice="$NPM_REGISTRY_ORIGIN"
+    fi
+    mkdir -p "$(dirname "$cache_file")"
+    printf '%s' "$choice" > "$cache_file.tmp" && mv "$cache_file.tmp" "$cache_file"
+    export NPM_CONFIG_REGISTRY="$choice"
+    if [ "$reachable" -eq 1 ]; then
+        return 0
+    fi
+    return 1
+}
+
 # Initialize REPO_BASE
 REPO_BASE="$REPO_BASE_ORIGIN"
 
 BASHRC_MARKER_START="# >>> OpenClaw on Android >>>"
 BASHRC_MARKER_END="# <<< OpenClaw on Android <<<"
-OA_VERSION="1.0.22"
+OA_VERSION="1.0.24"
 
 # ── Platform detection ──
 # 1. Explicit marker file (new install and after first update)

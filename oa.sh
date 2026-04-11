@@ -11,7 +11,7 @@ if [ -f "$HOME/.openclaw-android/scripts/lib.sh" ]; then
         source "$HOME/.openclaw-android/scripts/backup.sh"
     fi
 else
-    OA_VERSION="1.0.22"
+    OA_VERSION="1.0.24"
     RED='\033[0;31m'
     GREEN='\033[0;32m'
     YELLOW='\033[1;33m'
@@ -193,7 +193,15 @@ cmd_install() {
 }
 
 # Resolve mirror before any network operation
-case "${1:-}" in --update|--install|--version|-v|--uninstall) resolve_repo_base || true ;; esac
+case "${1:-}" in
+    --update|--install)
+        resolve_repo_base || true
+        command -v resolve_npm_registry >/dev/null 2>&1 && resolve_npm_registry || true
+        ;;
+    --version|-v|--uninstall)
+        resolve_repo_base || true
+        ;;
+esac
 
 case "${1:-}" in
     --update)

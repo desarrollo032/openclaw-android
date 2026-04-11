@@ -10,6 +10,13 @@ export TMP=\"\$TMPDIR\"
 export TEMP=\"\$TMPDIR\"
 export OA_GLIBC=1"
 
+# npm registry re-injection — reads cache file written by resolve_npm_registry.
+# Literal \$HOME, \${NPM_CONFIG_REGISTRY:-}, and \$(cat ...) are preserved for
+# runtime expansion in each new shell. -z guard lets users override manually.
+NPM_REGISTRY_INJECT="# npm registry (auto-detected by OpenClaw Android, safe to override manually)
+[ -z \"\${NPM_CONFIG_REGISTRY:-}\" ] && [ -s \"\$HOME/.openclaw-android/.npm-registry\" ] && \\
+    export NPM_CONFIG_REGISTRY=\"\$(cat \"\$HOME/.openclaw-android/.npm-registry\")\""
+
 PATH_LINE="export PATH=\"\$HOME/.local/bin:\$PATH\""
 if [ -n "$PLATFORM" ]; then
     load_platform_config "$PLATFORM" "$(dirname "$(dirname "$0")")" 2>/dev/null || true
@@ -35,6 +42,7 @@ ${PLATFORM_VARS}"
 fi
 
 ENV_BLOCK="${ENV_BLOCK}
+${NPM_REGISTRY_INJECT}
 ${BASHRC_MARKER_END}"
 
 touch "$BASHRC"

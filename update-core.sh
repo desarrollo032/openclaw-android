@@ -9,7 +9,7 @@ NC='\033[0m'
 
 PROJECT_DIR="$HOME/.openclaw-android"
 PLATFORM_MARKER="$PROJECT_DIR/.platform"
-OA_VERSION="1.0.22"
+OA_VERSION="1.0.24"
 
 echo ""
 echo -e "${BOLD}========================================${NC}"
@@ -51,6 +51,7 @@ fi
 if [ -f "$PROJECT_DIR/scripts/lib.sh" ]; then
     source "$PROJECT_DIR/scripts/lib.sh"
 fi
+command -v resolve_npm_registry >/dev/null 2>&1 && resolve_npm_registry || true
 
 # Define REPO_TARBALL after sourcing lib.sh to prevent old installs from overwriting it
 REPO_TARBALL="https://github.com/AidanPark/openclaw-android/archive/refs/heads/main.tar.gz"
