@@ -112,6 +112,17 @@ case "$*" in *-g*openclaw*|*--global*openclaw*|*openclaw*-g*|*openclaw*--global*
     fi
     ;;
 esac
+# Re-patch codex CLI wrapper after global install/update (DioNanos fork launcher fix)
+case "$*" in *codex-cli-termux*)
+    _codex_bin="__PREFIX__/bin/codex"
+    _codex_pkg="__PREFIX__/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+    if [ -f "$_codex_pkg/codex.bin" ]; then
+        [ -L "$_codex_bin" ] && rm -f "$_codex_bin"
+        printf '#!__PREFIX__/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="$PKG_BIN:${LD_LIBRARY_PATH:-}"\nexec "$PKG_BIN/codex.bin" "$@"\n' "$_codex_pkg" > "$_codex_bin"
+        chmod +x "$_codex_bin"
+    fi
+    ;;
+esac
 # Fix shebangs in npm global CLI entry points after global install
 case "$*" in *-g*|*--global*)
     for _js in __PREFIX__/lib/node_modules/*/bin/*.js \
@@ -253,6 +264,17 @@ case "$*" in *-g*openclaw*|*--global*openclaw*|*openclaw*-g*|*openclaw*--global*
         [ -L "$_oc_bin" ] && rm -f "$_oc_bin"
         printf '#!__PREFIX__/bin/bash\nexec "__BIN_DIR__/node" "%s" "$@"\n' "$_oc_mjs" > "$_oc_bin"
         chmod +x "$_oc_bin"
+    fi
+    ;;
+esac
+# Re-patch codex CLI wrapper after global install/update (DioNanos fork launcher fix)
+case "$*" in *codex-cli-termux*)
+    _codex_bin="__PREFIX__/bin/codex"
+    _codex_pkg="__PREFIX__/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+    if [ -f "$_codex_pkg/codex.bin" ]; then
+        [ -L "$_codex_bin" ] && rm -f "$_codex_bin"
+        printf '#!__PREFIX__/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="$PKG_BIN:${LD_LIBRARY_PATH:-}"\nexec "$PKG_BIN/codex.bin" "$@"\n' "$_codex_pkg" > "$_codex_bin"
+        chmod +x "$_codex_bin"
     fi
     ;;
 esac

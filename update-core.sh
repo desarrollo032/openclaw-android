@@ -309,9 +309,23 @@ update_ai_tool() {
 }
 
 AI_FOUND=false
+# Migrate codex from upstream (static musl, broken DNS on Android) to Termux fork (dynamic Bionic)
+if npm list -g @openai/codex &>/dev/null 2>&1; then
+    echo -e "  ${YELLOW}[MIGRATE]${NC} Replacing @openai/codex with Termux-optimized @mmmbuto/codex-cli-termux..."
+    npm uninstall -g @openai/codex 2>/dev/null || true
+fi
 update_ai_tool "claude" "@anthropic-ai/claude-code" "Claude Code" && AI_FOUND=true
 update_ai_tool "gemini" "@google/gemini-cli" "Gemini CLI" && AI_FOUND=true
 update_ai_tool "codex" "@mmmbuto/codex-cli-termux" "Codex CLI" && AI_FOUND=true
+# Create/refresh codex CLI wrapper (DioNanos fork launcher fix)
+_codex_bin="$PREFIX/bin/codex"
+_codex_pkg="$PREFIX/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+if [ -f "$_codex_pkg/codex.bin" ]; then
+    [ -L "$_codex_bin" ] && rm -f "$_codex_bin"
+    printf '#!%s/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="$PKG_BIN:${LD_LIBRARY_PATH:-}"\nexec "$PKG_BIN/codex.bin" "$@"\n' \
+        "$PREFIX" "$_codex_pkg" > "$_codex_bin"
+    chmod +x "$_codex_bin"
+fi
 if [ "$AI_FOUND" = false ]; then
     echo -e "${YELLOW}[SKIP]${NC} No AI CLI tools installed"
 fi

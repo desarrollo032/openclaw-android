@@ -122,7 +122,18 @@ if [ "$INSTALL_OPENCODE" = true ]; then bash "$SCRIPT_DIR/scripts/install-openco
 
 if [ "$INSTALL_CLAUDE_CODE" = true ]; then npm install -g @anthropic-ai/claude-code; fi
 if [ "$INSTALL_GEMINI_CLI" = true ]; then npm install -g @google/gemini-cli; fi
-if [ "$INSTALL_CODEX_CLI" = true ]; then npm install -g @mmmbuto/codex-cli-termux; fi
+if [ "$INSTALL_CODEX_CLI" = true ]; then
+    npm install -g @mmmbuto/codex-cli-termux
+    # Create codex CLI wrapper (DioNanos fork launcher fix)
+    _codex_bin="$PREFIX/bin/codex"
+    _codex_pkg="$PREFIX/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+    if [ -f "$_codex_pkg/codex.bin" ]; then
+        [ -L "$_codex_bin" ] && rm -f "$_codex_bin"
+        printf '#!%s/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="$PKG_BIN:${LD_LIBRARY_PATH:-}"\nexec "$PKG_BIN/codex.bin" "$@"\n' \
+            "$PREFIX" "$_codex_pkg" > "$_codex_bin"
+        chmod +x "$_codex_bin"
+    fi
+fi
 
 command -v fix_npm_global_shebangs >/dev/null 2>&1 && fix_npm_global_shebangs || true
 

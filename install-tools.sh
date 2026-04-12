@@ -227,7 +227,22 @@ fi
 
 if [ "$INSTALL_CLAUDE_CODE" = true ]; then echo "Installing Claude Code..."; if npm install -g @anthropic-ai/claude-code; then echo -e "${GREEN}[OK]${NC}   Claude Code installed"; fi; fi
 if [ "$INSTALL_GEMINI_CLI" = true ]; then echo "Installing Gemini CLI..."; if npm install -g @google/gemini-cli; then echo -e "${GREEN}[OK]${NC}   Gemini CLI installed"; fi; fi
-if [ "$INSTALL_CODEX_CLI" = true ]; then echo "Installing Codex CLI..."; if npm install -g @mmmbuto/codex-cli-termux; then echo -e "${GREEN}[OK]${NC}   Codex CLI installed"; fi; fi
+if [ "$INSTALL_CODEX_CLI" = true ]; then
+    npm uninstall -g @openai/codex 2>/dev/null || true
+    echo "Installing Codex CLI..."
+    if npm install -g @mmmbuto/codex-cli-termux; then
+        # Create codex CLI wrapper (DioNanos fork launcher fix)
+        _codex_bin="$PREFIX/bin/codex"
+        _codex_pkg="$PREFIX/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+        if [ -f "$_codex_pkg/codex.bin" ]; then
+            [ -L "$_codex_bin" ] && rm -f "$_codex_bin"
+            printf '#!%s/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="$PKG_BIN:${LD_LIBRARY_PATH:-}"\nexec "$PKG_BIN/codex.bin" "$@"\n' \
+                "$PREFIX" "$_codex_pkg" > "$_codex_bin"
+            chmod +x "$_codex_bin"
+        fi
+        echo -e "${GREEN}[OK]${NC}   Codex CLI installed"
+    fi
+fi
 
 command -v fix_npm_global_shebangs >/dev/null 2>&1 && fix_npm_global_shebangs || true
 

@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 - Switch Codex CLI from upstream `@openai/codex` to Termux-optimized `@mmmbuto/codex-cli-termux` (DioNanos/codex-termux fork). The upstream package ships a static musl binary whose DNS resolver hardcodes `/etc/resolv.conf` — a file that doesn't exist on Android — causing unreliable network connections. The fork builds as a dynamic Bionic binary that uses Android's native DNS stack, fixing the `Stream disconnected` / `error sending request` pattern reported by users behind proxies. CLI command name (`codex`) is unchanged. ([#108](https://github.com/AidanPark/openclaw-android/issues/108))
 
+### Fixed
+
+- Fix Codex CLI launcher failing on `com.openclaw.android` namespace — the npm-created `$PREFIX/bin/codex` symlink points to a JS launcher chain that miscalculates paths under the non-standard Android app namespace. Replace the symlink with a bash wrapper that sets `LD_LIBRARY_PATH` and directly exec's `codex.bin`, matching the pattern used for the openclaw CLI wrapper. Applied across all delivery paths (App Install, Termux Install, Update) via npm wrapper hook and inline post-install creation. ([#108](https://github.com/AidanPark/openclaw-android/issues/108))
+
 ## [Script v1.0.25] - 2026-04-11
 
 ### Fixed

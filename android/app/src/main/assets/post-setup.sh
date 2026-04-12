@@ -303,6 +303,17 @@ case "\$*" in *-g*openclaw*|*--global*openclaw*|*openclaw*-g*|*openclaw*--global
     fi
     ;;
 esac
+# Re-patch codex CLI wrapper after global install/update (DioNanos fork launcher fix)
+case "\$*" in *codex-cli-termux*)
+    _codex_bin="$PREFIX/bin/codex"
+    _codex_pkg="$PREFIX/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+    if [ -f "\$_codex_pkg/codex.bin" ]; then
+        [ -L "\$_codex_bin" ] && rm -f "\$_codex_bin"
+        printf '#!$PREFIX/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="\$PKG_BIN:\${LD_LIBRARY_PATH:-}"\nexec "\$PKG_BIN/codex.bin" "\$@"\n' "\$_codex_pkg" > "\$_codex_bin"
+        chmod +x "\$_codex_bin"
+    fi
+    ;;
+esac
 # Fix shebangs in npm global CLI entry points after global install
 case "\$*" in *-g*|*--global*)
     for _js in $PREFIX/lib/node_modules/*/bin/*.js \
@@ -389,6 +400,17 @@ case "\$*" in *-g*openclaw*|*--global*openclaw*|*openclaw*-g*|*openclaw*--global
         [ -L "\$_oc_bin" ] && rm -f "\$_oc_bin"
         printf '#!$PREFIX/bin/bash\nexec "$BIN_DIR/node" "%s" "\$@"\n' "\$_oc_mjs" > "\$_oc_bin"
         chmod +x "\$_oc_bin"
+    fi
+    ;;
+esac
+# Re-patch codex CLI wrapper after global install/update (DioNanos fork launcher fix)
+case "\$*" in *codex-cli-termux*)
+    _codex_bin="$PREFIX/bin/codex"
+    _codex_pkg="$PREFIX/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+    if [ -f "\$_codex_pkg/codex.bin" ]; then
+        [ -L "\$_codex_bin" ] && rm -f "\$_codex_bin"
+        printf '#!$PREFIX/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="\$PKG_BIN:\${LD_LIBRARY_PATH:-}"\nexec "\$PKG_BIN/codex.bin" "\$@"\n' "\$_codex_pkg" > "\$_codex_bin"
+        chmod +x "\$_codex_bin"
     fi
     ;;
 esac
@@ -701,6 +723,15 @@ PWENV
         [ "${INSTALL_CODEX_CLI:-false}" = "true" ] && {
             echo "  Installing Codex CLI..."
             npm install -g @mmmbuto/codex-cli-termux 2>&1 || true
+            # Create codex CLI wrapper (DioNanos fork launcher fix)
+            _codex_bin="$PREFIX/bin/codex"
+            _codex_pkg="$PREFIX/lib/node_modules/@mmmbuto/codex-cli-termux/bin"
+            if [ -f "$_codex_pkg/codex.bin" ]; then
+                [ -L "$_codex_bin" ] && rm -f "$_codex_bin"
+                printf '#!%s/bin/bash\nPKG_BIN="%s"\nexport LD_LIBRARY_PATH="$PKG_BIN:${LD_LIBRARY_PATH:-}"\nexec "$PKG_BIN/codex.bin" "$@"\n' \
+                    "$PREFIX" "$_codex_pkg" > "$_codex_bin"
+                chmod +x "$_codex_bin"
+            fi
             echo -e "  ${GREEN}✓${NC} Codex CLI"
         }
 
