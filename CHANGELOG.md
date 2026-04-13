@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Script v1.0.27] - 2026-04-13
+
+### Fixed
+
+- Fix `oa --update` showing syntax error after self-update — the running shell process continued reading the replaced `oa` script file, causing a parse error at the new file's line 240. Added `exit 0` after update completes to prevent this ([#110](https://github.com/AidanPark/openclaw-android/issues/110))
+
 ## [Script v1.0.26] - 2026-04-12
 
 ### Changed
