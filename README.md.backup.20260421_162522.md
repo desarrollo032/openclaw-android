@@ -1,74 +1,16 @@
-# OpenClaw on Android 🦞
+# OpenClaw on Android
 
-[![Android 7.0+](https://img.shields.io/badge/Android-7.0+-brightgreen)](https://developer.android.com)
-[![Termux Required](https://img.shields.io/badge/Termux-Required-orange)](https://f-droid.org/packages/com.termux/)
-[![No proot](https://img.shields.io/badge/proot-distro-Not%20Required-blue)](https://github.com/termux/proot-distro)
-[![License MIT](https://img.shields.io/github/license/AidanPark/openclaw-android)](/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android)
-[![GitHub releases](https://img.shields.io/github/downloads/AidanPark/openclaw-android/total)](https://github.com/AidanPark/openclaw-android/releases)
-[![GitHub forks](https://img.shields.io/github/forks/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/network)
-[![Issues](https://img.shields.io/github/issues/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/issues)
+[한국어](README.ko.md) | [中文](README.zh.md)
 
-## 📖 Table of Contents
+<img src="docs/images/openclaw_android.jpg" alt="OpenClaw on Android">
 
-- [🌟 Features](#features)
-- [🚀 Quick Start](#quick-start)
-- [📱 Claw App](#claw-app)
-- [📋 Step-by-Step Setup](#step-by-step-setup)
-- [⚙️ CLI Reference](#cli-reference)
-- [🔄 Update & Backup](#update--backup)
-- [🛠️ Technical Details](#technical-details)
-- [❓ Troubleshooting](#troubleshooting)
-- [📊 Performance](#performance)
-- [🤖 Local LLM](#local-llm)
-- [📚 License](#license)
-
-[한국어](README.ko.md) | [中文](README.zh.md) | [Español](README.es.md)
-
-<div align="center">
-  <img src="docs/images/openclaw_android.jpg" alt="OpenClaw on Android" width="800">
-  <br><br>
-  <a href="#quick-start"><img src="https://img.shields.io/badge/Get%20Started-Now-brightgreen" alt="Get Started"></a>
-  <a href="https://github.com/AidanPark/openclaw-android/releases"><img src="https://img.shields.io/badge/Download-APK-blue" alt="Download APK"></a>
-  <a href="https://github.com/AidanPark/openclaw-android/stargazers"><img src="https://img.shields.io/badge/⭐-Star-yellow" alt="Star"></a>
-</div>
-
-> [!NOTE]  
-> **Ready in 5 minutes** • **200MB storage** • **No Linux distro needed**
+![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-brightgreen)
+![Termux](https://img.shields.io/badge/Termux-Required-orange)
+![No proot](https://img.shields.io/badge/proot--distro-Not%20Required-blue)
+![License MIT](https://img.shields.io/github/license/AidanPark/openclaw-android)
+![GitHub Stars](https://img.shields.io/github/stars/AidanPark/openclaw-android)
 
 Because Android deserves a shell.
-
-## 🌟 Features
-
-<div align="center">
-<table>
-<tr>
-<td width="25%">
-  <details><summary>🚀 <b>Lightning Setup</b></summary>
-  <img src="docs/images/openclaw-onboard.png" width="200">
-  One command installs glibc + Node.js + OpenClaw. **3-10 min** on WiFi.
-  </details>
-</td>
-<td width="25%">
-  <details><summary>📱 <b>Standalone App</b></summary>
-  <img src="docs/images/openclaw-dashboard.png" width="200">
-  APK with WebView dashboard + PTY terminal. No Termux needed.
-  </details>
-</td>
-<td width="25%">
-  <details><summary>⚡ <b>Native Speed</b></summary>
-  <img src="docs/images/openclaw.svg" width="100">
-  glibc ld.so only — **no proot overhead**. Same perf as PC.
-  </details>
-</td>
-<td width="25%">
-  <details><summary>🛠️ <b>Full Toolchain</b></summary>
-  code-server, Playwright, AI CLIs. Update with `oa --update`.
-  </details>
-</td>
-</tr>
-</table>
-</div>
 
 ## No Linux install required
 
@@ -107,12 +49,12 @@ The standard approach to running OpenClaw on Android requires installing proot-d
 └───────────────────────────────────────────────────┘
 ```
 
-| | Standard (proot-distro) | OpenClaw Android |
+| | Standard (proot-distro) | This project |
 |---|---|---|
-| 💾 Storage | 1-2GB (Linux + packages) | **~200MB** |
-| ⏱️ Setup | 20-30 min | **3-10 min** |
-| ⚡ Performance | Slower (proot layer) | **Native speed** |
-| 🔧 Steps | Multi-step distro config | **One command** |
+| Storage overhead | 1-2GB (Linux + packages) | ~200MB |
+| Setup time | 20-30 min | 3-10 min |
+| Performance | Slower (proot layer) | Native speed |
+| Setup steps | Install distro, configure Linux, install Node.js, fix paths... | Run one command |
 
 ## <img src="docs/images/claw-icon.svg" width="28" alt="Claw icon"> Claw App
 
@@ -123,26 +65,6 @@ A standalone Android app is also available. It bundles a terminal emulator and a
 - Works independently of Termux — installing the app does not affect an existing Termux + `oa` setup
 
 Download the APK from the [Releases](https://github.com/AidanPark/openclaw-android/releases) page.
-
-## 🚀 Quick Start {#quick-start}
-
-> [!IMPORTANT]  
-> **Install from F-Droid** — Play Store Termux is discontinued.
-
-1. [ ] Install [Termux from F-Droid](https://f-droid.org/packages/com.termux/)
-2. [ ] Run: `pkg update -y && pkg install curl`
-3. [ ] `curl -sL myopenclawhub.com/install | bash`
-4. [ ] `openclaw onboard`
-5. [ ] New tab: `openclaw gateway`
-6. [ ] Open dashboard: [myopenclawhub.com](https://myopenclawhub.com)
-
-<details>
-<summary>🎥 Demo Video</summary>
-<iframe width="800" height="450" src="https://www.youtube.com/embed/dQw4w4w9WgXc" frameborder="0" allowfullscreen></iframe>
-<!-- Replace with actual demo video -->
-</details>
-
-## 📋 Step-by-Step Setup {#step-by-step-setup}
 
 ## Requirements
 
@@ -170,14 +92,9 @@ The installer automatically resolves the differences between Termux and standard
 5. [Start OpenClaw Setup](#step-5-start-openclaw-setup)
 6. [Start OpenClaw (Gateway)](#step-6-start-openclaw-gateway)
 
-### Step 1: Prepare Your Phone 📱
-
-> [!TIP]  
-> Enable **Developer options** → **Stay awake** + disable battery optimization.
+### Step 1: Prepare Your Phone
 
 Configure Developer Options, Stay Awake, charge limit, and battery optimization. See the [Keeping Processes Alive guide](docs/disable-phantom-process-killer.md) for step-by-step instructions.
-
-<img src="docs/images/signal9/01-signal9-killed.png" width="300" alt="Phantom Process Killer">
 
 ### Step 2: Install Termux
 
@@ -197,18 +114,16 @@ pkg update -y && pkg install -y curl
 
 > You may be asked to choose a mirror on first run. Pick any — a geographically closer mirror will be faster.
 
-### Step 4: Install OpenClaw ⚡
+### Step 4: Install OpenClaw
 
-> [!TIP]  
-> **SSH Tip**: Use [Termux SSH Guide](docs/termux-ssh-guide.md) for keyboard typing.
+> **Tip: Use SSH for easier typing**
+> From this step on, you can type commands from your computer keyboard instead of the phone screen. See the [Termux SSH Setup Guide](docs/termux-ssh-guide.md) for details.
 
-<div dir="ltr">
+Paste the following command in Termux.
 
-| Terminal | Expected Output |
-|----------|-----------------|
-| ```bash<br>curl -sL myopenclawhub.com/install \| bash && source ~/.bashrc<br>``` | ![Success]<br>```<br>[OpenClaw installed]<br>openclaw onboard<br>``` |
-
-</div>
+```bash
+curl -sL myopenclawhub.com/install | bash && source ~/.bashrc
+```
 
 Everything is installed automatically with a single command. This takes 3–10 minutes depending on network speed and device. Wi-Fi is recommended.
 
@@ -262,21 +177,20 @@ If you run OpenClaw on multiple devices on the same network, use the <a href="ht
 - Generates the SSH tunnel command and dashboard URL automatically
 - **Your data stays local** — Connection settings (IP, token, ports) are saved only in your browser's localStorage and are never sent to any server.
 
-## ⚙️ CLI Reference {#cli-reference}
+## CLI Reference
 
-```bash
-oa --help
-```
+After installation, the `oa` command is available for managing your installation:
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `oa --update` | 🔄 Update everything | `oa --update` |
-| `oa --install` | 🛠️ Add tools | `oa --install` |
-| `oa --uninstall` | 🗑️ Remove all | `oa --uninstall` |
-| `oa --backup` | 💾 Backup data | `oa --backup` |
-| `oa --restore` | ⬆️ Restore | `oa --restore` |
-| `oa --status` | 📊 Status | `oa --status` |
-| `oa --version` | 📝 Version | `oa --version` |
+| Option | Description |
+|--------|-------------|
+| `oa --update` | Update OpenClaw and Android patches |
+| `oa --install` | Install optional tools (tmux, code-server, AI CLIs, etc.) |
+| `oa --uninstall` | Remove OpenClaw on Android |
+| `oa --backup` | Create a full backup of OpenClaw data |
+| `oa --restore` | Restore from a backup |
+| `oa --status` | Show installation status and all installed components |
+| `oa --version` | Show version |
+| `oa --help` | Show available options |
 
 ## Update
 
@@ -342,20 +256,8 @@ For experimentation, small models like TinyLlama 1.1B (Q4, ~670MB) can run on th
 
 > **Why `--ignore-scripts`?** The installer uses `npm install -g openclaw@latest --ignore-scripts` because node-llama-cpp's postinstall script attempts to compile llama.cpp from source via cmake — a process that takes 30+ minutes on a phone and fails due to toolchain incompatibilities. The prebuilt binaries work without this compilation step, so the postinstall is safely skipped.
 
-<details open>
-<summary>🛠️ Technical Details {#technical-details}</summary>
-
-```mermaid
-graph TD
-    A[Termux] --> B[glibc ld.so]
-    B --> C[Node.js ARM64]
-    C --> D[OpenClaw]
-    D --> E[AI Agents]
-    F[Optional: code-server] -.-> D
-    G[Chromium/Playwright] -.-> D
-```
-
-
+<details>
+<summary>Technical Documentation for Developers</summary>
 
 ## Installed Components
 
@@ -694,35 +596,6 @@ Updates tools that are already installed:
 
 </details>
 
-## ❓ Troubleshooting {#troubleshooting}
+## License
 
-See [Troubleshooting Guide](docs/troubleshooting.md).
-
-## 📊 Performance {#performance}
-
-CLI slower due to storage I/O. **Gateway runs at full PC speed**.
-
-## 🤖 Local LLM {#local-llm}
-
-Local inference works (node-llama-cpp), but cloud APIs recommended for speed.
-
-## 🎉 Join the Community
-
-<div align="center">
-  <a href="https://github.com/AidanPark/openclaw-android/stargazers">
-    <b>⭐ Star us</b> • Help others find this project!
-  </a> | 
-  <a href="https://github.com/AidanPark/openclaw-android/issues">
-    <b>🐛 Issues</b>
-  </a> | 
-  <a href="https://github.com/AidanPark/openclaw-android/discussions">
-    <b>💬 Discussions</b>
-  </a>
-</div>
-
-## 📚 License {#license}
-
-MIT License. See [LICENSE](/LICENSE) for details.
-
-[![Stargazers](https://img.shields.io/github/stargazers/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/stargazers)
-[![Forkers](https://img.shields.io/github/forks/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/network/members)
+MIT
