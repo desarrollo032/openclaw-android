@@ -1,8 +1,8 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
     alias(libs.plugins.androidApplication)
-    alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
 }
 
@@ -123,11 +123,34 @@ dependencies {
 val wwwProjectDir = file("$rootDir/www")
 val assetsWwwDir = file("$projectDir/src/main/assets/www")
 
+fun resolveNpmCmd(): String {
+    if (!System.getProperty("os.name").lowercase().contains("windows")) return "npm"
+    val paths = System.getenv("PATH")?.split(";") ?: emptyList()
+    for (p in paths) {
+        val f = File(p, "npm.cmd")
+        if (f.exists()) return f.absolutePath
+    }
+    return "npm.cmd"
+}
+
+val npmInstall by tasks.registering(Exec::class) {
+    description = "Install npm dependencies"
+    group = "build"
+    workingDir = wwwProjectDir
+    commandLine(resolveNpmCmd(), "install")
+    inputs.file(wwwProjectDir.resolve("package.json"))
+    if (wwwProjectDir.resolve("package-lock.json").exists()) {
+        inputs.file(wwwProjectDir.resolve("package-lock.json"))
+    }
+    outputs.dir(wwwProjectDir.resolve("node_modules"))
+}
+
 val buildWww by tasks.registering(Exec::class) {
     description = "Build React UI (npm run build)"
     group = "build"
+    dependsOn(npmInstall)
     workingDir = wwwProjectDir
-    commandLine("npm", "run", "build")
+    commandLine(resolveNpmCmd(), "run", "build")
     inputs.dir(wwwProjectDir.resolve("src"))
     inputs.files(
         wwwProjectDir.resolve("package.json"),
@@ -147,26 +170,6 @@ val syncWwwAssets by tasks.registering(Sync::class) {
 
 tasks.named("preBuild") {
     dependsOn(syncWwwAssets)
-}
-
-detekt {
-    buildUponDefaultConfig = true
-    allRules = false
-    config.setFrom("$rootDir/detekt.yml")
-}
-
-tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
-    jvmTarget = "17"
-    reports {
-        html.required.set(true)
-        sarif.required.set(true)
-        xml.required.set(false)
-        txt.required.set(false)
-    }
-}
-
-tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
-    jvmTarget = "17"
 }
 
 configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {

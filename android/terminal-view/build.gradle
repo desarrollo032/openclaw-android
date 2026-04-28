@@ -1,7 +1,10 @@
-apply plugin: 'com.android.library'
+plugins {
+    id 'com.android.library'
+}
 
 android {
     compileSdkVersion 35
+    ndkVersion = "27.0.12077973"
     namespace = "com.termux.view"
 
     defaultConfig {

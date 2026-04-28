@@ -20,4 +20,5 @@
     <color name="tabTextFinished">#484f58</color>
     <color name="tabAccent">#58a6ff</color>
     <color name="tabBorder">#30363d</color>
+  <color name="ic_launcher_background">#060208</color>
 </resources>
