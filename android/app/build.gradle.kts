@@ -9,6 +9,7 @@ plugins {
 android {
     namespace = "com.openclaw.android"
     compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     dependenciesInfo {
         includeInApk = false

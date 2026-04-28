@@ -4,80 +4,74 @@ import android.content.Context
 import java.io.File
 
 /**
- * Builds the complete process environment for Termux bootstrap (§2.2.5).
- * Based on AnyClaw CodexServerManager.kt pattern.
+ * Builds the complete process environment for Termux commands.
+ * Always uses the real Termux paths and ensures grun is available.
+ * Never references /usr/bin/node directly — use grun instead.
  */
 object EnvironmentBuilder {
-    fun build(context: Context): Map<String, String> = build(context.filesDir)
+    // Real Termux paths — these are fixed regardless of app package name
+    private const val TERMUX_HOME = CommandRunner.TERMUX_HOME
+    private const val TERMUX_PREFIX = CommandRunner.TERMUX_PREFIX
+    private const val OPENCLAW_BIN = CommandRunner.OPENCLAW_BIN
 
-    fun build(filesDir: File): Map<String, String> {
-        val prefix = File(filesDir, "usr")
-        val home = File(filesDir, "home")
-        val tmp = File(filesDir, "tmp")
+    fun build(context: Context): Map<String, String> = buildTermuxEnvironment()
 
-        return buildMap {
-            // Core paths
-            put("PREFIX", prefix.absolutePath)
-            put("HOME", home.absolutePath)
-            put("TMPDIR", tmp.absolutePath)
-            val nodeBin = "${home.absolutePath}/.openclaw-android/node/bin"
-            val localBin = "${home.absolutePath}/.local/bin"
-            val prefixBin = "${prefix.absolutePath}/bin"
-            put("PATH", "$nodeBin:$localBin:$prefixBin:$prefixBin/applets")
-            put("LD_LIBRARY_PATH", "${prefix.absolutePath}/lib")
+    fun build(filesDir: File): Map<String, String> = buildTermuxEnvironment()
 
-            // libtermux-exec path conversion (§2.2.4)
-            // The bootstrap binaries have hardcoded /data/data/com.termux/... paths.
-            // libtermux-exec intercepts file operations and rewrites them.
-            // Only set LD_PRELOAD if the library actually exists — otherwise
-            // the dynamic linker refuses to start any process.
-            val termuxExecLib = File(prefix, "lib/libtermux-exec.so")
+    /**
+     * Full Termux environment with correct HOME, PATH, and grun support.
+     */
+    fun buildTermuxEnvironment(): Map<String, String> =
+        buildMap {
+            put("HOME", TERMUX_HOME)
+            put("PREFIX", TERMUX_PREFIX)
+            put("TMPDIR", "$TERMUX_PREFIX/../tmp")
+
+            // PATH: openclaw bin first (contains grun), then termux bins
+            put(
+                "PATH",
+                "$OPENCLAW_BIN:$TERMUX_PREFIX/bin:$TERMUX_PREFIX/bin/applets:/system/bin:/bin",
+            )
+            put("LD_LIBRARY_PATH", "$TERMUX_PREFIX/lib")
+
+            // libtermux-exec for path rewriting
+            val termuxExecLib = File("$TERMUX_PREFIX/lib/libtermux-exec.so")
             if (termuxExecLib.exists()) {
                 put("LD_PRELOAD", termuxExecLib.absolutePath)
             }
-            put("TERMUX__PREFIX", prefix.absolutePath)
-            put("TERMUX_PREFIX", prefix.absolutePath)
-            put("TERMUX__ROOTFS", filesDir.absolutePath)
-            // Tell libtermux-exec where the current app data dir is
-            val appDataDir = filesDir.parentFile?.absolutePath ?: filesDir.absolutePath
-            put("TERMUX_APP__DATA_DIR", appDataDir)
-            // Tell libtermux-exec the OLD path to match against and rewrite
-            put("TERMUX_APP__LEGACY_DATA_DIR", "/data/data/com.termux")
-            // put("TERMUX_EXEC__LOG_LEVEL", "2") // Uncomment to debug libtermux-exec
 
-            // apt/dpkg (§2.2.3)
-            put("APT_CONFIG", "${prefix.absolutePath}/etc/apt/apt.conf")
-            put("DPKG_ADMINDIR", "${prefix.absolutePath}/var/lib/dpkg")
-            put("DPKG_ROOT", prefix.absolutePath)
+            // Termux prefix vars
+            put("TERMUX__PREFIX", TERMUX_PREFIX)
+            put("TERMUX_PREFIX", TERMUX_PREFIX)
+            put("TERMUX__ROOTFS", "$TERMUX_PREFIX/..")
 
-            // SSL (libgnutls.so hardcoded path workaround)
-            put("SSL_CERT_FILE", "${prefix.absolutePath}/etc/tls/cert.pem")
+            // apt/dpkg
+            put("APT_CONFIG", "$TERMUX_PREFIX/etc/apt/apt.conf")
+            put("DPKG_ADMINDIR", "$TERMUX_PREFIX/var/lib/dpkg")
+            put("DPKG_ROOT", TERMUX_PREFIX)
 
-            put("CURL_CA_BUNDLE", "${prefix.absolutePath}/etc/tls/cert.pem")
-            put("GIT_SSL_CAINFO", "${prefix.absolutePath}/etc/tls/cert.pem")
+            // SSL
+            put("SSL_CERT_FILE", "$TERMUX_PREFIX/etc/tls/cert.pem")
+            put("CURL_CA_BUNDLE", "$TERMUX_PREFIX/etc/tls/cert.pem")
+            put("GIT_SSL_CAINFO", "$TERMUX_PREFIX/etc/tls/cert.pem")
 
-            // Git (system gitconfig has hardcoded com.termux path)
+            // Git
             put("GIT_CONFIG_NOSYSTEM", "1")
-
-            // Git exec path (git looks for helpers like git-remote-https here)
-            put("GIT_EXEC_PATH", "${prefix.absolutePath}/libexec/git-core")
-
-            // Git template dir (hardcoded /data/data/com.termux path workaround)
-            put("GIT_TEMPLATE_DIR", "${prefix.absolutePath}/share/git-core/templates")
+            put("GIT_EXEC_PATH", "$TERMUX_PREFIX/libexec/git-core")
+            put("GIT_TEMPLATE_DIR", "$TERMUX_PREFIX/share/git-core/templates")
 
             // Locale and terminal
             put("LANG", "en_US.UTF-8")
             put("TERM", "xterm-256color")
 
-            // Android-specific
+            // Android
             put("ANDROID_DATA", "/data")
             put("ANDROID_ROOT", "/system")
 
-            // OpenClaw platform
+            // OpenClaw — glibc compat required, never use node directly
             put("OA_GLIBC", "1")
             put("CONTAINER", "1")
-            put("CLAWDHUB_WORKDIR", "${home.absolutePath}/.openclaw/workspace")
-            put("CPATH", "${prefix.absolutePath}/include/glib-2.0:${prefix.absolutePath}/lib/glib-2.0/include")
+            put("CLAWDHUB_WORKDIR", "$TERMUX_HOME/.openclaw/workspace")
+            put("CPATH", "$TERMUX_PREFIX/include/glib-2.0:$TERMUX_PREFIX/lib/glib-2.0/include")
         }
-    }
 }

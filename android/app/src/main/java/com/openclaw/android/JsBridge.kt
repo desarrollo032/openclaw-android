@@ -28,6 +28,9 @@ class JsBridge(
 ) {
     private val gson = Gson()
 
+    // Shared IO dispatcher — avoids spawning a new thread pool per coroutine
+    private val ioScope = CoroutineScope(Dispatchers.IO)
+
     companion object {
         private const val TAG = "JsBridge"
         private const val SHELL_INIT_DELAY_MS = 500L
@@ -44,7 +47,7 @@ class JsBridge(
     }
 
     /**
-     * Launch a coroutine on Dispatchers.IO with error handling.
+     * Launch a coroutine on the shared IO scope with structured error handling.
      * Catches all exceptions to prevent app crashes from unhandled coroutine failures.
      * Errors are logged and emitted to the WebView via EventBridge.
      */
@@ -66,7 +69,7 @@ class JsBridge(
                         ),
                 )
             }
-        CoroutineScope(Dispatchers.IO + handler).launch(block = block)
+        ioScope.launch(handler, block = block)
     }
     // ═══════════════════════════════════════════
     // Terminal domain
@@ -149,7 +152,9 @@ class JsBridge(
         gson.toJson(
             mapOf(
                 "installed" to bootstrapManager.isInstalled(),
-                "prefixPath" to bootstrapManager.prefixDir.absolutePath,
+                "openclawInstalled" to bootstrapManager.isOpenClawInstalled(),
+                "prefixPath" to CommandRunner.TERMUX_PREFIX,
+                "openclawPath" to CommandRunner.OPENCLAW_DIR,
             ),
         )
 
@@ -203,7 +208,7 @@ class JsBridge(
     @JavascriptInterface
     fun getInstalledPlatforms(): String {
         // Check which platforms are installed via npm/filesystem
-        val env = EnvironmentBuilder.build(activity)
+        val env = CommandRunner.buildTermuxEnv()
         val result =
             CommandRunner.runSync(
                 "npm list -g --depth=0 --json 2>/dev/null",
@@ -224,7 +229,7 @@ class JsBridge(
                 "install_progress",
                 mapOf("target" to id, "progress" to PROGRESS_START, "message" to "Installing $id..."),
             )
-            val env = EnvironmentBuilder.build(activity)
+            val env = CommandRunner.buildTermuxEnv()
             CommandRunner.runStreaming(
                 "npm install -g $id@latest --ignore-scripts",
                 env,
@@ -248,7 +253,7 @@ class JsBridge(
             errorEventType = "install_progress",
             errorContext = mapOf("target" to id),
         ) {
-            val env = EnvironmentBuilder.build(activity)
+            val env = CommandRunner.buildTermuxEnv()
             CommandRunner.runSync("npm uninstall -g $id", env, bootstrapManager.homeDir)
         }
     }
@@ -274,11 +279,11 @@ class JsBridge(
 
     @JavascriptInterface
     fun getInstalledTools(): String {
-        val env = EnvironmentBuilder.build(activity)
-        val prefix = bootstrapManager.prefixDir.absolutePath
+        // Use real Termux prefix for binary detection
+        val prefix = CommandRunner.TERMUX_PREFIX
         val tools = mutableListOf<Map<String, String>>()
 
-        // Termux packages - check binary path
+        // Termux packages — check binary path
         val pkgChecks =
             mapOf(
                 "tmux" to "$prefix/bin/tmux",
@@ -294,19 +299,20 @@ class JsBridge(
             }
         }
 
-        // Chromium - check multiple possible paths
-        if (java.io.File("$prefix/bin/chromium-browser").exists() || java.io.File("$prefix/bin/chromium").exists()) {
+        // Chromium — check multiple possible paths
+        if (java.io.File("$prefix/bin/chromium-browser").exists() ||
+            java.io.File("$prefix/bin/chromium").exists()
+        ) {
             tools.add(mapOf("id" to "chromium", "name" to "chromium", "version" to "installed"))
         }
 
-        // npm global packages - check binary file in node bin
-        val nodeBin = "${bootstrapManager.homeDir.absolutePath}/.openclaw-android/node/bin"
+        // npm global packages — check binary in openclaw bin dir
         val npmBinChecks =
             mapOf(
-                "claude-code" to "$nodeBin/claude",
-                "gemini-cli" to "$nodeBin/gemini",
-                "codex-cli" to "$nodeBin/codex",
-                "opencode" to "$nodeBin/opencode",
+                "claude-code" to "${CommandRunner.OPENCLAW_BIN}/claude",
+                "gemini-cli" to "${CommandRunner.OPENCLAW_BIN}/gemini",
+                "codex-cli" to "${CommandRunner.OPENCLAW_BIN}/codex",
+                "opencode" to "${CommandRunner.OPENCLAW_BIN}/opencode",
             )
         for ((id, path) in npmBinChecks) {
             if (java.io.File(path).exists()) {
@@ -323,8 +329,8 @@ class JsBridge(
             errorEventType = "install_progress",
             errorContext = mapOf("target" to id),
         ) {
-            val env = EnvironmentBuilder.build(activity)
-            val prefix = bootstrapManager.prefixDir.absolutePath
+            val env = CommandRunner.buildTermuxEnv()
+            val prefix = CommandRunner.TERMUX_PREFIX
             val aptGet =
                 "DEBIAN_FRONTEND=noninteractive $prefix/bin/apt-get" +
                     " -y -o Acquire::AllowInsecureRepositories=true" +
@@ -340,7 +346,7 @@ class JsBridge(
                     // code-server (custom)
                     "code-server" ->
                         "npm install -g code-server"
-                    // npm-based AI CLI tools
+                    // npm-based AI CLI tools — use grun node, never node directly
                     "claude-code" ->
                         "npm install -g @anthropic-ai/claude-code"
                     "gemini-cli" ->
@@ -357,7 +363,7 @@ class JsBridge(
                 "install_progress",
                 mapOf("target" to id, "progress" to PROGRESS_START, "message" to "Installing $id..."),
             )
-            CommandRunner.runStreaming(cmd, env, bootstrapManager.homeDir) { output ->
+            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output ->
                 eventBridge.emit(
                     "install_progress",
                     mapOf("target" to id, "progress" to PROGRESS_HALF, "message" to output),
@@ -376,12 +382,12 @@ class JsBridge(
             errorEventType = "install_progress",
             errorContext = mapOf("target" to id),
         ) {
-            val env = EnvironmentBuilder.build(activity)
+            val env = CommandRunner.buildTermuxEnv()
             val cmd =
                 when (id) {
                     "tmux", "ttyd", "dufs", "openssh-server", "android-tools", "chromium" -> {
                         val pkg = if (id == "openssh-server") "openssh" else id
-                        "${bootstrapManager.prefixDir.absolutePath}/bin/apt-get remove -y $pkg"
+                        "${CommandRunner.TERMUX_PREFIX}/bin/apt-get remove -y $pkg"
                     }
                     "code-server" ->
                         "npm uninstall -g code-server"
@@ -398,14 +404,14 @@ class JsBridge(
                             " && rm -rf \$HOME/.config/opencode"
                     else -> "echo 'Unknown tool: $id'"
                 }
-            CommandRunner.runSync(cmd, env, bootstrapManager.homeDir)
+            CommandRunner.runSync(cmd, env, java.io.File(CommandRunner.TERMUX_HOME))
         }
     }
 
     @JavascriptInterface
     fun isToolInstalled(id: String): String {
-        val prefix = bootstrapManager.prefixDir.absolutePath
-        val env = EnvironmentBuilder.build(activity)
+        val prefix = CommandRunner.TERMUX_PREFIX
+        val env = CommandRunner.buildTermuxEnv()
         val exists =
             when (id) {
                 "openssh-server" -> java.io.File("$prefix/bin/sshd").exists()
@@ -424,7 +430,7 @@ class JsBridge(
                         CommandRunner.runSync(
                             "command -v $id 2>/dev/null",
                             env,
-                            bootstrapManager.prefixDir,
+                            java.io.File(CommandRunner.TERMUX_HOME),
                             timeoutMs = COMMAND_TIMEOUT_MS,
                         )
                     result.stdout.trim().isNotEmpty()
@@ -439,9 +445,43 @@ class JsBridge(
 
     @JavascriptInterface
     fun runCommand(cmd: String): String {
-        val env = EnvironmentBuilder.build(activity)
-        val result = CommandRunner.runSync(cmd, env, bootstrapManager.homeDir)
+        val env = CommandRunner.buildTermuxEnv()
+        val result = CommandRunner.runSync(cmd, env, java.io.File(CommandRunner.TERMUX_HOME))
         return gson.toJson(result)
+    }
+
+    /**
+     * Test grun node availability — minimum viability check.
+     * Returns result of: bash -l -c "grun node -v"
+     */
+    @JavascriptInterface
+    fun testGrunNode(): String {
+        val env = CommandRunner.buildTermuxEnv()
+        val result = CommandRunner.runSync(
+            "grun node -v",
+            env,
+            java.io.File(CommandRunner.TERMUX_HOME),
+            timeoutMs = 10_000,
+        )
+        return gson.toJson(result)
+    }
+
+    /**
+     * Launch OpenClaw gateway using the wrapper script (grun-based).
+     */
+    @JavascriptInterface
+    fun launchGateway() {
+        launchWithErrorHandling(errorEventType = "gateway_status") {
+            CommandRunner.createWrapperScript()
+            val session = activity.runOnUiThread { sessionManager.createSession() }
+            activity.runOnUiThread {
+                activity.showTerminal()
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    sessionManager.activeSession?.write("${CommandRunner.WRAPPER_SCRIPT}\n")
+                }, SHELL_INIT_DELAY_MS)
+            }
+            eventBridge.emit("gateway_status", mapOf("status" to "launched"))
+        }
     }
 
     @JavascriptInterface
@@ -453,8 +493,8 @@ class JsBridge(
             errorEventType = "command_output",
             errorContext = mapOf("callbackId" to callbackId, "done" to true),
         ) {
-            val env = EnvironmentBuilder.build(activity)
-            CommandRunner.runStreaming(cmd, env, bootstrapManager.homeDir) { output ->
+            val env = CommandRunner.buildTermuxEnv()
+            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output ->
                 eventBridge.emit(
                     "command_output",
                     mapOf("callbackId" to callbackId, "data" to output, "done" to false),

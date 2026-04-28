@@ -1,126 +1,175 @@
-# Changelog
+# 📋 Changelog
 
-All notable changes to this project will be documented in this file.
+Todos los cambios notables de este proyecto están documentados aquí.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/), y este proyecto sigue [Semantic Versioning](https://semver.org/).
 
-## [Script v1.0.27] - 2026-04-13
+---
 
-### Fixed
+## [App v0.4.1 / Script v1.0.27] — 2026-04-28
 
-- Fix `oa --update` showing syntax error after self-update — the running shell process continued reading the replaced `oa` script file, causing a parse error at the new file's line 240. Added `exit 0` after update completes to prevent this ([#110](https://github.com/AidanPark/openclaw-android/issues/110))
+### ✨ Añadido
 
-## [Script v1.0.26] - 2026-04-12
+- **Tests**: Suite de tests ampliada de 22 a 45+ tests unitarios
+  - `BootstrapManagerTest` — detección de instalación, wrapper script, ELF magic, rutas
+  - `VersionCompareTest` — lógica semver para checks de actualización OTA
+  - `CommandRunnerTest` — timeout, stderr, workDir fallback, buildTermuxEnv completo
+  - `EnvironmentBuilderTest` — 27 tests cubriendo todas las variables de entorno
+- **Optimización JsBridge**: Reemplazado `CoroutineScope(Dispatchers.IO)` por scope compartido `ioScope` — evita crear un nuevo thread pool por cada operación async
+- **getInstalledTools**: Corregidas rutas de detección de herramientas npm — ahora usa `OPENCLAW_BIN` en lugar de la ruta obsoleta `node/bin/`
+- **Dependencias**: Actualizado gson 2.12.1 → 2.13.2, ktlint 14.1.0 → 14.2.0
 
-### Changed
+### 🐛 Corregido
 
-- Switch Codex CLI from upstream `@openai/codex` to Termux-optimized `@mmmbuto/codex-cli-termux` (DioNanos/codex-termux fork). The upstream package ships a static musl binary whose DNS resolver hardcodes `/etc/resolv.conf` — a file that doesn't exist on Android — causing unreliable network connections. The fork builds as a dynamic Bionic binary that uses Android's native DNS stack, fixing the `Stream disconnected` / `error sending request` pattern reported by users behind proxies. CLI command name (`codex`) is unchanged. ([#108](https://github.com/AidanPark/openclaw-android/issues/108))
+- **JsBridge.getInstalledTools**: Eliminada dependencia de `EnvironmentBuilder.build(activity)` — ahora usa `CommandRunner.TERMUX_PREFIX` directamente (consistente con el resto del código)
+- **Rutas npm bin**: Corregida detección de claude, gemini, codex, opencode — apuntaban a `node/bin/` (ruta antigua) en lugar de `OPENCLAW_BIN`
 
-### Fixed
+---
 
-- Fix Codex CLI launcher failing on `com.openclaw.android` namespace — the npm-created `$PREFIX/bin/codex` symlink points to a JS launcher chain that miscalculates paths under the non-standard Android app namespace. Replace the symlink with a bash wrapper that sets `LD_LIBRARY_PATH` and directly exec's `codex.bin`, matching the pattern used for the openclaw CLI wrapper. Applied across all delivery paths (App Install, Termux Install, Update) via npm wrapper hook and inline post-install creation. ([#108](https://github.com/AidanPark/openclaw-android/issues/108))
+## [Script v1.0.27] — 2026-04-13
 
-## [Script v1.0.25] - 2026-04-11
+### 🐛 Corregido
 
-### Fixed
+- Corregido `oa --update` mostrando error de sintaxis tras auto-actualización — el proceso shell en ejecución continuaba leyendo el archivo `oa` reemplazado, causando un error de parseo en la línea 240 del nuevo archivo. Se añadió `exit 0` tras completar la actualización para evitar esto ([#110](https://github.com/AidanPark/openclaw-android/issues/110))
 
-- Fix `bad interpreter: Permission denied` when running npm globally-installed CLI tools (codex, claude, clawdhub, etc.) directly from shell on Android/Termux. The root cause is `#!/usr/bin/env node` shebang in `.js` entry points, which Android cannot resolve. Two-layer fix: (1) npm wrapper hook automatically rewrites shebangs after every `npm install -g`, (2) defense-in-depth calls in install/update scripts catch anything Layer 1 missed.
+---
 
-## [Script v1.0.24] - 2026-04-11
+## [Script v1.0.26] — 2026-04-12
 
-### Fixed
+### 🔄 Cambiado
 
-- Stop permanently polluting user's `~/.npmrc` during install — previously `post-setup.sh` would detect slow `registry.npmjs.org` access and write `registry=https://registry.npmmirror.com` to `~/.npmrc`, affecting all of the user's npm projects forever with no self-recovery. Now the installer uses session-scoped `NPM_CONFIG_REGISTRY` env var and caches the chosen registry at `~/.openclaw-android/.npm-registry`, re-exporting from `~/.bashrc` on each login. Users bitten by v1.0.22/v1.0.23 are auto-rescued on next `oa --update` because env vars override `~/.npmrc`, and their personal npmrc is left untouched (preserving auth tokens, scope registries, etc.) ([#107](https://github.com/AidanPark/openclaw-android/issues/107))
-- Cover all three install paths for the npm registry detection — App Install (`post-setup.sh`), Termux Install (`install.sh`), and Update (`update-core.sh`). `scripts/setup-env.sh` now injects the `NPM_CONFIG_REGISTRY` re-export line inside the `# >>> OpenClaw on Android >>>` marker block of `~/.bashrc` so Termux-install and update paths get the same session-to-session re-evaluation as App Install.
+- Cambio de Codex CLI desde `@openai/codex` upstream a `@mmmbuto/codex-cli-termux` optimizado para Termux (fork DioNanos/codex-termux). El paquete upstream incluye un binario musl estático cuyo resolver DNS tiene hardcoded `/etc/resolv.conf` — archivo que no existe en Android — causando conexiones de red poco fiables. El fork compila como binario Bionic dinámico que usa el stack DNS nativo de Android, corrigiendo el patrón `Stream disconnected` / `error sending request`. El nombre del comando CLI (`codex`) no cambia. ([#108](https://github.com/AidanPark/openclaw-android/issues/108))
 
-## [Script v1.0.23] - 2026-04-11
+### 🐛 Corregido
 
-### Fixed
+- Corregido el launcher de Codex CLI fallando en el namespace `com.openclaw.android` — el symlink `$PREFIX/bin/codex` creado por npm apunta a una cadena de launchers JS que calcula mal las rutas bajo el namespace no estándar de Android. Se reemplaza el symlink con un wrapper bash que establece `LD_LIBRARY_PATH` y ejecuta directamente `codex.bin`. ([#108](https://github.com/AidanPark/openclaw-android/issues/108))
 
-- Preserve user's existing `~/.gitconfig` during post-setup — previously `cat > ~/.gitconfig` overwrote all user settings (name, email, aliases). Now uses `git config --global` to set only `http.sslCAInfo` and `url.https://github.com/.insteadOf` keys while keeping user entries intact ([#107](https://github.com/AidanPark/openclaw-android/issues/107))
+---
 
-## [Script v1.0.22] - 2026-04-10
+## [Script v1.0.25] — 2026-04-11
 
-### Added
+### 🐛 Corregido
 
-- ELF binary auto-wrapping: detect glibc binaries via PT_INTERP and route through ld.so, enabling npx-installed native binaries like codex-acp to run on Android ([#103](https://github.com/AidanPark/openclaw-android/issues/103))
-- Shebang resolution: handle `#!/usr/bin/env` scripts without libtermux-exec.so by resolving interpreters from PATH in JavaScript
-- Shell invocation interception: detect `spawn('sh', ['-c', 'cmd'])` pattern used by npm/npx and resolve commands directly
-- Supplementary glibc library deployment: bundle libcap.so.2 for third-party native binary support
-- Localhost DNS shortcut: return 127.0.0.1 immediately for localhost lookups without querying external DNS ([#105](https://github.com/AidanPark/openclaw-android/issues/105))
-- Create `$PREFIX/glibc/etc/hosts` if missing, ensuring getaddrinfo can resolve localhost ([#105](https://github.com/AidanPark/openclaw-android/issues/105))
+- Corregido `bad interpreter: Permission denied` al ejecutar herramientas CLI instaladas globalmente con npm (codex, claude, clawdhub, etc.) directamente desde shell en Android/Termux. La causa raíz es el shebang `#!/usr/bin/env node` en los entry points `.js`, que Android no puede resolver. Corrección en dos capas: (1) hook npm wrapper reescribe shebangs automáticamente tras cada `npm install -g`, (2) llamadas de defensa en profundidad en scripts de instalación/actualización.
 
-### Changed
+---
 
-- Stop restoring LD_PRELOAD in glibc-compat.js — libtermux-exec.so re-injects it via execve hook, crashing glibc child processes with "Could not find a PHDR" errors
-- Always use Termux shell for exec/execSync on all Android versions (previously only Android 7-8)
+## [Script v1.0.24] — 2026-04-11
 
-## [Script v1.0.21] - 2026-04-07
+### 🐛 Corregido
 
-### Fixed
+- Eliminada la contaminación permanente de `~/.npmrc` del usuario durante la instalación — anteriormente `post-setup.sh` detectaba acceso lento a `registry.npmjs.org` y escribía `registry=https://registry.npmmirror.com` en `~/.npmrc`, afectando todos los proyectos npm del usuario para siempre sin auto-recuperación. Ahora el instalador usa la variable de entorno `NPM_CONFIG_REGISTRY` con scope de sesión y cachea el registro elegido en `~/.openclaw-android/.npm-registry`. ([#107](https://github.com/AidanPark/openclaw-android/issues/107))
+- Cubiertos los tres paths de instalación para la detección del registro npm — App Install (`post-setup.sh`), Termux Install (`install.sh`) y Update (`update-core.sh`).
 
-- Fix `oa --backup` exiting with error code 1 due to `tmpdir: unbound variable` — trap used local variable that went out of scope
-- Fix `oa --backup` / `oa --restore` and `ask_yn` failing in tty-less environments (SSH pipe, non-interactive) — fallback to stdin when `/dev/tty` is unavailable
+---
 
-## [Script v1.0.20] - 2026-04-06
+## [Script v1.0.23] — 2026-04-11
 
-### Fixed
+### 🐛 Corregido
 
-- Fix dep restore blocked by sharp build failure — `npm install` inside openclaw dir triggers sharp's native build which fails on Termux, blocking all other deps. Now runs `postinstall-bundled-plugins.mjs` directly with `npm_config_ignore_scripts=true` to skip sharp while installing channel deps ([#92](https://github.com/AidanPark/openclaw-android/issues/92))
-- Fix dep restore skipped when openclaw already at latest version — check `@buape/carbon` presence instead of `OPENCLAW_UPDATED` flag
+- Preservado el `~/.gitconfig` existente del usuario durante el post-setup — anteriormente `cat > ~/.gitconfig` sobreescribía toda la configuración del usuario (nombre, email, aliases). Ahora usa `git config --global` para establecer solo las claves `http.sslCAInfo` y `url.https://github.com/.insteadOf` manteniendo las entradas del usuario intactas. ([#107](https://github.com/AidanPark/openclaw-android/issues/107))
 
-## [Script v1.0.19] - 2026-04-06
+---
 
-### Fixed
+## [Script v1.0.22] — 2026-04-10
 
-- Fix missing channel dependencies after `--ignore-scripts` install — reinstall deps inside openclaw package dir to restore optional modules like `@buape/carbon`, `grammy` ([#92](https://github.com/AidanPark/openclaw-android/issues/92))
+### ✨ Añadido
 
-## [Script v1.0.18] - 2026-04-04
+- Auto-wrapping de binarios ELF: detecta binarios glibc via PT_INTERP y los enruta a través de ld.so, permitiendo que binarios nativos instalados con npx como codex-acp se ejecuten en Android ([#103](https://github.com/AidanPark/openclaw-android/issues/103))
+- Resolución de shebangs: maneja scripts `#!/usr/bin/env` sin libtermux-exec.so resolviendo intérpretes desde PATH en JavaScript
+- Intercepción de invocación shell: detecta el patrón `spawn('sh', ['-c', 'cmd'])` usado por npm/npx y resuelve comandos directamente
+- Despliegue de librerías glibc suplementarias: incluye libcap.so.2 para soporte de binarios nativos de terceros
+- Atajo DNS localhost: devuelve 127.0.0.1 inmediatamente para lookups de localhost sin consultar DNS externo ([#105](https://github.com/AidanPark/openclaw-android/issues/105))
+- Crea `$PREFIX/glibc/etc/hosts` si no existe, asegurando que getaddrinfo pueda resolver localhost ([#105](https://github.com/AidanPark/openclaw-android/issues/105))
 
-### Fixed
+### 🔄 Cambiado
 
-- Fix `process.execPath` pointing to `ld-linux-aarch64.so.1` instead of node wrapper — glibc-compat.js had wrong path (`node/bin/node` instead of `bin/node`), causing OpenClaw 4.2 child process spawns with `--disable-warning=ExperimentalWarning` to fail ([#88](https://github.com/AidanPark/openclaw-android/issues/88))
-- Add `_OA_WRAPPER_PATH` env var to node wrapper — eliminates path guessing in glibc-compat.js
-- Fix verify-compat.sh checking wrong wrapper paths — tests now verify behavior (executable script, not ELF) instead of hardcoded paths
-- Fix `install.sh` session PATH missing `$BIN_DIR` — node/npm commands could fail to resolve after Step 5
-- Fix README (en/ko/zh) documenting wrong wrapper path (`node/bin/node` → `bin/node`)
-- Fix npm wrapper writing through symlink and corrupting `openclaw.mjs` — npm creates symlink `$PREFIX/bin/openclaw` → `openclaw.mjs`, our shim writer followed it and destroyed the original file ([#89](https://github.com/AidanPark/openclaw-android/issues/89))
+- Eliminada la restauración de LD_PRELOAD en glibc-compat.js — libtermux-exec.so lo re-inyecta via hook execve, crasheando procesos hijo glibc con errores "Could not find a PHDR"
+- Siempre usar shell Termux para exec/execSync en todas las versiones de Android (anteriormente solo Android 7-8)
 
-## [Script v1.0.17] - 2026-04-03
+---
 
-### Fixed
+## [Script v1.0.21] — 2026-04-07
 
-- Fix false-positive "glibc node wrapper not found" in install verification — verify-install.sh and status.sh referenced old `node/bin/` path instead of new `bin/` path ([#87](https://github.com/AidanPark/openclaw-android/issues/87))
-- Add `BIN_DIR` constant to lib.sh to prevent path hardcoding drift across verification scripts
+### 🐛 Corregido
 
-## [Script v1.0.16] - 2026-04-02
+- Corregido `oa --backup` saliendo con código de error 1 por `tmpdir: unbound variable` — el trap usaba una variable local que salía del scope
+- Corregido `oa --backup` / `oa --restore` y `ask_yn` fallando en entornos sin tty (SSH pipe, no interactivo) — fallback a stdin cuando `/dev/tty` no está disponible
 
-### Fixed
+---
 
-- Auto-repatch openclaw CLI wrapper after `npm install/update -g openclaw` — prevents `/usr/bin/env` shebang breakage on Termux ([#86](https://github.com/AidanPark/openclaw-android/issues/86))
-- Move node/npm/npx wrappers to dedicated `bin/` directory safe from npm overwrites
-- Fix missing `bin/node` wrapper creation in already-installed repair path
+## [Script v1.0.20] — 2026-04-06
 
-## [Script v1.0.15] - 2026-04-01
+### 🐛 Corregido
 
-### Fixed
+- Corregida la restauración de dependencias bloqueada por fallo de build de sharp — `npm install` dentro del directorio openclaw dispara el build nativo de sharp que falla en Termux, bloqueando todas las demás dependencias. Ahora ejecuta `postinstall-bundled-plugins.mjs` directamente con `npm_config_ignore_scripts=true`. ([#92](https://github.com/AidanPark/openclaw-android/issues/92))
+- Corregida la restauración de dependencias omitida cuando openclaw ya está en la última versión — verifica la presencia de `@buape/carbon` en lugar del flag `OPENCLAW_UPDATED`
 
-- Fix `dns.promises.lookup` not patched in glibc-compat.js — OpenClaw's web_search SSRF guard uses `node:dns/promises` which bypassed the c-ares DNS fix, causing `getaddrinfo EAI_AGAIN` on hosts without `resolv.conf` ([#83](https://github.com/AidanPark/openclaw-android/issues/83))
+---
 
-## [Script v1.0.14] - 2026-04-01
+## [Script v1.0.19] — 2026-04-06
 
-### Fixed
+### 🐛 Corregido
 
-- Auto-disable Bonjour/mDNS at runtime when only loopback interface is visible — Android/Termux cannot send multicast, causing repeated "Announcement failed as of socket errors!" gateway logs ([#84](https://github.com/AidanPark/openclaw-android/issues/84))
+- Corregidas las dependencias de canal faltantes tras instalación con `--ignore-scripts` — reinstala dependencias dentro del directorio del paquete openclaw para restaurar módulos opcionales como `@buape/carbon`, `grammy`. ([#92](https://github.com/AidanPark/openclaw-android/issues/92))
 
-## [Script v1.0.13] - 2026-03-31
+---
 
-### Added
+## [Script v1.0.18] — 2026-04-04
 
-- Playwright as optional install tool (`oa --install`) — installs `playwright-core`, auto-configures Chromium path and environment variables
-- Auto-repatch openclaw CLI wrapper after `npm install/update -g openclaw` — prevents shebang breakage on Termux (#86)
+### 🐛 Corregido
 
-### Changed
+- Corregido `process.execPath` apuntando a `ld-linux-aarch64.so.1` en lugar del wrapper node — glibc-compat.js tenía la ruta incorrecta (`node/bin/node` en lugar de `bin/node`), causando fallos en spawns de procesos hijo de OpenClaw 4.2 con `--disable-warning=ExperimentalWarning`. ([#88](https://github.com/AidanPark/openclaw-android/issues/88))
+- Añadida variable de entorno `_OA_WRAPPER_PATH` al wrapper node — elimina la adivinanza de rutas en glibc-compat.js
+- Corregido verify-compat.sh verificando rutas de wrapper incorrectas
+- Corregido `install.sh` con PATH de sesión sin `$BIN_DIR` — comandos node/npm podían fallar al resolver tras el Paso 5
+- Corregido npm wrapper escribiendo a través de symlink y corrompiendo `openclaw.mjs`. ([#89](https://github.com/AidanPark/openclaw-android/issues/89))
+
+---
+
+## [Script v1.0.17] — 2026-04-03
+
+### 🐛 Corregido
+
+- Corregido falso positivo "glibc node wrapper not found" en verificación de instalación — verify-install.sh y status.sh referenciaban la ruta antigua `node/bin/` en lugar de la nueva `bin/`. ([#87](https://github.com/AidanPark/openclaw-android/issues/87))
+- Añadida constante `BIN_DIR` a lib.sh para prevenir drift de rutas hardcodeadas en scripts de verificación
+
+---
+
+## [Script v1.0.16] — 2026-04-02
+
+### 🐛 Corregido
+
+- Auto-reparcheo del wrapper CLI de openclaw tras `npm install/update -g openclaw` — previene rotura del shebang `/usr/bin/env` en Termux. ([#86](https://github.com/AidanPark/openclaw-android/issues/86))
+- Movidos los wrappers node/npm/npx a directorio dedicado `bin/` seguro frente a sobreescrituras de npm
+- Corregida la creación faltante del wrapper `bin/node` en el path de reparación ya instalado
+
+---
+
+## [Script v1.0.15] — 2026-04-01
+
+### 🐛 Corregido
+
+- Corregido `dns.promises.lookup` no parcheado en glibc-compat.js — el guard SSRF de web_search de OpenClaw usa `node:dns/promises` que evitaba el fix DNS de c-ares, causando `getaddrinfo EAI_AGAIN` en hosts sin `resolv.conf`. ([#83](https://github.com/AidanPark/openclaw-android/issues/83))
+
+---
+
+## [Script v1.0.14] — 2026-04-01
+
+### 🐛 Corregido
+
+- Auto-deshabilitado de Bonjour/mDNS en runtime cuando solo la interfaz loopback es visible — Android/Termux no puede enviar multicast, causando logs repetidos "Announcement failed as of socket errors!" en el gateway. ([#84](https://github.com/AidanPark/openclaw-android/issues/84))
+
+---
+
+## [Script v1.0.13] — 2026-03-31
+
+### ✨ Añadido
+
+- Playwright como herramienta de instalación opcional (`oa --install`) — instala `playwright-core`, auto-configura la ruta de Chromium y variables de entorno
+- Auto-reparcheo del wrapper CLI de openclaw tras `npm install/update -g openclaw`
+
+### 🔄 Cambiado
 
 - Bump Gson 2.12.1 → 2.13.2
 - Bump androidx.core:core-ktx 1.17.0 → 1.18.0
@@ -131,111 +180,89 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Bump eslint-plugin-react-refresh 0.4.24 → 0.5.2
 - Bump GitHub Actions: checkout v4→v6, setup-node v4→v6, setup-java v4→v5, upload-artifact v4→v7, download-artifact v4→v8
 
-## [App v0.4.0 / Script v1.0.12] - 2026-03-30
+---
 
-### Added
+## [App v0.4.0 / Script v1.0.12] — 2026-03-30
 
-- App: i18n support — English, Korean (한국어), Chinese (中文) with auto-detection
-- App: Language selector in Settings
-- Add Chinese README (README.zh.md) with China mirror download link
-- Add language switcher links to README.md, README.ko.md, README.zh.md
-- GitHub mirror fallback for China/restricted networks (ghfast.top, ghproxy.net)
-- npm registry auto-switch to npmmirror.com when npmjs.org is unreachable
-- Add AppLogger centralized logging wrapper, replace all android.util.Log calls
-- Add unit test infrastructure (JUnit5 + MockK, 22 tests)
-- Add CI code-quality workflow (shellcheck, sync check, markdownlint, doc freshness, kotlin lint, unit tests)
-- Add shellcheck, markdownlint to pre-commit hook
-- Add post-setup.sh sync verification to pre-commit hook
-- Add Claude Code hooks (push warning, document freshness, shellcheck auto-run)
+### ✨ Añadido
 
-### Changed
+- App: soporte i18n — Inglés, Coreano (한국어), Chino (中文) con auto-detección
+- App: selector de idioma en Ajustes
+- README en chino (README.zh.md) con enlace de descarga desde mirror de China
+- Fallback a mirror de GitHub para China/redes restringidas (ghfast.top, ghproxy.net)
+- Auto-cambio de registro npm a npmmirror.com cuando npmjs.org no es alcanzable
+- `AppLogger` — wrapper centralizado de logging, reemplaza todas las llamadas a `android.util.Log`
+- Infraestructura de tests unitarios (JUnit5 + MockK, 22 tests)
+- Workflow CI de calidad de código (shellcheck, sync check, markdownlint, kotlin lint, unit tests)
+- shellcheck y markdownlint en hook pre-commit
+- Verificación de sincronización de post-setup.sh en pre-commit
 
-- Resolve all 48 detekt violations — no baseline needed
-- Resolve all 43 shellcheck violations across all scripts
-- Resolve all 125 markdownlint violations across all documents
-- Refactor BootstrapManager, JsBridge, MainActivity for reduced complexity
-- Convert A&&B||C patterns to if/then/else in install.sh, install-tools.sh
-- Bump app version to v0.4.0 (versionCode 9)
-- Bump script version to v1.0.12
+### 🔄 Cambiado
 
-## [1.0.6] - 2026-03-10
+- Resueltas las 48 violaciones detekt — sin baseline necesaria
+- Resueltas las 43 violaciones shellcheck en todos los scripts
+- Resueltas las 125 violaciones markdownlint en todos los documentos
+- Refactorizados BootstrapManager, JsBridge, MainActivity para reducir complejidad
+- Bump versión app a v0.4.0 (versionCode 9)
+- Bump versión script a v1.0.12
 
-### Changed
+---
 
-- Clean up existing installation on reinstall
+## [App v0.3.x / Script v1.0.6] — 2026-03-10
 
-## [1.0.5] - 2026-03-06
+### 🔄 Cambiado
 
-### Added
+- Limpieza de instalación existente al reinstalar
 
-- Standalone Android APK with WebView UI, native terminal, and extra keys bar
-- Multi-session terminal tab bar with swipe navigation
-- Boot auto-start via BootReceiver
-- Chromium browser automation support (`scripts/install-chromium.sh`)
-- `oa --install` command for installing optional tools independently
+---
 
-### Fixed
+## [App v0.3.0 / Script v1.0.5] — 2026-03-06
 
-- `update-core.sh` syntax error (extra `fi` on line 237)
-- sharp image processing with WASM fallback for glibc/bionic boundary
+### ✨ Añadido
 
-### Changed
+- APK Android autónoma con UI WebView, terminal nativa y barra de teclas extra
+- Barra de pestañas multi-sesión con navegación por deslizamiento
+- Auto-inicio en arranque via BootReceiver
+- Soporte de automatización del navegador Chromium (`scripts/install-chromium.sh`)
+- Comando `oa --install` para instalar herramientas opcionales de forma independiente
 
-- Switch terminal input mode to `TYPE_NULL` for strict terminal behavior
+### 🐛 Corregido
 
-## [1.0.4] - 2025-12-15
+- Error de sintaxis en `update-core.sh` (fi extra en línea 237)
+- Procesamiento de imágenes sharp con fallback WASM para el límite glibc/bionic
 
-### Changed
+### 🔄 Cambiado
 
-- Upgrade Node.js to v22.22.0 for FTS5 support (`node:sqlite` static bundle)
-- Show version in all update skip and completion messages
+- Cambio del modo de entrada del terminal a `TYPE_NULL` para comportamiento estricto de terminal
 
-### Removed
+---
 
-- oh-my-opencode support (OpenCode uses internal Bun, PATH-based plugins not detected)
+## [Script v1.0.4] — 2025-12-15
 
-### Fixed
+### 🔄 Cambiado
 
-- Update version glob picks oldest instead of latest
-- Native module build failures during update
+- Actualización de Node.js a v22.22.0 para soporte FTS5 (`node:sqlite` static bundle)
+- Mostrar versión en todos los mensajes de omisión y completado de actualización
 
-## [1.0.3] - 2025-11-20
+### 🗑️ Eliminado
 
-### Added
+- Soporte oh-my-opencode (OpenCode usa Bun interno, plugins basados en PATH no detectados)
 
-- `.gitattributes` for LF line ending enforcement
+### 🐛 Corregido
 
-### Changed
+- El glob de versión de actualización seleccionaba la más antigua en lugar de la más reciente
+- Fallos de build de módulos nativos durante actualización
 
-- Bump version to v1.0.3
+---
 
-## [1.0.2] - 2025-10-15
+## [Script v1.0.0] — 2025-08-15
 
-### Added
+### ✨ Añadido
 
-- Platform-plugin architecture (`platforms/<name>/` structure)
-- Shared script library (`scripts/lib.sh`)
-- Verification system (`tests/verify-install.sh`)
-
-### Changed
-
-- Refactor install flow into modular scripts
-- Separate platform-specific code from infrastructure
-
-## [1.0.1] - 2025-09-01
-
-### Fixed
-
-- Initial bug fixes and stability improvements
-
-## [1.0.0] - 2025-08-15
-
-### Added
-
-- Initial release
-- glibc-runner based execution (no proot-distro required)
-- One-command installer (`curl | bash`)
-- Node.js glibc wrapper for standard Linux binaries on Android
-- Path conversion for Termux compatibility
-- Optional tools: tmux, code-server, OpenCode, AI CLIs
-- Post-install verification
+- Lanzamiento inicial
+- Ejecución basada en glibc-runner (sin proot-distro requerido)
+- Instalador de un comando (`curl | bash`)
+- Wrapper glibc de Node.js para binarios Linux estándar en Android
+- Conversión de rutas para compatibilidad con Termux
+- Herramientas opcionales: tmux, code-server, OpenCode, AI CLIs
+- Verificación post-instalación

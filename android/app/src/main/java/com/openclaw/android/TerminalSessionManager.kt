@@ -29,23 +29,23 @@ class TerminalSessionManager(
      * Create a new terminal session. Returns the session handle.
      */
     fun createSession(): TerminalSession {
-        val env = EnvironmentBuilder.build(activity)
-        val prefix = env["PREFIX"] ?: ""
-        val homeDir = env["HOME"] ?: activity.filesDir.absolutePath
+        val env = EnvironmentBuilder.buildTermuxEnvironment()
+        val homeDir = env["HOME"] ?: CommandRunner.TERMUX_HOME
+        val prefix = env["PREFIX"] ?: CommandRunner.TERMUX_PREFIX
         val tmpDir = env["TMPDIR"]
 
         // Ensure HOME and TMP directories exist before starting the shell.
-        // Without this, chdir() fails if bootstrap hasn't been run yet.
         java.io.File(homeDir).mkdirs()
         tmpDir?.let { java.io.File(it).mkdirs() }
 
+        // Prefer bash from real Termux prefix, then app-local, then system
         val shell =
-            if (java.io.File("$prefix/bin/bash").exists()) {
-                "$prefix/bin/bash"
-            } else if (java.io.File("$prefix/bin/sh").exists()) {
-                "$prefix/bin/sh"
-            } else {
-                "/system/bin/sh"
+            when {
+                java.io.File("$prefix/bin/bash").exists() -> "$prefix/bin/bash"
+                java.io.File("${activity.filesDir}/usr/bin/bash").exists() ->
+                    "${activity.filesDir}/usr/bin/bash"
+                java.io.File("$prefix/bin/sh").exists() -> "$prefix/bin/sh"
+                else -> "/system/bin/sh"
             }
 
         val session =

@@ -4,7 +4,7 @@
 [![Licencia MIT](https://img.shields.io/github/license/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/blob/main/LICENSE)
 [![Estrellas](https://img.shields.io/github/stars/AidanPark/openclaw-android?style=social)](https://github.com/AidanPark/openclaw-android)
 
-<div align=\"center\">
+<div align="center">
 
 <img src="docs/images/openclaw_android.jpg" alt="OpenClaw en Android">
 
@@ -33,17 +33,17 @@ graph TB
     D --> E[OpenClaw AI]
 ```
 
-## <img src=\"docs/images/claw-icon.svg\" width=\"28\" alt=\"Icono Claw\"> App Claw Standalone
+## App Claw Standalone
 
 APK único (sin Termux):
-- One-tap bootstrap.
+- Setup con un toque.
 - Dashboard integrado.
 
 [Descargar APK](https://github.com/AidanPark/openclaw-android/releases)
 
 ## Requisitos
 
-- Android **7.0+** (10+ rec.)
+- Android **7.0+** (10+ recomendado)
 - **1GB** libre
 - Wi-Fi
 
@@ -82,16 +82,16 @@ openclaw gateway  # Nueva pestaña
 
 ## 🔒 Seguridad
 
-**✅ Seguro**: No root. Sandbox Android.
+**✅ Seguro**: Sin root. Sandbox Android.
 
 Permisos: INTERNET, WAKE_LOCK (estándar).
 
 ## Troubleshooting
 
-<details><summary>Gateway PID?</summary>
+<details><summary>¿Gateway con PID bloqueado?</summary>
 
 ```bash
-rm -rf $PREFIX/tmp/openclaw-* 
+rm -rf $PREFIX/tmp/openclaw-*
 pkill openclaw
 ```
 
@@ -103,9 +103,9 @@ pkill openclaw
 
 | EN | **ES** | KO | ZH |
 |----|--------|----|----|
-| [README.md](README.md) | README.es.md | [KO](README.ko.md) | [ZH](README.zh.md) |
+| [README.in.md](README.in.md) | README.es.md | [KO](README.ko.md) | [ZH](README.zh.md) |
 
-<div align=\"center\">
-⭐ **¡Estrella el repo!**  
-[Releases](https://github.com/AidanPark/openclaw-android/releases) | [Issues](https://github.com/AidanPark/openclaw-android/issues)
+<div align="center">
+⭐ <b>¡Estrella el repo!</b><br>
+<a href="https://github.com/AidanPark/openclaw-android/releases">Releases</a> | <a href="https://github.com/AidanPark/openclaw-android/issues">Issues</a>
 </div>

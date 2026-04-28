@@ -1,56 +1,64 @@
-# Contributing to OpenClaw on Android
+# 🛠️ Guía de Contribución
 
-Thanks for your interest in contributing! This guide will help you get started.
+¡Gracias por tu interés en contribuir a OpenClaw Android! Esta guía te ayudará a empezar.
 
-## First-Time Contributors
+---
 
-Welcome — contributions of all sizes are valued. If this is your first contribution:
+## 🌱 Primeros Contribuidores
 
-1. **Find an issue.** Look for issues labeled [`good first issue`](https://github.com/AidanPark/openclaw-android/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — these are scoped for newcomers.
+Bienvenido — las contribuciones de todos los tamaños son valoradas. Si es tu primera contribución:
 
-2. **Pick a scope.** Good first contributions include:
-   - Typo and documentation fixes
-   - Shell script improvements
-   - Bug fixes with clear reproduction steps
+1. **Encuentra un issue.** Busca issues etiquetados con [`good first issue`](https://github.com/AidanPark/openclaw-android/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — están pensados para recién llegados.
 
-3. **Follow the fork → PR workflow** described below.
+2. **Elige un alcance.** Buenas primeras contribuciones incluyen:
+   - Correcciones de typos y documentación
+   - Mejoras en scripts shell
+   - Correcciones de bugs con pasos de reproducción claros
+   - Nuevos tests unitarios para código existente
 
-## Development Setup
+3. **Sigue el flujo fork → PR** descrito más abajo.
 
-### Shell Scripts (installer, updater, patches)
+---
+
+## ⚙️ Configuración del Entorno
+
+### Scripts Shell (instalador, actualizador, parches)
 
 ```bash
-# Clone the repo
+# Clonar el repositorio
 git clone https://github.com/AidanPark/openclaw-android.git
 cd openclaw-android
 
-# Validate shell scripts
+# Validar scripts shell
 bash -n install.sh
 bash -n update-core.sh
 bash -n oa.sh
 ```
 
-Shell scripts follow POSIX-compatible style with 4-space indentation. See `scripts/lib.sh` for shared conventions.
+Los scripts shell siguen estilo compatible con POSIX con indentación de 4 espacios. Ver `scripts/lib.sh` para convenciones compartidas.
 
-### Android App
+### App Android
 
 ```bash
 cd android
 
-# Build APK
+# Compilar APK debug
 ./gradlew assembleDebug
 
-# Run lint checks
+# Ejecutar tests unitarios
+./gradlew test
+
+# Ejecutar checks de lint
 ./gradlew ktlintCheck
 ./gradlew detekt
 
-# Format code
+# Formatear código
 ./gradlew ktlintFormat
 ```
 
-**Prerequisites**: JDK 21, Android SDK (API 28+), NDK 28+, Node.js 22+ (for WebView UI).
+**Requisitos previos**: JDK 21, Android SDK (API 36), NDK 28+, Node.js 22+ (para la UI WebView).
 
-### WebView UI
+### UI WebView
 
 ```bash
 cd android/www
@@ -58,94 +66,167 @@ npm install
 npm run build
 ```
 
-### Enable Git Hooks
+### Activar Git Hooks
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-This enables the pre-commit hook that automatically runs before every commit:
+Esto activa el hook pre-commit que se ejecuta automáticamente antes de cada commit:
 
-- **Kotlin**: ktlint (formatting) + detekt (static analysis)
-- **Shell scripts**: shellcheck (requires `shellcheck` installed)
-- **Markdown**: markdownlint (requires `markdownlint-cli2` installed)
-- **WebView**: ESLint on TypeScript/React files in `android/www/`
-- **Sync check**: Verifies `post-setup.sh` root and app assets are identical
+| Check | Herramienta | Archivos |
+|---|---|---|
+| Formato Kotlin | ktlint 14.2.0 | `*.kt` |
+| Análisis estático | detekt 1.23.8 | `*.kt` |
+| Scripts shell | shellcheck | `*.sh` |
+| Markdown | markdownlint-cli2 | `*.md` |
+| TypeScript/React | ESLint | `android/www/` |
+| Sincronización | diff | `post-setup.sh` raíz vs assets |
 
-## How to Contribute
+---
 
-### 1. Fork and Clone
+## 🧪 Tests
+
+El proyecto usa JUnit5 + MockK. Los tests se encuentran en:
+
+```
+android/app/src/test/java/com/openclaw/android/
+├── AppLoggerTest.kt          # 7 tests — delegación de Log
+├── CommandRunnerTest.kt      # 22 tests — runSync, constantes, buildTermuxEnv
+├── EnvironmentBuilderTest.kt # 27 tests — todas las variables de entorno
+├── BootstrapManagerTest.kt   # 14 tests — detección, wrapper script, ELF
+└── VersionCompareTest.kt     # 8 tests — lógica semver para OTA
+```
+
+Para ejecutar los tests:
 
 ```bash
-git clone https://github.com/<your-username>/openclaw-android.git
+cd android
+./gradlew test
+# Reporte: app/build/reports/tests/test/index.html
+```
+
+### Reglas para nuevos tests
+
+- Un test por comportamiento, no por método
+- Nombres descriptivos en backticks: `` `runSync times out and returns -1` ``
+- No mockear lo que puedes probar directamente
+- Tests de lógica pura no necesitan Android Context — úsalos en `src/test/`
+- Tests que requieren Android Context van en `src/androidTest/`
+
+---
+
+## 🔄 Cómo Contribuir
+
+### 1. Fork y Clone
+
+```bash
+git clone https://github.com/<tu-usuario>/openclaw-android.git
 cd openclaw-android
 ```
 
-### 2. Make Your Changes
+### 2. Realiza tus Cambios
 
-All work happens on `main` — we use a single-branch workflow with no prefixes.
+Todo el trabajo ocurre en `main` — usamos un flujo de rama única sin prefijos.
 
-### 3. Test Your Changes
+### 3. Prueba tus Cambios
 
-- **Shell scripts**: Run `bash -n <script>` to validate syntax
-- **Android app**: Run `./gradlew assembleDebug` to verify build
-- **Kotlin code**: Run `./gradlew ktlintCheck && ./gradlew detekt`
+```bash
+# Shell scripts
+bash -n <script.sh>
+
+# App Android — build + tests
+cd android && ./gradlew assembleDebug test
+
+# Kotlin lint
+./gradlew ktlintCheck && ./gradlew detekt
+```
 
 ### 4. Commit
 
-Commit messages use English, imperative style, with no prefix:
+Los mensajes de commit usan inglés, estilo imperativo, sin prefijo:
 
 ```
 Fix update-core.sh syntax error
 Add multi-session terminal tab bar
 Upgrade Node.js to v22.22.0 for FTS5 support
+Add BootstrapManagerTest for ELF detection
 ```
 
-- Start with a capital letter, no period at the end
-- Keep the subject line under 50 characters
-- Use imperative present tense ("Fix", not "Fixed" or "Fixes")
+- Empieza con mayúscula, sin punto al final
+- Mantén la línea de asunto bajo 50 caracteres
+- Usa tiempo presente imperativo ("Fix", no "Fixed" ni "Fixes")
 
-### 5. Open a Pull Request
+### 5. Abre un Pull Request
 
-Open a PR against `main`. Describe:
-- What the change does
-- Why it's needed
-- How to test it
+Abre un PR contra `main`. Describe:
+- Qué hace el cambio
+- Por qué es necesario
+- Cómo probarlo
 
-## Project Structure
+---
 
-The project has two main parts:
+## 📁 Estructura del Proyecto
 
-- **Shell scripts** (root) — Installer, updater, patches, CLI. These run in Termux on Android.
-- **Android app** (`android/`) — Kotlin/Android APK with WebView UI and native terminal.
+```
+openclaw-android/
+├── install.sh              # Instalador principal (curl | bash)
+├── oa.sh                   # CLI de gestión (oa --update, oa --install...)
+├── update-core.sh          # Lógica de actualización de OpenClaw
+├── post-setup.sh           # Post-instalación (sincronizado con assets)
+├── scripts/
+│   ├── lib.sh              # Librería compartida de scripts
+│   ├── setup-env.sh        # Configuración de entorno bash
+│   └── install-*.sh        # Instaladores de herramientas opcionales
+├── android/                # APK Android (ver android/README.md)
+│   ├── app/src/main/java/com/openclaw/android/
+│   │   ├── CommandRunner.kt      # bash -l -c + grun + rutas Termux
+│   │   ├── EnvironmentBuilder.kt # Variables de entorno Termux reales
+│   │   ├── BootstrapManager.kt   # Bootstrap + detección installed.json
+│   │   ├── JsBridge.kt           # 34 métodos @JavascriptInterface
+│   │   └── MainActivity.kt       # Permisos + WebView + Terminal
+│   └── app/src/test/             # Tests unitarios (JUnit5 + MockK)
+└── tests/
+    └── verify-install.sh   # Verificación de instalación en dispositivo
+```
 
-See the [README](README.md) for the full project structure and architecture details.
+---
 
-## Code Style
+## 🎨 Estilo de Código
 
-| Language | Style | Indentation |
-|----------|-------|-------------|
-| Shell (bash) | POSIX compatible, `scripts/lib.sh` conventions | 4 spaces |
-| Kotlin | [Official coding conventions](https://kotlinlang.org/docs/coding-conventions.html) | 4 spaces |
-| XML | Standard Android conventions | 2 spaces |
-| TypeScript/React | ESLint config in `android/www/` | 2 spaces |
+| Lenguaje | Estilo | Indentación |
+|---|---|---|
+| Shell (bash) | Compatible POSIX, convenciones `scripts/lib.sh` | 4 espacios |
+| Kotlin | [Convenciones oficiales](https://kotlinlang.org/docs/coding-conventions.html) | 4 espacios |
+| XML | Convenciones estándar Android | 2 espacios |
+| TypeScript/React | Config ESLint en `android/www/` | 2 espacios |
 
-## Key Considerations
+---
 
-When contributing to this project, keep in mind:
+## ⚠️ Consideraciones Clave
 
-- **Termux compatibility** — Scripts must work in Termux's environment (`$PREFIX` paths, no root)
-- **glibc boundary** — Node.js runs under glibc-runner while system tools use Bionic libc
-- **Path handling** — Standard Linux paths (`/tmp`, `/bin/sh`) must be converted to Termux equivalents
-- **Android version range** — The app targets `minSdk 24` (Android 7.0) to `targetSdk 28`
-- **Idempotency** — Install and update scripts should be safe to run multiple times
+| Área | Regla |
+|---|---|
+| **Ejecución de comandos** | Siempre `bash -l -c "..."` — nunca `sh -c` ni `Runtime.exec()` |
+| **Node.js** | Siempre `grun node` o via `openclaw-start.sh` — nunca `node` directamente |
+| **Rutas** | Usar constantes de `CommandRunner` (`TERMUX_HOME`, `TERMUX_PREFIX`, etc.) |
+| **Detección** | Verificar `installed.json` para instalación completa, no solo `bin/sh` |
+| **Permisos** | Solicitar `MANAGE_EXTERNAL_STORAGE` antes de `termux-setup-storage` |
+| **Compatibilidad Termux** | Scripts deben funcionar en el entorno de Termux (rutas `$PREFIX`, sin root) |
+| **Límite glibc** | Node.js corre bajo glibc-runner; herramientas del sistema usan Bionic libc |
+| **Rango Android** | `minSdk 24` (Android 7.0), `targetSdk 28` (bypass W^X) |
+| **Idempotencia** | Scripts de instalación y actualización deben ser seguros de ejecutar múltiples veces |
 
-## Reporting Issues
+---
 
-- **Bugs**: Include Android version, device model, Termux version, steps to reproduce
-- **Features**: Describe the use case and proposed approach
-- **Security**: See [SECURITY.md](SECURITY.md) for responsible disclosure
+## 🐛 Reportar Issues
 
-## License
+- **Bugs**: Incluye versión de Android, modelo de dispositivo, versión de Termux, pasos para reproducir
+- **Funcionalidades**: Describe el caso de uso y el enfoque propuesto
+- **Seguridad**: Ver [SECURITY.md](SECURITY.md) para divulgación responsable
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+---
+
+## 📄 Licencia
+
+Al contribuir, aceptas que tus contribuciones serán licenciadas bajo la Licencia GPL v3.

@@ -5,9 +5,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -20,6 +25,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.openclaw.android.databinding.ActivityMainBinding
 import com.termux.terminal.TerminalSession
@@ -43,6 +49,8 @@ class MainActivity : AppCompatActivity() {
         private const val TAB_ADD_PAD_DP = 12
         private const val INDICATOR_HEIGHT_DP = 2
         private const val INPUT_MODE_TYPE_NULL = 1
+        private const val REQUEST_STORAGE_PERMISSIONS = 100
+        private const val REQUEST_MANAGE_STORAGE = 101
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -74,8 +82,11 @@ class MainActivity : AppCompatActivity() {
         sessionManager.onSessionsChanged = { updateSessionTabs() }
         startService(Intent(this, OpenClawService::class.java))
 
+        // Request storage permissions before any installation
+        requestStoragePermissions()
+
         val isInstalled = bootstrapManager.isInstalled()
-        AppLogger.i(TAG, "Bootstrap installed: $isInstalled, needsPostSetup: ${bootstrapManager.needsPostSetup()}")
+        AppLogger.i(TAG, "Bootstrap installed: $isInstalled, openclawInstalled: ${bootstrapManager.isOpenClawInstalled()}, needsPostSetup: ${bootstrapManager.needsPostSetup()}")
 
         // Sync www assets and check for APK version upgrade
         if (isInstalled) {
@@ -104,13 +115,100 @@ class MainActivity : AppCompatActivity() {
             } else if (intent?.getBooleanExtra("from_boot", false) == true) {
                 val platformFile = java.io.File(bootstrapManager.homeDir, ".openclaw-android/.platform")
                 val platformId = if (platformFile.exists()) platformFile.readText().trim() else "openclaw"
-                AppLogger.i(TAG, "Boot launch \u2014 auto-starting $platformId gateway")
+                AppLogger.i(TAG, "Boot launch — auto-starting $platformId gateway via grun")
                 binding.terminalView.post {
-                    session.write("$platformId gateway\n")
+                    // Use wrapper script which calls grun — never call node directly
+                    session.write("${CommandRunner.WRAPPER_SCRIPT}\n")
                 }
             }
         }
         // else: WebView shows setup UI, user triggers startSetup via JsBridge
+    }
+
+    // --- Storage permissions ---
+
+    private fun requestStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: request MANAGE_EXTERNAL_STORAGE via Settings
+            if (!Environment.isExternalStorageManager()) {
+                AppLogger.i(TAG, "Requesting MANAGE_EXTERNAL_STORAGE permission")
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivityForResult(intent, REQUEST_MANAGE_STORAGE)
+                } catch (e: Exception) {
+                    // Fallback: open general storage settings
+                    startActivityForResult(
+                        Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+                        REQUEST_MANAGE_STORAGE,
+                    )
+                }
+            } else {
+                onStoragePermissionsGranted()
+            }
+        } else {
+            // Android 6-10: runtime permissions
+            val permissions =
+                arrayOf(
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                )
+            val missing = permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQUEST_STORAGE_PERMISSIONS)
+            } else {
+                onStoragePermissionsGranted()
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_STORAGE_PERMISSIONS) {
+            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (allGranted) {
+                AppLogger.i(TAG, "Storage permissions granted")
+                onStoragePermissionsGranted()
+            } else {
+                AppLogger.w(TAG, "Storage permissions denied — termux-setup-storage may fail")
+                // Continue anyway; some features may be limited
+                onStoragePermissionsGranted()
+            }
+        }
+    }
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_MANAGE_STORAGE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                AppLogger.i(TAG, "MANAGE_EXTERNAL_STORAGE granted")
+            } else {
+                AppLogger.w(TAG, "MANAGE_EXTERNAL_STORAGE denied")
+            }
+            onStoragePermissionsGranted()
+        }
+    }
+
+    /**
+     * Called once storage permissions are resolved (granted or denied).
+     * Runs termux-setup-storage if not already done, then proceeds with setup.
+     */
+    private fun onStoragePermissionsGranted() {
+        Thread {
+            CommandRunner.runTermuxSetupStorage { line ->
+                AppLogger.i(TAG, "setup-storage: $line")
+            }
+        }.start()
     }
 
     // --- Terminal setup ---
