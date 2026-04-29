@@ -79,6 +79,16 @@ resolve_npm_registry() {
 }
 
 # SSL cert for curl (bootstrap curl looks at hardcoded com.termux path)
+# Bootstrap from Android system certs FIRST so curl can reach packages-cf.termux.dev
+# without "Certificate verification failed" even before ca-certificates is installed.
+_CERT_BUNDLE="$PREFIX/etc/tls/cert.pem"
+if [ ! -s "$_CERT_BUNDLE" ] || ! grep -q "BEGIN CERTIFICATE" "$_CERT_BUNDLE" 2>/dev/null; then
+    mkdir -p "$PREFIX/etc/tls"
+    if [ -d "/system/etc/security/cacerts" ]; then
+        cat /system/etc/security/cacerts/*.0 > "$_CERT_BUNDLE" 2>/dev/null || true
+    fi
+fi
+unset _CERT_BUNDLE
 export CURL_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
 export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
 export GIT_SSL_CAINFO="$PREFIX/etc/tls/cert.pem"
@@ -743,6 +753,19 @@ export CPATH="$PREFIX/include/glib-2.0:$PREFIX/lib/glib-2.0/include"
 # npm registry (auto-detected by OpenClaw Android, safe to override manually)
 [ -z "\${NPM_CONFIG_REGISTRY:-}" ] && [ -s "\$HOME/.openclaw-android/.npm-registry" ] && \\
     export NPM_CONFIG_REGISTRY="\$(cat "\$HOME/.openclaw-android/.npm-registry")"
+
+# ── Auto-run post-setup if not yet completed ──────────────────────────────────
+# Runs automatically on first terminal open after bootstrap.
+# Skipped once ~/.openclaw-android/.post-setup-done exists.
+_OCA_SETUP_MARKER="\$HOME/.openclaw-android/.post-setup-done"
+_OCA_SETUP_SCRIPT="\$HOME/.openclaw-android/post-setup.sh"
+if [ ! -f "\$_OCA_SETUP_MARKER" ] && [ -f "\$_OCA_SETUP_SCRIPT" ]; then
+    echo ""
+    echo "  OpenClaw setup not yet complete — running post-setup.sh..."
+    echo ""
+    bash "\$_OCA_SETUP_SCRIPT"
+fi
+unset _OCA_SETUP_MARKER _OCA_SETUP_SCRIPT
 BASHRC
 
 echo -e "  ${GREEN}✓${NC} ~/.bashrc configured"

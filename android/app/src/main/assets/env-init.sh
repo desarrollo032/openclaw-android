@@ -57,7 +57,7 @@ patch_file() {
         7f454c46) return 0 ;;
     esac
     # Only patch if file contains a placeholder
-    if grep -qF '__PREFIX__\|__HOME__\|__OCA_DIR__\|__OCA_BIN__\|__NODE_DIR__\|__NODE_REAL__\|__GLIBC_LDSO__\|__GLIBC_LIB__\|com.termux' "$f" 2>/dev/null; then
+    if grep -qE '__PREFIX__|__HOME__|__OCA_DIR__|__OCA_BIN__|__NODE_DIR__|__NODE_REAL__|__GLIBC_LDSO__|__GLIBC_LIB__|com\.termux' "$f" 2>/dev/null; then
         sed -i \
             -e "s|__PREFIX__|${PREFIX}|g" \
             -e "s|__HOME__|${HOME}|g" \

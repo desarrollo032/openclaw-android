@@ -67,6 +67,22 @@ resolve_tarball_url() {
 echo "Checking network connectivity..."
 resolve_tarball_url || echo -e "  ${YELLOW}[WARN]${NC} GitHub may be slow — proceeding anyway"
 
+# ── Bootstrap SSL certificates before any download ────────────────────────────
+# Use the bundled cacert.pem from the repo if already extracted,
+# otherwise fall back to Android system certs so curl can verify HTTPS
+# even before ca-certificates is installed via pkg.
+_CERT_BUNDLE="$PREFIX/etc/tls/cert.pem"
+if [ ! -s "$_CERT_BUNDLE" ] || ! grep -q "BEGIN CERTIFICATE" "$_CERT_BUNDLE" 2>/dev/null; then
+    mkdir -p "$PREFIX/etc/tls"
+    # Try Android system certs first (always available on Android)
+    if [ -d "/system/etc/security/cacerts" ]; then
+        cat /system/etc/security/cacerts/*.0 > "$_CERT_BUNDLE" 2>/dev/null || true
+    fi
+fi
+export CURL_CA_BUNDLE="$_CERT_BUNDLE"
+export SSL_CERT_FILE="$_CERT_BUNDLE"
+unset _CERT_BUNDLE
+
 # ── Clean up any previous failed download ─────────────────────────────────────
 
 if [ -d "$INSTALL_DIR" ]; then
@@ -104,6 +120,20 @@ trap - EXIT
 
 echo -e "${GREEN}[OK]${NC}   Installer ready"
 echo ""
+
+# ── Install bundled CA certificates before running installer ─────────────────
+# The repo includes scripts/cacert.pem (Mozilla bundle) — install it now so
+# pkg/curl/apt work without needing ca-certificates pre-installed.
+_REPO_CERT="$INSTALL_DIR/scripts/cacert.pem"
+_CERT_BUNDLE="$PREFIX/etc/tls/cert.pem"
+if [ -f "$_REPO_CERT" ]; then
+    mkdir -p "$PREFIX/etc/tls"
+    cp "$_REPO_CERT" "$_CERT_BUNDLE"
+    export CURL_CA_BUNDLE="$_CERT_BUNDLE"
+    export SSL_CERT_FILE="$_CERT_BUNDLE"
+    echo -e "${GREEN}[OK]${NC}   CA certificates installed from bundled cacert.pem"
+fi
+unset _REPO_CERT _CERT_BUNDLE
 
 # ── Run installer ─────────────────────────────────────────────────────────────
 

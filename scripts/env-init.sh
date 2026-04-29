@@ -99,7 +99,7 @@ if [ -d "$PREFIX/bin" ]; then
         magic=$(head -c 4 "$f" 2>/dev/null | od -An -tx1 | tr -d ' \n' | head -c 8)
         [ "$magic" = "7f454c46" ] && continue
         # Solo parchear si contiene placeholders o rutas de com.termux
-        if grep -qF "com.termux" "$f" 2>/dev/null || grep -qF "__PREFIX__" "$f" 2>/dev/null; then
+        if grep -qE '__PREFIX__|__HOME__|__OCA_DIR__|__OCA_BIN__|__NODE_DIR__|__NODE_REAL__|__GLIBC_LDSO__|__GLIBC_LIB__|com\.termux' "$f" 2>/dev/null; then
             patch_file "$f"
             count=$((count + 1))
         fi
