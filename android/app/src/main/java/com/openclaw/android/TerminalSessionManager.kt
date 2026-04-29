@@ -4,8 +4,8 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 
 /**
- * Gestión de sesiones de terminal múltiples.
- * Usa TerminalView.attachSession() para cambiar sesiones — un TerminalView, muchas sesiones.
+ * Manages multiple terminal sessions.
+ * One TerminalView, many sessions — switch via attachSession().
  */
 class TerminalSessionManager(
     private val activity: MainActivity,
@@ -26,39 +26,68 @@ class TerminalSessionManager(
         get() = sessions.getOrNull(activeSessionIndex)
 
     /**
-     * Crea una nueva sesión de terminal. Devuelve el handle de la sesión.
-     * Detecta automáticamente si usar rutas de Termux o locales de la app.
+     * Creates a new terminal session using the app-local sandbox exclusively.
+     *
+     * Shell selection:
+     *   1. filesDir/usr/bin/bash  — preferred (full-featured)
+     *   2. filesDir/usr/bin/sh    — fallback
+     *   3. /system/bin/sh         — last resort (always available on Android)
+     *
+     * bash is always launched with --norc --noprofile to prevent it from
+     * sourcing /data/data/com.termux/files/usr/etc/bash.bashrc (the path
+     * compiled into the Termux bootstrap bash binary). The full environment
+     * is built explicitly by EnvironmentBuilder — no rc files are needed.
      */
     fun createSession(): TerminalSession {
-        // Construir entorno con rutas reales disponibles (Termux o local de la app)
-        val env = EnvironmentBuilder.buildEnvironment(activity.filesDir).toMutableMap()
+        val env = EnvironmentBuilder.buildEnvironment(
+            activity.filesDir,
+            activity.packageName,
+        ).toMutableMap()
 
-        // Asegurar que HOME y TMPDIR existen
-        val homeDir = java.io.File(env["HOME"] ?: CommandRunner.TERMUX_HOME).also { it.mkdirs() }
+        // Ensure HOME and TMPDIR directories exist
+        val homeDir = java.io.File(env["HOME"] ?: activity.filesDir.resolve("home").absolutePath)
+            .also { it.mkdirs() }
         env["TMPDIR"]?.let { java.io.File(it).mkdirs() }
 
-        // Eliminar LD_PRELOAD si la librería no existe (evita crash "library not found")
+        // Strip LD_PRELOAD if the library doesn't exist in our prefix.
+        // Prevents "library not found" crash on first run before bootstrap is installed.
         val ldPreload = env["LD_PRELOAD"]
         if (ldPreload != null && !java.io.File(ldPreload).exists()) {
             env.remove("LD_PRELOAD")
-            AppLogger.w(TAG, "LD_PRELOAD eliminado: $ldPreload no existe")
+            AppLogger.w(TAG, "LD_PRELOAD removed: $ldPreload not found")
         }
 
-        val prefix = env["PREFIX"] ?: CommandRunner.TERMUX_PREFIX
+        val prefix = env["PREFIX"] ?: activity.filesDir.resolve("usr").absolutePath
 
-        // Seleccionar el mejor shell disponible
-        val shell = listOf(
+        // Resolve shell from OUR prefix only — never from Termux or system paths
+        // (except /system/bin/sh as absolute last resort).
+        val shellBin = listOf(
             "$prefix/bin/bash",
             "$prefix/bin/sh",
             "/system/bin/sh",
         ).firstOrNull { java.io.File(it).exists() } ?: "/system/bin/sh"
 
-        AppLogger.i(TAG, "Iniciando sesión: shell=$shell, home=${homeDir.absolutePath}, prefix=$prefix")
+        // Pass --norc --noprofile to bash so it does NOT source:
+        //   - /etc/profile (--noprofile)
+        //   - ~/.bashrc or the compiled-in TERMUX__PREFIX/etc/bash.bashrc (--norc)
+        // This is the definitive fix for "bash.bashrc: Permission denied".
+        //
+        // IMPORTANT: argv[0] must be the process name (basename of the shell binary).
+        // The JNI layer passes this array directly as execvp(cmd, argv), so argv[0]
+        // is what the process sees as $0 / its own name (shown in the prompt).
+        // Flags go in argv[1], argv[2], etc.
+        val shellArgs: Array<String> = if (shellBin.endsWith("/bash")) {
+            arrayOf("bash", "--norc", "--noprofile")
+        } else {
+            arrayOf("sh")
+        }
+
+        AppLogger.i(TAG, "Creating session: shell=$shellBin home=${homeDir.absolutePath} prefix=$prefix")
 
         val session = TerminalSession(
-            shell,
+            shellBin,
             homeDir.absolutePath,
-            arrayOf<String>(),
+            shellArgs,
             env.entries.map { "${it.key}=${it.value}" }.toTypedArray(),
             TRANSCRIPT_ROWS,
             sessionClient,
@@ -70,13 +99,10 @@ class TerminalSessionManager(
         eventBridge.emit("session_changed", mapOf("id" to session.mHandle, "action" to "created"))
         activity.runOnUiThread { onSessionsChanged?.invoke() }
 
-        AppLogger.i(TAG, "Sesión creada ${session.mHandle} (total: ${sessions.size})")
+        AppLogger.i(TAG, "Session created ${session.mHandle} (total: ${sessions.size})")
         return session
     }
 
-    /**
-     * Cambia a la sesión por índice.
-     */
     fun switchSession(index: Int) {
         if (index < 0 || index >= sessions.size) return
         activeSessionIndex = index
@@ -90,22 +116,14 @@ class TerminalSessionManager(
         activity.runOnUiThread { onSessionsChanged?.invoke() }
     }
 
-    /**
-     * Cambia a la sesión por handle ID.
-     */
     fun switchSession(handleId: String) {
         val index = sessions.indexOfFirst { it.mHandle == handleId }
         if (index >= 0) switchSession(index)
     }
 
-    /**
-     * Busca una sesión por handle ID.
-     */
-    fun getSessionById(handleId: String): TerminalSession? = sessions.find { it.mHandle == handleId }
+    fun getSessionById(handleId: String): TerminalSession? =
+        sessions.find { it.mHandle == handleId }
 
-    /**
-     * Cierra una sesión por handle ID.
-     */
     fun closeSession(handleId: String) {
         val index = sessions.indexOfFirst { it.mHandle == handleId }
         if (index < 0) return
@@ -123,26 +141,20 @@ class TerminalSessionManager(
         }
 
         activity.runOnUiThread { onSessionsChanged?.invoke() }
-        AppLogger.i(TAG, "Sesión cerrada $handleId (restantes: ${sessions.size})")
+        AppLogger.i(TAG, "Session closed $handleId (remaining: ${sessions.size})")
     }
 
-    /**
-     * Llamado cuando el proceso de una sesión termina.
-     */
     fun onSessionFinished(session: TerminalSession) {
         finishedSessionIds.add(session.mHandle)
         eventBridge.emit("session_changed", mapOf("id" to session.mHandle, "action" to "finished"))
         activity.runOnUiThread { onSessionsChanged?.invoke() }
     }
 
-    /**
-     * Devuelve info de todas las sesiones para JsBridge.
-     */
     fun getSessionsInfo(): List<Map<String, Any>> =
         sessions.mapIndexed { index, session ->
             mapOf(
                 "id" to session.mHandle,
-                "name" to (session.title ?: "Sesión ${index + 1}"),
+                "name" to (session.title ?: "Session ${index + 1}"),
                 "active" to (index == activeSessionIndex),
                 "finished" to (session.mHandle in finishedSessionIds),
             )

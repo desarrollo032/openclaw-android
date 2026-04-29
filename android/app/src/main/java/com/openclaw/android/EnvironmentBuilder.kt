@@ -6,35 +6,28 @@ import java.io.File
 /**
  * Builds the complete process environment for running OpenClaw.
  *
- * Architecture:
- *   - All paths are resolved from context.filesDir (app sandbox).
- *   - NO dependency on Termux. If Termux is not installed, everything still works.
- *   - Termux paths are checked as a legacy fallback only when the app-local
- *     runtime is not yet installed (e.g., during first-run migration).
+ * Design contract:
+ *   - ALL paths are resolved exclusively from context.filesDir (app sandbox).
+ *   - NO fallback to Termux paths at runtime. Termux constants exist only for
+ *     legacy detection (isInstalled checks), never for process execution.
+ *   - Every process launched by this app uses only paths under filesDir.
  *
- * Path layout (all under context.filesDir):
- *   filesDir/usr/          → PREFIX
- *   filesDir/home/         → HOME
- *   filesDir/tmp/          → TMPDIR
- *   HOME/.openclaw-android/bin/   → OCA_BIN (node, npm, npx wrappers)
- *   HOME/.openclaw-android/node/  → NODE_DIR
- *   PREFIX/glibc/lib/             → GLIBC_LIB
+ * Sandbox layout (all under context.filesDir):
+ *   filesDir/usr/                        → PREFIX
+ *   filesDir/home/                       → HOME
+ *   filesDir/tmp/                        → TMPDIR
+ *   filesDir/payload/                    → PAYLOAD_DIR
+ *   HOME/.openclaw-android/bin/          → OCA_BIN (node, npm, npx wrappers)
+ *   HOME/.openclaw-android/node/         → NODE_DIR
+ *   PREFIX/glibc/lib/                    → GLIBC_LIB
  */
 object EnvironmentBuilder {
-
-    // Legacy Termux paths — used ONLY as fallback when app-local runtime is absent.
-    // These are never written to; only read for detection.
-    private const val TERMUX_HOME_LEGACY = "/data/data/com.termux/files/home"
-    private const val TERMUX_PREFIX_LEGACY = "/data/data/com.termux/files/usr"
 
     fun build(context: Context): Map<String, String> =
         buildEnvironment(context.filesDir, context.packageName)
 
     fun build(filesDir: File): Map<String, String> = buildEnvironment(filesDir)
 
-    /**
-     * Build environment from the process environment or provided filesDir.
-     */
     fun buildTermuxEnvironment(context: Context? = null): Map<String, String> {
         val filesDir = context?.filesDir ?: resolveFilesDirFromEnv()
         return buildEnvironment(filesDir, context?.packageName)
@@ -43,57 +36,46 @@ object EnvironmentBuilder {
     private fun resolveFilesDirFromEnv(): File? {
         val home = System.getenv("HOME") ?: return null
         val homeFile = File(home)
-        return if (homeFile.name == "home") homeFile.parentFile else homeFile.parentFile?.parentFile
+        // HOME is filesDir/home — parent is filesDir
+        return if (homeFile.name == "home") homeFile.parentFile else null
     }
 
     /**
-     * Resolve the active (prefix, home) pair.
+     * Resolve (prefix, home) exclusively from the app sandbox.
      *
-     * Priority:
-     *   1. App-local runtime (filesDir/usr) — always preferred
-     *   2. Legacy Termux runtime — only if app-local is not installed AND
-     *      Termux is actually accessible (same UID or sharedUserId)
+     * Always returns app-local paths. Never falls back to Termux.
+     * If filesDir is null (edge case during early init), returns safe defaults
+     * that will fail loudly rather than silently using Termux paths.
      */
     fun resolveActivePaths(filesDir: File? = null): Pair<String, String> {
-        // 1. App-local runtime
-        if (filesDir != null) {
-            val localPrefix = filesDir.resolve("usr")
-            val localHome = filesDir.resolve("home")
-            if (localPrefix.resolve("bin/sh").exists()) {
-                localHome.mkdirs()
-                return Pair(localPrefix.absolutePath, localHome.absolutePath)
-            }
-        }
-
-        // 2. Legacy Termux fallback (only if accessible)
-        val termuxPrefix = File(TERMUX_PREFIX_LEGACY)
-        val termuxHome = File(TERMUX_HOME_LEGACY)
-        val termuxAccessible = try {
-            termuxPrefix.resolve("bin/sh").exists() &&
-                termuxHome.canWrite() &&
-                termuxPrefix.resolve("bin").listFiles() != null
-        } catch (_: SecurityException) {
-            false
-        }
-        if (termuxAccessible) {
-            return Pair(TERMUX_PREFIX_LEGACY, TERMUX_HOME_LEGACY)
-        }
-
-        // 3. App-local paths even if not yet installed (bootstrap in progress)
         if (filesDir != null) {
             val localPrefix = filesDir.resolve("usr")
             val localHome = filesDir.resolve("home")
             localHome.mkdirs()
             return Pair(localPrefix.absolutePath, localHome.absolutePath)
         }
-
-        // 4. Last resort
-        return Pair(TERMUX_PREFIX_LEGACY, TERMUX_HOME_LEGACY)
+        // filesDir unknown — derive from process HOME if set by us
+        val envHome = System.getenv("HOME")
+        if (envHome != null && envHome.contains("/files/home")) {
+            val inferredFilesDir = File(envHome).parentFile
+            if (inferredFilesDir != null) {
+                return Pair(
+                    inferredFilesDir.resolve("usr").absolutePath,
+                    envHome,
+                )
+            }
+        }
+        // Last resort: return placeholder paths that will fail clearly
+        // rather than silently using /data/data/com.termux/...
+        return Pair("/data/local/tmp/openclaw-usr", "/data/local/tmp/openclaw-home")
     }
 
     fun buildEnvironment(filesDir: File?, packageName: String? = null): Map<String, String> {
         val (prefix, home) = resolveActivePaths(filesDir)
-        val actualFilesDir = filesDir ?: (if (home.endsWith("/home")) File(home).parentFile else null)
+
+        val actualFilesDir = filesDir
+            ?: if (home.contains("/files/home")) File(home).parentFile else null
+
         val actualPackageName = packageName
             ?: actualFilesDir?.parentFile?.name
             ?: "com.openclaw.android"
@@ -102,80 +84,99 @@ object EnvironmentBuilder {
         val ocaBin = "$ocaDir/bin"
         val nodeDir = "$ocaDir/node"
         val glibcLib = "$prefix/glibc/lib"
-        val tmpDir = if (actualFilesDir != null) {
-            actualFilesDir.resolve("tmp").also { it.mkdirs() }.absolutePath
-        } else {
-            File(prefix).parent?.let { "$it/tmp" } ?: "/data/local/tmp"
-        }
+
+        val tmpDir = actualFilesDir
+            ?.resolve("tmp")
+            ?.also { it.mkdirs() }
+            ?.absolutePath
+            ?: "/data/local/tmp"
 
         // Ensure resolv.conf exists before any network call
         ensureResolvConf(prefix)
 
         return buildMap {
+            // ── Core sandbox paths ────────────────────────────────────────────
             put("HOME", home)
             put("PREFIX", prefix)
             put("TMPDIR", tmpDir)
 
-            // Essential for scripts that expect the PayloadManager context
             if (actualFilesDir != null) {
                 put("APP_FILES_DIR", actualFilesDir.absolutePath)
+                // PAYLOAD_DIR is always filesDir/payload.
+                // Set unconditionally so post-setup.sh always has it, regardless
+                // of whether it is invoked programmatically or from a terminal session.
+                put("PAYLOAD_DIR", actualFilesDir.resolve("payload").absolutePath)
             }
             put("APP_PACKAGE", actualPackageName)
 
-            // PATH: OCA bin first (contains glibc-wrapped node), then prefix bins
+            // ── PATH: sandbox bins first, system bins last ────────────────────
+            // OCA_BIN contains the glibc-wrapped node launcher.
+            // /system/bin and /bin are Android system utilities only.
             put("PATH", "$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin")
 
-            // glibc libs must be on LD_LIBRARY_PATH for any glibc binary
+            // ── Dynamic linker ────────────────────────────────────────────────
+            // glibc libs must be on LD_LIBRARY_PATH for any glibc binary.
             put("LD_LIBRARY_PATH", "$glibcLib:$prefix/lib")
 
-            // Termux-exec redirection
+            // LD_PRELOAD: only set if libtermux-exec.so exists in OUR prefix.
+            // This intercepts execve() to rewrite hardcoded com.termux paths.
+            // The node wrapper unsets LD_PRELOAD before launching node.real via
+            // ld.so to prevent bionic libtermux-exec.so from crashing glibc.
             val termuxExec = "$prefix/lib/libtermux-exec.so"
             if (File(termuxExec).exists()) {
                 put("LD_PRELOAD", termuxExec)
             }
 
-            // NOTE: The node wrapper (OCA_BIN/node) unsets LD_PRELOAD before exec'ing
-            // node.real via ld.so to prevent bionic libtermux-exec.so from loading
-            // into the glibc process (which would cause a "Could not find a PHDR" crash).
-
-            // Termux-compat vars (some tools read these)
+            // ── Termux-compat vars ────────────────────────────────────────────
+            // Point TERMUX__PREFIX to OUR prefix so the bootstrap bash binary
+            // sources OUR bash.bashrc instead of /data/data/com.termux/...
+            // This is the key fix for "bash.bashrc: Permission denied".
             put("TERMUX__PREFIX", prefix)
             put("TERMUX_PREFIX", prefix)
             put("TERMUX__ROOTFS", File(prefix).parent ?: prefix)
 
-            // SSL — point to the cert bundle in the app-local prefix
+            // ── Bash startup suppression ──────────────────────────────────────
+            // The Termux bootstrap bash has /data/data/com.termux/files/usr
+            // compiled in as its prefix. Even with TERMUX__PREFIX set, some
+            // bash versions ignore it for the initial bashrc lookup.
+            // BASH_ENV suppresses startup files for non-interactive bash.
+            // Interactive bash is handled by --norc --noprofile in TerminalSessionManager.
+            put("BASH_ENV", "/dev/null")
+            put("ENV", "/dev/null")
+
+            // ── SSL certificates ──────────────────────────────────────────────
             val certBundle = "$prefix/etc/tls/cert.pem"
             put("SSL_CERT_FILE", certBundle)
             put("CURL_CA_BUNDLE", certBundle)
             put("GIT_SSL_CAINFO", certBundle)
 
-            // DNS — resolv.conf path for resolvers that read it explicitly
+            // ── DNS ───────────────────────────────────────────────────────────
             put("RESOLV_CONF", "$prefix/etc/resolv.conf")
 
-            // Git — avoid hardcoded system paths
+            // ── Git ───────────────────────────────────────────────────────────
             put("GIT_CONFIG_NOSYSTEM", "1")
             put("GIT_EXEC_PATH", "$prefix/libexec/git-core")
             put("GIT_TEMPLATE_DIR", "$prefix/share/git-core/templates")
 
-            // dpkg/apt (used by post-setup.sh if dynamic install path is taken)
+            // ── dpkg/apt ──────────────────────────────────────────────────────
             put("APT_CONFIG", "$prefix/etc/apt/apt.conf")
             put("DPKG_ADMINDIR", "$prefix/var/lib/dpkg")
             put("DPKG_ROOT", prefix)
 
-            // Locale and terminal
+            // ── Locale and terminal ───────────────────────────────────────────
             put("LANG", "en_US.UTF-8")
             put("TERM", "xterm-256color")
 
-            // Android system paths
+            // ── Android system ────────────────────────────────────────────────
             put("ANDROID_DATA", "/data")
             put("ANDROID_ROOT", "/system")
 
-            // OpenClaw flags
+            // ── OpenClaw flags ────────────────────────────────────────────────
             put("OA_GLIBC", "1")
             put("CONTAINER", "1")
             put("CLAWDHUB_WORKDIR", "$home/.openclaw/workspace")
 
-            // glibc-compat.js path (loaded via NODE_OPTIONS in the node wrapper)
+            // ── glibc-compat shim ─────────────────────────────────────────────
             put("_OA_COMPAT_PATH", "$ocaDir/patches/glibc-compat.js")
             put("_OA_WRAPPER_PATH", "$ocaBin/node")
         }
@@ -184,22 +185,20 @@ object EnvironmentBuilder {
     /**
      * Ensure resolv.conf exists with valid nameservers.
      * Android sandbox does not inherit /etc/resolv.conf from the system.
-     * Without this, DNS resolution fails for all network calls (curl, npm, git).
      */
     private fun ensureResolvConf(prefix: String) {
-        val resolvPaths = listOf(
+        val dnsContent = "nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n"
+        listOf(
             File("$prefix/etc/resolv.conf"),
             File("$prefix/glibc/etc/resolv.conf"),
-        )
-        val dnsContent = "nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n"
-        for (f in resolvPaths) {
+        ).forEach { f ->
             try {
-                if (!f.exists() || f.readText().isBlank() || !f.readText().contains("nameserver")) {
+                if (!f.exists() || f.length() == 0L || !f.readText().contains("nameserver")) {
                     f.parentFile?.mkdirs()
                     f.writeText(dnsContent)
                 }
             } catch (_: Exception) {
-                // Non-fatal: resolv.conf may already be correct
+                // Non-fatal
             }
         }
     }

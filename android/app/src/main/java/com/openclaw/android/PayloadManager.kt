@@ -364,37 +364,9 @@ class PayloadManager(
         }
 
     private fun buildPostSetupEnv(): Map<String, String> {
-        val filesDir = context.filesDir
-        val prefix = prefixDir.absolutePath
-        val home = homeDir.absolutePath
-        val tmp = tmpDir.also { it.mkdirs() }.absolutePath
-
-        return buildMap {
-            put("APP_FILES_DIR", filesDir.absolutePath)
-            put("APP_PACKAGE", context.packageName)
-            put("PREFIX", prefix)
-            put("HOME", home)
-            put("TMPDIR", tmp)
-            put("PAYLOAD_DIR", payloadDir.absolutePath)
-
-            // PATH: system shell tools + any existing prefix bins
-            put("PATH", "$prefix/bin:/system/bin:/bin")
-
-            // Minimal LD_LIBRARY_PATH — glibc will be set up by post-setup.sh
-            put("LD_LIBRARY_PATH", "$prefix/glibc/lib:$prefix/lib")
-
-            // SSL — may be empty until post-setup.sh installs certs
-            put("SSL_CERT_FILE", "$prefix/etc/tls/cert.pem")
-            put("CURL_CA_BUNDLE", "$prefix/etc/tls/cert.pem")
-
-            // Android system info
-            put("ANDROID_DATA", "/data")
-            put("ANDROID_ROOT", "/system")
-
-            // Locale
-            put("LANG", "en_US.UTF-8")
-            put("TERM", "xterm-256color")
-        }
+        val env = EnvironmentBuilder.buildEnvironment(context.filesDir, context.packageName).toMutableMap()
+        env["PAYLOAD_DIR"] = payloadDir.absolutePath
+        return env
     }
 
     // ── Sync www assets ───────────────────────────────────────────────────────

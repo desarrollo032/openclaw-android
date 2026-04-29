@@ -11,8 +11,9 @@
 #   - Works in Android app sandbox: /data/user/0/<pkg>/files/
 #
 # Called by: PayloadManager.runPostSetup() via CommandRunner
+#            OR interactively from a terminal session
 #
-# Required env vars (set by EnvironmentBuilder):
+# Required env vars (set by EnvironmentBuilder or auto-detected below):
 #   APP_FILES_DIR  — context.filesDir
 #   APP_PACKAGE    — context.packageName
 #   PREFIX         — $APP_FILES_DIR/usr
@@ -22,6 +23,28 @@
 # =============================================================================
 
 set -eu
+
+# ── Auto-detect APP_FILES_DIR if not set ──────────────────────────────────────
+# When invoked interactively from a terminal session, HOME is set to
+# filesDir/home by EnvironmentBuilder. Derive APP_FILES_DIR from it.
+if [ -z "${APP_FILES_DIR:-}" ]; then
+    if [ -n "${HOME:-}" ] && [ "${HOME}" != "${HOME%/home}" ]; then
+        # HOME ends with /home — parent is filesDir
+        APP_FILES_DIR="${HOME%/home}"
+    elif [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${PREFIX%/usr}" ]; then
+        # PREFIX ends with /usr — parent is filesDir
+        APP_FILES_DIR="${PREFIX%/usr}"
+    fi
+fi
+
+# ── Auto-set derived vars if missing ─────────────────────────────────────────
+if [ -n "${APP_FILES_DIR:-}" ]; then
+    : "${PREFIX:=${APP_FILES_DIR}/usr}"
+    : "${HOME:=${APP_FILES_DIR}/home}"
+    : "${TMPDIR:=${APP_FILES_DIR}/tmp}"
+    : "${PAYLOAD_DIR:=${APP_FILES_DIR}/payload}"
+    : "${APP_PACKAGE:=com.openclaw.android}"
+fi
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR=""

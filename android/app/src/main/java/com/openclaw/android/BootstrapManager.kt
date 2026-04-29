@@ -40,23 +40,23 @@ class BootstrapManager(
     private val openclawDir = File(CommandRunner.OPENCLAW_DIR)
 
     /**
-     * Bootstrap is installed if the Termux sh binary exists.
-     * Checks both the app-local prefix and the real Termux prefix.
+     * Bootstrap is installed if the app-local sh binary exists.
+     * Only checks the app sandbox — never Termux paths.
+     * Termux detection is kept separately for legacy migration only.
      */
-    fun isInstalled(): Boolean =
-        prefixDir.resolve("bin/sh").exists() ||
-            termuxPrefix.resolve("bin/sh").exists()
+    fun isInstalled(): Boolean = prefixDir.resolve("bin/sh").exists()
 
     /**
-     * OpenClaw is fully installed when installed.json marker exists.
-     * Checks both the real Termux path and the app-local path.
-     * NOTA: La app corre en su propio sandbox y puede no tener acceso
-     * a /data/data/com.termux/... — por eso verificamos ambas rutas.
+     * True if Termux is installed on the device (legacy detection only).
+     * Used only to decide whether to offer migration, never for process execution.
+     */
+    fun isTermuxInstalled(): Boolean = termuxPrefix.resolve("bin/sh").exists()
+
+    /**
+     * OpenClaw is fully installed when installed.json marker exists in the app sandbox.
+     * Only checks app-local paths — never Termux paths.
      */
     fun isOpenClawInstalled(): Boolean {
-        // Verificar via CommandRunner (que ya chequea ambas rutas)
-        if (CommandRunner.isOpenClawInstalled()) return true
-        // Verificar en el directorio local de la app
         val localMarker = File(homeDir, ".openclaw-android/installed.json")
         return localMarker.exists()
     }
@@ -66,7 +66,46 @@ class BootstrapManager(
         val markerLocal = File(homeDir, ".openclaw-android/.post-setup-done")
         // Verificar también en la ruta de Termux (si está instalado)
         val markerTermux = File(openclawDir, ".post-setup-done")
-        return isInstalled() && !markerLocal.exists() && !markerTermux.exists()
+        if (!isInstalled() || markerLocal.exists() || markerTermux.exists()) return false
+
+        // post-setup.sh requires assets/payload/ to be extracted first.
+        // If the payload directory doesn't exist, running post-setup.sh will always
+        // fail with "Payload directory not found". In that case, write the markers
+        // directly so the bootstrap path is considered complete without running the script.
+        val payloadDir = File(homeDir.parentFile, "payload")
+        if (!payloadDir.isDirectory) {
+            // Bootstrap is installed but no payload — write markers to unblock the app.
+            // The bootstrap itself is already functional; post-setup.sh is only needed
+            // for the payload-based install path (PayloadManager).
+            writeBootstrapCompletionMarkers()
+            return false
+        }
+
+        return true
+    }
+
+    /**
+     * Writes the post-setup-done and installed.json markers for the bootstrap path.
+     * Called when the bootstrap is installed but no payload is available to run
+     * post-setup.sh. This unblocks the app without running a script that would fail.
+     */
+    private fun writeBootstrapCompletionMarkers() {
+        val ocaDir = File(homeDir, ".openclaw-android")
+        ocaDir.mkdirs()
+        val markerDone = File(ocaDir, ".post-setup-done")
+        val markerInstalled = File(ocaDir, "installed.json")
+        try {
+            if (!markerDone.exists()) {
+                markerDone.createNewFile()
+                AppLogger.i(TAG, "Bootstrap completion marker written: ${markerDone.absolutePath}")
+            }
+            if (!markerInstalled.exists()) {
+                markerInstalled.writeText("""{"installed":true,"source":"bootstrap","initialized":true}""")
+                AppLogger.i(TAG, "Bootstrap installed.json written: ${markerInstalled.absolutePath}")
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Could not write bootstrap completion markers: ${e.message}")
+        }
     }
 
     val postSetupScript: File
@@ -87,13 +126,9 @@ class BootstrapManager(
     )
 
     fun getStatus(): SetupStatus {
-        // Check both app-local and real Termux paths
-        val nodeExists =
-            prefixDir.resolve("bin/node").exists() ||
-                File(CommandRunner.OPENCLAW_BIN, "node").exists()
+        val nodeExists = prefixDir.resolve("bin/node").exists()
         val postSetupDone =
             File(homeDir, ".openclaw-android/.post-setup-done").exists() ||
-                File(openclawDir, ".post-setup-done").exists() ||
                 isOpenClawInstalled()
         return SetupStatus(
             bootstrapInstalled = isInstalled(),

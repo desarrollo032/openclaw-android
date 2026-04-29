@@ -146,18 +146,12 @@ object CommandRunner {
     }
 
     /**
-     * Check if OpenClaw is installed.
-     * Checks app-local path first, then legacy Termux path.
+     * Check if OpenClaw is installed in the app sandbox.
+     * Only checks app-local paths — never Termux paths.
      */
     fun isOpenClawInstalled(): Boolean {
-        // App-local path (primary)
-        val localHome = System.getenv("HOME")
-        if (localHome != null) {
-            if (File("$localHome/.openclaw-android/installed.json").exists()) return true
-        }
-        // Legacy Termux path (fallback)
-        if (File(INSTALLED_MARKER).exists()) return true
-        return false
+        val localHome = System.getenv("HOME") ?: return false
+        return File("$localHome/.openclaw-android/installed.json").exists()
     }
 
     /**
@@ -302,16 +296,24 @@ object CommandRunner {
     }
 
     /**
-     * Resolve the best available shell.
-     * Prefers the bash from the app-local prefix, falls back to /system/bin/sh.
+     * Resolve the best available shell from the app sandbox only.
+     * Prefers bash from the app-local prefix (with -c for non-interactive use).
+     * Falls back to /system/bin/sh which is always available on Android.
+     *
+     * NOTE: This shell is used for non-interactive command execution (runSync,
+     * runStreaming). It is NOT the interactive terminal shell — that is handled
+     * by TerminalSessionManager which passes --norc --noprofile to bash.
+     * For non-interactive use, BASH_ENV=/dev/null (set by EnvironmentBuilder)
+     * prevents bash from sourcing any startup file.
      */
     private fun resolveShell(env: Map<String, String>): String {
         val prefix = env["PREFIX"]
         if (prefix != null) {
             val bash = File("$prefix/bin/bash")
             if (bash.canExecute()) return bash.absolutePath
+            val sh = File("$prefix/bin/sh")
+            if (sh.canExecute()) return sh.absolutePath
         }
-        // Android 9+ has /bin/sh; older versions only have /system/bin/sh
         return if (File("/bin/sh").exists()) "/bin/sh" else "/system/bin/sh"
     }
 
@@ -330,12 +332,13 @@ object CommandRunner {
     fun isStorageSetupDone(): Boolean = File("$TERMUX_HOME/storage").exists()
 
     /**
-     * Run termux-setup-storage if Termux is available.
+     * Run termux-setup-storage only if Termux is actually installed and accessible.
+     * This is a legacy helper — the app does not depend on it for normal operation.
      * No-op if Termux is not installed.
      */
     fun runTermuxSetupStorage(onOutput: (String) -> Unit = {}) {
-        if (!File(TERMUX_HOME).exists()) {
-            AppLogger.i(TAG, "Termux not installed, skipping termux-setup-storage")
+        if (!File(TERMUX_HOME).exists() || !File(TERMUX_HOME).canRead()) {
+            AppLogger.i(TAG, "Termux not accessible, skipping termux-setup-storage")
             onOutput("Termux not installed, skipping storage setup.")
             return
         }
@@ -356,7 +359,7 @@ object CommandRunner {
                 AppLogger.i(TAG, "setup-storage: $line")
                 onOutput(line)
             }
-            process.waitFor(30, TimeUnit.SECONDS)
+            process.waitFor(30, TimeUnit.MILLISECONDS)
             AppLogger.i(TAG, "termux-setup-storage completed")
         } catch (e: Exception) {
             AppLogger.e(TAG, "termux-setup-storage failed: ${e.message}", e)

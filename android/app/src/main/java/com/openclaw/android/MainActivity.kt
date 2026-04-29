@@ -130,6 +130,13 @@ class MainActivity : AppCompatActivity() {
                         session.write("bash $script\n")
                     }
                 }
+                // Bootstrap is ready but OpenClaw is not installed — run auto-install
+                isInstalled && !isOpenClawInstalled -> {
+                    AppLogger.i(TAG, "Bootstrap ready, OpenClaw not installed — running auto-install")
+                    binding.terminalView.post {
+                        session.write("curl -sL myopenclawhub.com/install | bash\n")
+                    }
+                }
                 intent?.getBooleanExtra("from_boot", false) == true -> {
                     val startScript = when {
                         payloadManager.isReady() -> File(filesDir, "payload/run-openclaw.sh")
