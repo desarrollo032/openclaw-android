@@ -97,7 +97,7 @@ for resolv_path in \
     "${PREFIX}/glibc/etc/resolv.conf"; do
     dir="$(dirname "$resolv_path")"
     mkdir -p "$dir" 2>/dev/null || true
-    if [ ! -s "$resolv_path" ] || ! grep -q "nameserver" "$resolv_path" 2>/dev/null; then
+    if [ ! -f "$resolv_path" ] || [ ! -s "$resolv_path" ] || ! grep -q "nameserver" "$resolv_path" 2>/dev/null; then
         printf '%s\n' "$DNS_CONTENT" > "$resolv_path" 2>/dev/null || true
         log "  Written: $resolv_path"
     fi
@@ -111,7 +111,15 @@ if [ ! -s "$CERT_BUNDLE" ]; then
     log "  Cert bundle empty — rebuilding from Android system certs..."
     mkdir -p "$(dirname "$CERT_BUNDLE")"
     if [ -d "/system/etc/security/cacerts" ]; then
-        cat /system/etc/security/cacerts/*.0 > "$CERT_BUNDLE" 2>/dev/null || true
+        local _cert_count=0
+        for _cert_file in /system/etc/security/cacerts/*.0; do
+            [ -f "$_cert_file" ] || continue
+            if head -c 27 "$_cert_file" 2>/dev/null | grep -q "BEGIN CERTIFICATE"; then
+                cat "$_cert_file" >> "$CERT_BUNDLE" 2>/dev/null || true
+                _cert_count=$((_cert_count + 1))
+            fi
+        done
+        log "  Rebuilt cert bundle: $_cert_count PEM certs"
     fi
 fi
 

@@ -132,7 +132,9 @@ bundle_glibc() {
 
     local GLIBC_SRC="$TERMUX_PREFIX/glibc"
     if [ ! -d "$GLIBC_SRC/lib" ]; then
-        log_err "glibc not found at $GLIBC_SRC — install it first: pkg install glibc"
+        log_err "glibc not found at $GLIBC_SRC"
+        log_err "Install it first: pkg install glibc"
+        log_err "Or: pkg install glibc-repo && pkg install glibc"
         exit 1
     fi
 
@@ -281,7 +283,11 @@ bundle_certs() {
         cp "$CERT_BUNDLE" "$PAYLOAD_DIR/certs/cert.pem"
         local cert_count
         cert_count=$(grep -c "BEGIN CERTIFICATE" "$PAYLOAD_DIR/certs/cert.pem" 2>/dev/null || echo "0")
-        log_ok "CA certificates bundled: $cert_count certificates"
+        if [ "$cert_count" -eq 0 ]; then
+            log_warn "Cert bundle copied but contains 0 PEM certificates — HTTPS may fail at runtime"
+        else
+            log_ok "CA certificates bundled: $cert_count certificates"
+        fi
     else
         log_warn "No CA certificates found — SSL will use Android system certs at runtime"
         # Create empty placeholder — post-setup.sh will populate from /system/etc/security/cacerts

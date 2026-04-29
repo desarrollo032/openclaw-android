@@ -370,13 +370,13 @@ class BootstrapManager(
         dir.resolve("var/log/apt").mkdirs()
         aptConf.writeText(
             """
-            Dir "/";
-            Dir::State "$prefix/var/lib/apt/";
-            Dir::State::status "$prefix/var/lib/dpkg/status";
-            Dir::Cache "$prefix/var/cache/apt/";
-            Dir::Log "$prefix/var/log/apt/";
-            Dir::Etc "$prefix/etc/apt/";
-            Dir::Etc::SourceList "$prefix/etc/apt/sources.list";
+            Dir "$prefix/";
+            Dir::State "var/lib/apt/";
+            Dir::State::status "var/lib/dpkg/status";
+            Dir::Cache "var/cache/apt/";
+            Dir::Log "var/log/apt/";
+            Dir::Etc "etc/apt/";
+            Dir::Etc::SourceList "etc/apt/sources.list";
             Dir::Etc::SourceParts "";
             Dir::Bin::dpkg "$prefix/bin/dpkg";
             Dir::Bin::Methods "$prefix/lib/apt/methods/";
@@ -453,11 +453,16 @@ class BootstrapManager(
             val realPath = dpkgReal.absolutePath
             val wrapperContent = """#!/bin/bash
 # dpkg wrapper: set PATH so dpkg can find sh, tar, rm, dpkg-deb etc.
-# Also suppresses confdir errors from hardcoded com.termux paths.
+# Filters confdir errors from hardcoded com.termux paths without
+# suppressing real dpkg fatal errors (exit code 2).
 export PATH="$realPath/../:$realPath/../applets:${d}PATH"
-"$realPath" "$d@"
-_rc=$d?
-if [ ${d}_rc -eq 2 ]; then exit 0; fi
+_stderr_tmp="${d}(mktemp 2>/dev/null || echo /tmp/dpkg-wrap-err)"
+"$realPath" "$d@" 2>"${d}_stderr_tmp"
+_rc=${d}?
+if [ -s "${d}_stderr_tmp" ]; then
+    grep -v "confdir\|com\.termux" "${d}_stderr_tmp" >&2 || true
+fi
+rm -f "${d}_stderr_tmp"
 exit ${d}_rc
 """
             dpkgBin.writeText(wrapperContent)

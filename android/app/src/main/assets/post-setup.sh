@@ -189,19 +189,19 @@ setup_certs() {
         log "  Payload cert bundle empty — using Android system certs..."
         local ANDROID_CERTS="/system/etc/security/cacerts"
         if [ -d "$ANDROID_CERTS" ]; then
-            # Android certs are DER-encoded .0 files — concatenate all
+            # Android .0 files are PEM-encoded despite the extension.
+            # Verify each file before appending to avoid corrupting the bundle.
             local count=0
             for cert_file in "$ANDROID_CERTS"/*.0; do
                 [ -f "$cert_file" ] || continue
-                # Convert DER to PEM if needed (check for PEM header)
                 if head -c 27 "$cert_file" 2>/dev/null | grep -q "BEGIN CERTIFICATE"; then
+                    # PEM format — safe to concatenate directly
                     cat "$cert_file" >> "$CERT_BUNDLE"
+                    count=$((count + 1))
                 else
-                    # DER format — openssl may not be available, skip
-                    # Android .0 files are actually PEM format despite the extension
-                    cat "$cert_file" >> "$CERT_BUNDLE" 2>/dev/null || true
+                    # DER format — skip (openssl may not be available yet)
+                    log_warn "  Skipping DER-encoded cert: $(basename "$cert_file")"
                 fi
-                count=$((count + 1))
             done
             if [ "$count" -gt 0 ]; then
                 log_ok "CA certs installed from Android system: $count files"
@@ -433,7 +433,7 @@ nameserver 8.8.4.4"
         local dir
         dir="$(dirname "$resolv_path")"
         mkdir -p "$dir"
-        if [ ! -s "$resolv_path" ] || ! grep -q "nameserver" "$resolv_path" 2>/dev/null; then
+        if [ ! -f "$resolv_path" ] || [ ! -s "$resolv_path" ] || ! grep -q "nameserver" "$resolv_path" 2>/dev/null; then
             printf '%s\n' "$DNS_CONTENT" > "$resolv_path"
             log_ok "resolv.conf written: $resolv_path"
         fi
