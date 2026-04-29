@@ -209,13 +209,7 @@ class PayloadManager(
             val assetPath = "$PAYLOAD_ASSET_DIR/$relPath"
             val destFile = File(payloadDir, relPath)
 
-            destFile.parentFile?.mkdirs()
-
-            context.assets.open(assetPath).use { input ->
-                FileOutputStream(destFile).use { output ->
-                    copyStream(input, output)
-                }
-            }
+            copyAssetToFile(assetPath, destFile)
 
             // Set executable bit on scripts and binaries
             if (shouldBeExecutable(relPath)) {
@@ -241,6 +235,15 @@ class PayloadManager(
             name == "npm" ||
             name == "npx" ||
             name == "ld-linux-aarch64.so.1"
+    }
+
+    private fun copyAssetToFile(assetPath: String, destFile: File) {
+        context.assets.open(assetPath).use { input ->
+            destFile.parentFile?.mkdirs()
+            FileOutputStream(destFile).use { output ->
+                copyStream(input, output)
+            }
+        }
     }
 
     private fun copyStream(input: InputStream, output: FileOutputStream) {
@@ -398,11 +401,7 @@ class PayloadManager(
             if (children != null && children.isNotEmpty()) {
                 syncAssetsDir(assetPath, destFile)
             } else {
-                context.assets.open(assetPath).use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        copyStream(input, output)
-                    }
-                }
+                copyAssetToFile(assetPath, destFile)
             }
         }
     }
@@ -423,13 +422,8 @@ class PayloadManager(
 
         for ((assetName, destFile) in scriptAssets) {
             try {
-                context.assets.open(assetName).use { input ->
-                    destFile.parentFile?.mkdirs()
-                    FileOutputStream(destFile).use { output ->
-                        copyStream(input, output)
-                    }
-                    destFile.setExecutable(true, false)
-                }
+                copyAssetToFile(assetName, destFile)
+                destFile.setExecutable(true, false)
                 AppLogger.i(TAG, "Script updated: $assetName → ${destFile.absolutePath}")
             } catch (_: Exception) {
                 // Asset may not exist — non-fatal
