@@ -599,14 +599,19 @@ public final class TerminalEmulator {
                 }
                 break;
             case 9: // Horizontal tab (HT, \t) - move to next tab stop, but not past edge of screen
-                // XXX: Should perhaps use color if writing to new cells. Try with
-                //       printf "\033[41m\tXX\033[0m\n"
                 // The OSX Terminal.app colors the spaces from the tab red, but xterm does not.
                 // Note that Terminal.app only colors on new cells, in e.g.
                 //       printf "\033[41m\t\r\033[42m\tXX\033[0m\n"
                 // the first cells are created with a red background, but when tabbing over
                 // them again with a green background they are not overwritten.
-                mCursorCol = nextTabStop(1);
+                int nextTabStop = nextTabStop(1);
+                long currentStyle = getStyle();
+                for (int col = mCursorCol; col < nextTabStop; col++) {
+                    if (mScreen.getStyleAt(mCursorRow, col) == TextStyle.NORMAL) {
+                        mScreen.setChar(col, mCursorRow, mScreen.getChar(col, mCursorRow), currentStyle);
+                    }
+                }
+                mCursorCol = nextTabStop;
                 break;
             case 10: // Line feed (LF, \n).
             case 11: // Vertical tab (VT, \v).
