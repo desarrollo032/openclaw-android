@@ -148,18 +148,44 @@ class JsBridge(
     // ═══════════════════════════════════════════
 
     @JavascriptInterface
-    fun getSetupStatus(): String = gson.toJson(bootstrapManager.getStatus())
+    fun getSetupStatus(): String {
+        val rootfsManager = RootfsManager(activity)
+        // Prefer rootfs status if installed via that path
+        return if (rootfsManager.isInstalled()) {
+            val status = rootfsManager.getStatus()
+            gson.toJson(mapOf(
+                "bootstrapInstalled" to status.rootfsExtracted,
+                "runtimeInstalled" to status.openclawInstalled,
+                "wwwInstalled" to status.wwwInstalled,
+                "platformInstalled" to status.openclawInstalled,
+                "source" to "rootfs",
+            ))
+        } else {
+            gson.toJson(bootstrapManager.getStatus())
+        }
+    }
 
     @JavascriptInterface
-    fun getBootstrapStatus(): String =
-        gson.toJson(
+    fun getBootstrapStatus(): String {
+        val rootfsManager = RootfsManager(activity)
+        // Check both install paths: rootfs (preferred) and bootstrap (legacy)
+        val installed = rootfsManager.isInstalled() || bootstrapManager.isInstalled()
+        val openclawInstalled = rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
+        val (prefix, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        return gson.toJson(
             mapOf(
-                "installed" to bootstrapManager.isInstalled(),
-                "openclawInstalled" to bootstrapManager.isOpenClawInstalled(),
-                "prefixPath" to EnvironmentBuilder.resolveActivePaths(activity.filesDir).first,
+                "installed" to installed,
+                "openclawInstalled" to openclawInstalled,
+                "prefixPath" to prefix,
                 "openclawPath" to CommandRunner.OPENCLAW_DIR,
+                "source" to when {
+                    rootfsManager.isInstalled() -> "rootfs"
+                    bootstrapManager.isInstalled() -> "bootstrap"
+                    else -> "none"
+                },
             ),
         )
+    }
 
     @JavascriptInterface
     fun getAppFilesDir(): String =
@@ -184,6 +210,90 @@ class JsBridge(
                 )
             }
         }
+    }
+
+    /**
+     * Install from pre-built rootfs asset (no network, no apt/pkg).
+     * Emits setup_progress events identical to startSetup() so the UI
+     * can use the same progress handler for both flows.
+     */
+    @JavascriptInterface
+    fun startRootfsInstall() {
+        val rootfsManager = RootfsManager(activity)
+        launchWithErrorHandling(
+            errorEventType = "setup_progress",
+            errorContext = mapOf("progress" to PROGRESS_START),
+        ) {
+            rootfsManager.install { progress, message ->
+                eventBridge.emit(
+                    "setup_progress",
+                    mapOf("progress" to progress, "message" to message),
+                )
+            }
+            // After rootfs install, show terminal and launch gateway
+            activity.runOnUiThread { activity.showTerminal() }
+            val session = sessionManager.createSession()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                session.write("${activity.filesDir.absolutePath}/home/openclaw-start.sh\n")
+            }, SHELL_INIT_DELAY_MS)
+        }
+    }
+
+    /**
+     * Returns rootfs installation status (pre-built rootfs flow).
+     */
+    @JavascriptInterface
+    fun getRootfsStatus(): String {
+        val rootfsManager = RootfsManager(activity)
+        return gson.toJson(rootfsManager.getStatus())
+    }
+
+    /**
+     * Install from self-contained payload (assets/payload/).
+     * Fully offline — no network, no Termux dependency.
+     * Emits setup_progress events identical to startSetup() / startRootfsInstall().
+     */
+    @JavascriptInterface
+    fun startPayloadInstall() {
+        val payloadManager = PayloadManager(activity)
+        launchWithErrorHandling(
+            errorEventType = "setup_progress",
+            errorContext = mapOf("progress" to PROGRESS_START),
+        ) {
+            payloadManager.install { progress, message ->
+                eventBridge.emit(
+                    "setup_progress",
+                    mapOf("progress" to progress, "message" to message),
+                )
+            }
+            // Sync www assets after install
+            payloadManager.syncWwwFromAssets()
+            // Launch gateway in terminal
+            activity.runOnUiThread { activity.showTerminal() }
+            val session = sessionManager.createSession()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val runScript = "${activity.filesDir.absolutePath}/payload/run-openclaw.sh"
+                session.write("$runScript\n")
+            }, SHELL_INIT_DELAY_MS)
+        }
+    }
+
+    /**
+     * Returns payload installation status.
+     */
+    @JavascriptInterface
+    fun getPayloadStatus(): String {
+        val payloadManager = PayloadManager(activity)
+        return gson.toJson(payloadManager.getStatus())
+    }
+
+    /**
+     * Returns true if the APK contains a bundled payload asset.
+     */
+    @JavascriptInterface
+    fun hasPayloadAsset(): String {
+        val payloadManager = PayloadManager(activity)
+        return gson.toJson(mapOf("hasPayload" to payloadManager.hasPayloadAsset()))
     }
 
     @JavascriptInterface
@@ -256,7 +366,7 @@ class JsBridge(
                 "npm install -g $id@latest --ignore-scripts",
                 env,
                 bootstrapManager.homeDir,
-            ) { output ->
+            ) { output: String ->
                 eventBridge.emit(
                     "install_progress",
                     mapOf("target" to id, "progress" to PROGRESS_HALF, "message" to output),
@@ -449,7 +559,7 @@ class JsBridge(
                 "install_progress",
                 mapOf("target" to id, "progress" to PROGRESS_START, "message" to "Installing $id..."),
             )
-            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output ->
+            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output: String ->
                 eventBridge.emit(
                     "install_progress",
                     mapOf("target" to id, "progress" to PROGRESS_HALF, "message" to output),
@@ -555,17 +665,19 @@ class JsBridge(
     }
 
     /**
-     * Launch OpenClaw gateway using the wrapper script (grun-based).
+     * Launch OpenClaw gateway using the wrapper script.
+     * Uses the app-local runtime — no dependency on Termux.
      */
     @JavascriptInterface
     fun launchGateway() {
         launchWithErrorHandling(errorEventType = "gateway_status") {
-            CommandRunner.createWrapperScript()
-            val session = activity.runOnUiThread { sessionManager.createSession() }
+            CommandRunner.createWrapperScript(activity.filesDir)
             activity.runOnUiThread {
                 activity.showTerminal()
+                val session = sessionManager.createSession()
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    sessionManager.activeSession?.write("${CommandRunner.WRAPPER_SCRIPT}\n")
+                    val startScript = "${activity.filesDir.absolutePath}/home/openclaw-start.sh"
+                    session.write("$startScript\n")
                 }, SHELL_INIT_DELAY_MS)
             }
             eventBridge.emit("gateway_status", mapOf("status" to "launched"))
@@ -582,7 +694,7 @@ class JsBridge(
             errorContext = mapOf("callbackId" to callbackId, "done" to true),
         ) {
             val env = CommandRunner.buildTermuxEnv()
-            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output ->
+            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output: String ->
                 eventBridge.emit(
                     "command_output",
                     mapOf("callbackId" to callbackId, "data" to output, "done" to false),

@@ -126,6 +126,12 @@ mkdir -p "$OCA_DIR" "$OCA_DIR/patches" "$TMPDIR"
 
 TERMUX_DEB_REPO="https://packages-cf.termux.dev/apt/termux-main"
 PACMAN_PKG_REPO="https://service.termux-pacman.dev/gpkg/aarch64"
+# Mirrors for termux-pacman packages (used if primary fails DNS resolution)
+PACMAN_PKG_MIRRORS=(
+    "https://service.termux-pacman.dev/gpkg/aarch64"
+    "https://packages.termux.dev/pacman/glibc-aarch64"
+    "https://mirror.termux-pacman.dev/gpkg/aarch64"
+)
 TERMUX_INNER="data/data/com.termux/files/usr"
 DEB_DIR="$TMPDIR/debs"
 PKG_DIR="$TMPDIR/pkgs"
@@ -159,20 +165,42 @@ install_deb() {
 }
 
 # ─── Helper: install_pacman_pkg ───────────────
-# Downloads a .pkg.tar.xz from pacman repo and extracts into target dir
+# Downloads a .pkg.tar.xz from pacman repo and extracts into target dir.
+# Tries multiple mirrors if the primary fails DNS resolution.
 install_pacman_pkg() {
     local filename="$1"
     local target="$2"  # e.g., $PREFIX/glibc
     local name
     name=${filename%%-[0-9]*}
-    local url="${PACMAN_PKG_REPO}/${filename}"
     local pkg_file="${PKG_DIR}/${filename}"
 
     if [ -f "$pkg_file" ]; then
         echo "    (cached) $name"
     else
         echo "    downloading $name..."
-        curl -fsSL --max-time 300 -o "$pkg_file" "$url"
+        local downloaded=false
+        for mirror in "${PACMAN_PKG_MIRRORS[@]}"; do
+            local url="${mirror}/${filename}"
+            if curl -fsSL --connect-timeout 10 --max-time 300 -o "$pkg_file" "$url" 2>/dev/null; then
+                # Verify the file is a valid xz archive (not an error page)
+                if file "$pkg_file" 2>/dev/null | grep -q "XZ\|xz\|tar"; then
+                    downloaded=true
+                    break
+                elif tar -tJf "$pkg_file" >/dev/null 2>&1; then
+                    downloaded=true
+                    break
+                else
+                    rm -f "$pkg_file"
+                fi
+            else
+                rm -f "$pkg_file"
+            fi
+            echo "    [mirror failed] $mirror"
+        done
+        if [ "$downloaded" = "false" ]; then
+            echo -e "  ${RED}✗${NC} Failed to download $name from all mirrors"
+            return 1
+        fi
     fi
 
     rm -rf "$EXTRACT_DIR"
@@ -261,18 +289,81 @@ if [ -x "$GLIBC_LDSO" ]; then
 else
     mkdir -p "$PREFIX/glibc"
 
-    # Download glibc package directly from pacman repo (no pacman needed)
-    # The gpkg.db tells us: glibc-2.42-0-aarch64.pkg.tar.xz (~9.7MB)
-    echo "  Downloading glibc (~10MB)..."
-    install_pacman_pkg "glibc-2.42-0-aarch64.pkg.tar.xz" "$PREFIX/glibc"
+    # Strategy A: pacman .pkg.tar.xz from termux-pacman service (with mirrors)
+    _glibc_via_pacman() {
+        echo "  Downloading glibc (~10MB)..."
+        install_pacman_pkg "glibc-2.42-0-aarch64.pkg.tar.xz" "$PREFIX/glibc" || return 1
+        echo "  Downloading gcc-libs (~24MB)..."
+        install_pacman_pkg "gcc-libs-glibc-14.2.1-1-aarch64.pkg.tar.xz" "$PREFIX/glibc" || return 1
+        return 0
+    }
 
-    # gcc-libs-glibc provides libstdc++.so.6 needed by Node.js (~24MB)
-    echo "  Downloading gcc-libs (~24MB)..."
-    install_pacman_pkg "gcc-libs-glibc-14.2.1-1-aarch64.pkg.tar.xz" "$PREFIX/glibc"
+    # Strategy B: .deb packages from Termux apt repo (glibc-repo)
+    # These are the same packages compiled in debian format, hosted on packages-cf.termux.dev
+    _glibc_via_apt() {
+        echo "  [fallback] Trying glibc via Termux apt repo..."
+        # First install glibc-repo to get access to glibc packages
+        local glibc_repo_file
+        glibc_repo_file=$(get_deb_filename "glibc-repo" 2>/dev/null || true)
+        if [ -n "$glibc_repo_file" ]; then
+            install_deb "$glibc_repo_file" || true
+        fi
+
+        # Fetch glibc packages index from the glibc repo
+        local GLIBC_DEB_REPO="https://packages-cf.termux.dev/apt/termux-main-glibc"
+        local GLIBC_PACKAGES_FILE="$TMPDIR/Packages-glibc"
+        if curl -fsSL --connect-timeout 10 --max-time 60 \
+            "${GLIBC_DEB_REPO}/dists/stable/main/binary-aarch64/Packages" \
+            -o "$GLIBC_PACKAGES_FILE" 2>/dev/null; then
+
+            get_glibc_deb_filename() {
+                local pkg="$1"
+                awk -v pkg="$pkg" '
+                    /^Package: / { found = ($2 == pkg) }
+                    found && /^Filename:/ { print $2; exit }
+                ' "$GLIBC_PACKAGES_FILE"
+            }
+
+            local _orig_repo="$TERMUX_DEB_REPO"
+            TERMUX_DEB_REPO="$GLIBC_DEB_REPO"
+
+            for pkg in glibc gcc-libs-glibc; do
+                local fn
+                fn=$(get_glibc_deb_filename "$pkg" 2>/dev/null || true)
+                if [ -n "$fn" ]; then
+                    echo "  [apt] Installing $pkg..."
+                    install_deb "$fn" || true
+                fi
+            done
+            TERMUX_DEB_REPO="$_orig_repo"
+
+            # glibc .deb extracts to $PREFIX directly (not $PREFIX/glibc)
+            # Check if linker ended up in $PREFIX/lib instead of $PREFIX/glibc/lib
+            if [ -f "$PREFIX/lib/ld-linux-aarch64.so.1" ] && [ ! -f "$GLIBC_LDSO" ]; then
+                mkdir -p "$PREFIX/glibc/lib"
+                cp -a "$PREFIX/lib/ld-linux-aarch64.so.1" "$PREFIX/glibc/lib/" 2>/dev/null || true
+                # Copy all glibc-related libs
+                for _lib in "$PREFIX/lib"/libstdc++* "$PREFIX/lib"/libgcc_s* \
+                            "$PREFIX/lib"/libc.so* "$PREFIX/lib"/libm.so* \
+                            "$PREFIX/lib"/libpthread* "$PREFIX/lib"/libdl*; do
+                    [ -f "$_lib" ] || [ -L "$_lib" ] || continue
+                    cp -a "$_lib" "$PREFIX/glibc/lib/" 2>/dev/null || true
+                done
+            fi
+            return 0
+        fi
+        return 1
+    }
+
+    if ! _glibc_via_pacman; then
+        echo -e "  ${YELLOW}[WARN]${NC} pacman mirrors failed, trying apt fallback..."
+        _glibc_via_apt || true
+    fi
 
     # Verify linker
     if [ ! -f "$GLIBC_LDSO" ]; then
         echo -e "  ${RED}✗${NC} glibc linker not found at $GLIBC_LDSO"
+        echo "  Tried: pacman mirrors + apt fallback"
         exit 1
     fi
     chmod +x "$GLIBC_LDSO"

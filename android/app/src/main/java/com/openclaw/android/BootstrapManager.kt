@@ -49,20 +49,34 @@ class BootstrapManager(
 
     /**
      * OpenClaw is fully installed when installed.json marker exists.
-     * This is the authoritative detection method.
+     * Checks both the real Termux path and the app-local path.
+     * NOTA: La app corre en su propio sandbox y puede no tener acceso
+     * a /data/data/com.termux/... — por eso verificamos ambas rutas.
      */
-    fun isOpenClawInstalled(): Boolean = CommandRunner.isOpenClawInstalled()
+    fun isOpenClawInstalled(): Boolean {
+        // Verificar via CommandRunner (que ya chequea ambas rutas)
+        if (CommandRunner.isOpenClawInstalled()) return true
+        // Verificar en el directorio local de la app
+        val localMarker = File(homeDir, ".openclaw-android/installed.json")
+        return localMarker.exists()
+    }
 
     fun needsPostSetup(): Boolean {
+        // Verificar marker en rutas locales de la app (sandbox real)
         val markerLocal = File(homeDir, ".openclaw-android/.post-setup-done")
+        // Verificar también en la ruta de Termux (si está instalado)
         val markerTermux = File(openclawDir, ".post-setup-done")
         return isInstalled() && !markerLocal.exists() && !markerTermux.exists()
     }
 
     val postSetupScript: File
         get() {
+            // Preferir el script en el directorio local de la app (sandbox real)
+            val localScript = File(homeDir, ".openclaw-android/post-setup.sh")
+            if (localScript.exists()) return localScript
+            // Fallback: ruta de Termux
             val termuxScript = File(openclawDir, "post-setup.sh")
-            return if (termuxScript.exists()) termuxScript else File(homeDir, ".openclaw-android/post-setup.sh")
+            return if (termuxScript.exists()) termuxScript else localScript
         }
 
     data class SetupStatus(
@@ -126,8 +140,8 @@ class BootstrapManager(
             setupTermuxExec()
 
             // Step 5: Create wrapper script and write installed marker
-            CommandRunner.createWrapperScript()
-            CommandRunner.writeInstalledMarker()
+            CommandRunner.createWrapperScript(context.filesDir)
+            CommandRunner.writeInstalledMarker(context.filesDir)
 
             onProgress(1f, "Setup complete")
         }
@@ -298,14 +312,15 @@ class BootstrapManager(
         val prefix = prefixDir.absolutePath
         val ourPackage = context.packageName
 
-        // sources.list: HTTPS→HTTP downgrade + package name fix
+        // sources.list: solo reemplazar el nombre del paquete, mantener HTTPS
+        // NO degradar a HTTP — los certificados se instalan en la fase 0 del script
         val sourcesList = dir.resolve("etc/apt/sources.list")
         if (sourcesList.exists()) {
             sourcesList.writeText(
                 sourcesList
                     .readText()
-                    .replace("https://", "http://")
                     .replace("com.termux", ourPackage),
+                // Nota: NO reemplazar https:// por http:// — los certs se activan en post-setup.sh
             )
         }
 
@@ -339,6 +354,23 @@ class BootstrapManager(
             APT::Get::AllowUnauthenticated "true";
             """.trimIndent(),
         )
+
+        // Configurar resolv.conf para DNS en el sandbox de la app
+        // Sin esto: "Could not resolve host" en apt/curl dentro del entorno
+        val resolvConf = dir.resolve("etc/resolv.conf")
+        resolvConf.parentFile?.mkdirs()
+        if (!resolvConf.exists() || resolvConf.readText().isBlank()) {
+            resolvConf.writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n")
+            AppLogger.i(TAG, "resolv.conf configured with Google/Cloudflare DNS")
+        }
+
+        // Configurar resolv.conf para glibc (Node.js lo usa para DNS)
+        val glibcEtc = dir.resolve("glibc/etc")
+        glibcEtc.mkdirs()
+        val glibcResolv = glibcEtc.resolve("resolv.conf")
+        if (!glibcResolv.exists()) {
+            glibcResolv.writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+        }
     }
 
     // --- Setup helpers ---
@@ -348,6 +380,22 @@ class BootstrapManager(
         tmpDir.mkdirs()
         wwwDir.mkdirs()
         File(homeDir, ".openclaw-android/patches").mkdirs()
+
+        // Configurar resolv.conf en el prefix de la app para DNS
+        // Necesario porque el sandbox de Android no hereda /etc/resolv.conf del sistema
+        val resolvConf = File(prefixDir, "etc/resolv.conf")
+        if (!resolvConf.exists() || resolvConf.readText().isBlank()) {
+            resolvConf.parentFile?.mkdirs()
+            resolvConf.writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n")
+            AppLogger.i(TAG, "resolv.conf initialized at ${resolvConf.absolutePath}")
+        }
+
+        // resolv.conf para glibc (Node.js)
+        val glibcResolv = File(prefixDir, "glibc/etc/resolv.conf")
+        if (!glibcResolv.exists()) {
+            glibcResolv.parentFile?.mkdirs()
+            glibcResolv.writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+        }
     }
 
     private fun setupTermuxExec() {
@@ -383,9 +431,9 @@ exit ${d}_rc
     }
 
     /**
-     * Copy post-setup.sh and glibc-compat.js to home dir.
+     * Copy all bundled scripts to the OCA dir.
      * post-setup.sh: try GitHub first, fall back to bundled asset.
-     * glibc-compat.js: always use bundled asset.
+     * All others: always use bundled asset.
      */
     private fun copyAssetScripts() {
         val ocaDir = File(homeDir, ".openclaw-android")
@@ -395,28 +443,37 @@ exit ${d}_rc
         val postSetup = File(ocaDir, "post-setup.sh")
         copyPostSetupScript(postSetup)
         copyBundledAsset("glibc-compat.js", File(ocaDir, "patches/glibc-compat.js"))
+        copyBundledAsset("env-init.sh", File(ocaDir, "env-init.sh"))
+        copyBundledAsset("run.sh", File(ocaDir, "run.sh"))
     }
 
     private fun copyPostSetupScript(target: File) {
-        val url = "https://raw.githubusercontent.com/AidanPark/openclaw-android/main/post-setup.sh"
-        try {
-            java.net.URL(url).openStream().use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
-            }
-            target.setExecutable(true)
-            AppLogger.i(TAG, "post-setup.sh downloaded from GitHub")
-            return
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to download post-setup.sh, using bundled fallback", e)
-        }
+        // Siempre usar el script bundled en assets como fuente primaria.
+        // Intentar GitHub solo si el asset no existe (no debería ocurrir en producción).
+        // IMPORTANTE: No intentar descargar de GitHub aquí porque:
+        //   1. Los certificados CA pueden no estar listos aún (bootstrap no completado)
+        //   2. El DNS puede no estar configurado en el sandbox de la app
+        //   3. El script bundled siempre está disponible y es la versión correcta para esta APK
         try {
             context.assets.open("post-setup.sh").use { input ->
                 target.outputStream().use { output -> input.copyTo(output) }
             }
             target.setExecutable(true)
             AppLogger.i(TAG, "post-setup.sh copied from bundled assets")
+            return
         } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to copy bundled post-setup.sh", e)
+            AppLogger.w(TAG, "Failed to copy bundled post-setup.sh, trying GitHub fallback", e)
+        }
+        // Fallback: intentar GitHub solo si el asset bundled falla
+        val url = "https://raw.githubusercontent.com/AidanPark/openclaw-android/main/post-setup.sh"
+        try {
+            java.net.URL(url).openStream().use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+            target.setExecutable(true)
+            AppLogger.i(TAG, "post-setup.sh downloaded from GitHub (fallback)")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to obtain post-setup.sh from both assets and GitHub", e)
         }
     }
 
@@ -438,7 +495,7 @@ exit ${d}_rc
 
     /**
      * Apply script update on APK version upgrade:
-     * - Overwrites post-setup.sh and glibc-compat.js from latest assets
+     * - Overwrites all bundled scripts from latest assets
      * - Installs/updates oa CLI from GitHub so users can run `oa --update`
      */
     fun applyScriptUpdate() {
@@ -446,6 +503,8 @@ exit ${d}_rc
         copyAssetScripts()
         syncWwwFromAssets()
         installOaCli()
+        // Regenerate the wrapper script with current paths
+        CommandRunner.createWrapperScript(context.filesDir)
         AppLogger.i(TAG, "Script update applied")
     }
 

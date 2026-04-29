@@ -4,37 +4,62 @@
  */
 
 interface OpenClawBridge {
+  // ── View ──────────────────────────────────────
   showTerminal(): void
   showWebView(): void
+
+  // ── Terminal sessions ─────────────────────────
   createSession(): string
   switchSession(id: string): void
   closeSession(id: string): void
   getTerminalSessions(): string
   writeToTerminal(id: string, data: string): void
   runInNewSession(command: string): void
+
+  // ── Setup / installation ──────────────────────
   getSetupStatus(): string
   getBootstrapStatus(): string
   getAppFilesDir(): string
   startSetup(): void
+  /** Install from pre-built rootfs asset (no network). Emits setup_progress events. */
+  startRootfsInstall(): void
+  /** Returns rootfs installation status: extracted, initialized, openclawInstalled, wwwInstalled */
+  getRootfsStatus(): string
   saveToolSelections(json: string): void
   saveInstallPath(path: string): void
+
+  // ── Platforms ─────────────────────────────────
   getAvailablePlatforms(): string
   getInstalledPlatforms(): string
   installPlatform(id: string): void
   uninstallPlatform(id: string): void
   switchPlatform(id: string): void
   getActivePlatform(): string
+
+  // ── Tools ─────────────────────────────────────
   getInstalledTools(): string
   installTool(id: string): void
   uninstallTool(id: string): void
   isToolInstalled(id: string): string
+
+  // ── Environment ───────────────────────────────
   getEnvironmentInfo(): string
+
+  // ── Commands ──────────────────────────────────
   runCommand(cmd: string): string
   runCommandAsync(callbackId: string, cmd: string): void
+  testGrunNode(): string
+  launchGateway(): void
+
+  // ── Updates ───────────────────────────────────
   checkForUpdates(): string
   applyUpdate(component: string): void
   getApkUpdateInfo(): string
+
+  // ── App info ──────────────────────────────────
   getAppInfo(): string
+
+  // ── System ────────────────────────────────────
   getBatteryOptimizationStatus(): string
   requestBatteryOptimizationExclusion(): void
   openSystemSettings(page: string): void

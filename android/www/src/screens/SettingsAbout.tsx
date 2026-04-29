@@ -4,32 +4,40 @@ import { bridge } from '../lib/bridge'
 import { t } from '../i18n'
 
 interface AppInfo { versionName: string; versionCode: number; packageName: string }
-interface EnvComponent { version?: string; detected: boolean; path?: string }
-interface EnvInfo { node?: EnvComponent; git?: EnvComponent; openclaw?: EnvComponent; prefix?: string }
+interface EnvComponent { version?: string; detected: boolean }
+interface EnvInfo { node?: EnvComponent; git?: EnvComponent; openclaw?: EnvComponent }
+interface BootstrapStatus {
+  installed: boolean
+  openclawInstalled: boolean
+}
 
 export function SettingsAbout() {
   const { navigate } = useRoute()
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
-  const [scriptVersion, setScriptVersion] = useState<string>('—')
   const [envInfo, setEnvInfo] = useState<EnvInfo>({})
+  const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null)
   const [apkUpdateAvailable, setApkUpdateAvailable] = useState(false)
+  const [checkingApk, setCheckingApk] = useState(false)
 
   useEffect(() => {
     const info = bridge.callJson<AppInfo>('getAppInfo')
     if (info) setAppInfo(info)
 
-    // Verificar actualización APK (no bloqueante)
-    setTimeout(() => {
-      const apkInfo = bridge.callJson<{ updateAvailable?: boolean }>('getApkUpdateInfo')
-      if (apkInfo?.updateAvailable) setApkUpdateAvailable(true)
-    }, 0)
-
     const env = bridge.callJson<EnvInfo>('getEnvironmentInfo')
     if (env) setEnvInfo(env)
 
-    const oaV = bridge.callJson<{ stdout: string }>('runCommand', 'oa --version 2>/dev/null | head -1')
-    setScriptVersion(oaV?.stdout?.trim() || '—')
+    const bs = bridge.callJson<BootstrapStatus>('getBootstrapStatus')
+    if (bs) setBootstrapStatus(bs)
   }, [])
+
+  function checkApkUpdate() {
+    setCheckingApk(true)
+    setTimeout(() => {
+      const apkInfo = bridge.callJson<{ updateAvailable?: boolean }>('getApkUpdateInfo')
+      if (apkInfo?.updateAvailable) setApkUpdateAvailable(true)
+      setCheckingApk(false)
+    }, 0)
+  }
 
   return (
     <div className="page">
@@ -39,28 +47,30 @@ export function SettingsAbout() {
       </div>
 
       {/* Logo */}
-      <div style={{ textAlign: 'center', padding: '20px 0 24px' }}>
+      <div style={{ textAlign: 'center', padding: '20px 0 28px' }}>
         <div style={{
-          width: 72, height: 72, borderRadius: 18,
+          width: 80, height: 80, borderRadius: 20,
           background: 'var(--accent-dim)',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          marginBottom: 12,
+          marginBottom: 14,
         }}>
-          <img src="./claw-icon.svg" alt="Claw" style={{ width: 48, height: 48 }} />
+          <img src="./openclaw.svg" alt="OpenClaw" style={{ width: 52, height: 52 }} />
         </div>
-        <div style={{ fontSize: 22, fontWeight: 800 }}>Claw</div>
+        <div style={{ fontSize: 24, fontWeight: 800 }}>OpenClaw</div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
           {t('about_made_for')}
         </div>
       </div>
 
-      {/* Versión */}
+      {/* App version */}
       <div className="section-title">{t('about_version')}</div>
       <div className="card">
         <div className="info-row">
           <span className="label">{t('about_apk')}</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontFamily: 'monospace' }}>{appInfo?.versionName || '—'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+              {appInfo?.versionName || '—'}
+            </span>
             {apkUpdateAvailable && (
               <button
                 className="pill pill-accent"
@@ -70,15 +80,28 @@ export function SettingsAbout() {
                 ↑ {t('about_update_available')}
               </button>
             )}
-          </span>
+          </div>
         </div>
         <div className="info-row">
           <span className="label">{t('about_package')}</span>
-          <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{appInfo?.packageName || '—'}</span>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+            {appInfo?.packageName || '—'}
+          </span>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={checkApkUpdate}
+            disabled={checkingApk}
+          >
+            {checkingApk
+              ? <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />Checking...</>
+              : '↑ Check for APK update'}
+          </button>
         </div>
       </div>
 
-      {/* Entorno */}
+      {/* Environment — version only, no paths */}
       <div className="section-title">{t('about_runtime')}</div>
       <div className="card">
         {([
@@ -98,19 +121,37 @@ export function SettingsAbout() {
                 }} />
                 {label}
               </span>
-              <span style={{ fontFamily: 'monospace', fontSize: 13, color: detected ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                {detected ? (comp?.version || '✓') : t('env_not_detected')}
+              <span style={{
+                fontFamily: 'monospace', fontSize: 13,
+                color: detected ? 'var(--text-primary)' : 'var(--text-muted)',
+              }}>
+                {detected ? (comp?.version || '✓ installed') : t('env_not_detected')}
               </span>
             </div>
           )
         })}
-        <div className="info-row">
-          <span className="label">{t('about_script')}</span>
-          <span style={{ fontFamily: 'monospace' }}>{scriptVersion}</span>
-        </div>
       </div>
 
-      {/* Licencia */}
+      {/* Installation status */}
+      <div className="section-title">Installation</div>
+      <div className="card">
+        {([
+          { key: 'installed' as keyof BootstrapStatus, label: 'Bootstrap installed' },
+          { key: 'openclawInstalled' as keyof BootstrapStatus, label: 'OpenClaw installed' },
+        ]).map(({ key, label }) => {
+          const ok = bootstrapStatus?.[key] ?? false
+          return (
+            <div className="info-row" key={key}>
+              <span className="label">{label}</span>
+              <span className={`pill ${ok ? 'pill-success' : 'pill-error'}`}>
+                {ok ? '✓ Yes' : '✗ No'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* License */}
       <div className="section-title">{t('about_license')}</div>
       <div className="card">
         <div className="info-row">
@@ -119,7 +160,7 @@ export function SettingsAbout() {
         </div>
       </div>
 
-      {/* Acciones */}
+      {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         <button
           className="btn btn-secondary"
@@ -133,7 +174,7 @@ export function SettingsAbout() {
           style={{ flex: 1 }}
           onClick={() => bridge.call('openUrl', 'https://github.com/AidanPark/openclaw-android')}
         >
-          GitHub
+          GitHub ↗
         </button>
       </div>
     </div>

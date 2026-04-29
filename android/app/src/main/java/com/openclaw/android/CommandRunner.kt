@@ -2,18 +2,25 @@ package com.openclaw.android
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.content.Context
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Shell command execution via ProcessBuilder with bash -l (login shell).
- * Always uses bash -l -c to ensure full Termux environment is loaded.
- * Never uses Runtime.exec() or /usr/bin/node directly.
+ * Shell command execution via ProcessBuilder.
+ *
+ * Design principles:
+ *   - Never calls /usr/bin/node or node directly.
+ *   - Always uses the glibc-wrapped node from OCA_BIN.
+ *   - All paths are resolved from the app sandbox (filesDir).
+ *   - Termux paths are kept as legacy constants for detection only.
+ *   - bash -l is NOT used: we build the full environment explicitly,
+ *     so there is no dependency on Termux's /etc/profile or .bashrc.
  */
 object CommandRunner {
     private const val TAG = "CommandRunner"
 
-    // Termux home and prefix — real paths used by the Termux bootstrap
+    // Legacy Termux paths — used only for detection/fallback, never written to.
     const val TERMUX_HOME = "/data/data/com.termux/files/home"
     const val TERMUX_PREFIX = "/data/data/com.termux/files/usr"
     const val OPENCLAW_DIR = "$TERMUX_HOME/.openclaw-android"
@@ -27,23 +34,24 @@ object CommandRunner {
         val stderr: String,
     )
 
-    /**
-     * Build the environment map for Termux commands.
-     * Detecta automáticamente si usar rutas de Termux o locales.
-     */
-    fun buildTermuxEnv(): Map<String, String> = EnvironmentBuilder.buildTermuxEnvironment()
+    /** Build the environment map using app-local paths. */
+    fun buildTermuxEnv(context: Context? = null): Map<String, String> =
+        EnvironmentBuilder.buildTermuxEnvironment(context)
 
-    /**
-     * Build a safe working directory, falling back to TERMUX_HOME or /data/local/tmp.
-     */
+    /** Build a safe working directory. */
     private fun safeWorkDir(workDir: File): File = when {
         workDir.exists() -> workDir
-        File(TERMUX_HOME).exists() -> File(TERMUX_HOME)
-        else -> File("/data/local/tmp").also { it.mkdirs() }
+        else -> {
+            // Derive from HOME env var (set by EnvironmentBuilder)
+            val home = System.getenv("HOME")
+            if (home != null && File(home).exists()) File(home)
+            else File("/data/local/tmp").also { it.mkdirs() }
+        }
     }
 
     /**
-     * Strip LD_PRELOAD if the referenced library doesn't exist (prevents crash).
+     * Strip LD_PRELOAD if the referenced library doesn't exist.
+     * Prevents crash when libtermux-exec.so is referenced but not present.
      */
     private fun safeEnv(env: Map<String, String>): Map<String, String> =
         env.toMutableMap().apply {
@@ -52,17 +60,19 @@ object CommandRunner {
         }
 
     /**
-     * Run a command synchronously using bash -l -c.
-     * This ensures the full login environment is loaded.
+     * Run a command synchronously.
+     * Uses /system/bin/sh (always available on Android) as the shell.
+     * The full environment is passed explicitly — no login shell needed.
      */
     fun runSync(
         command: String,
         env: Map<String, String> = buildTermuxEnv(),
-        workDir: File = File(TERMUX_HOME),
+        workDir: File = resolveHomeDir(),
         timeoutMs: Long = 5_000,
     ): CommandResult =
         try {
-            val pb = ProcessBuilder("bash", "-l", "-c", command)
+            val shell = resolveShell(env)
+            val pb = ProcessBuilder(shell, "-c", command)
             pb.environment().clear()
             pb.environment().putAll(safeEnv(env))
             pb.directory(safeWorkDir(workDir))
@@ -85,62 +95,258 @@ object CommandRunner {
         }
 
     /**
-     * Run a command asynchronously using bash -l -c, streaming output line-by-line.
+     * Run a command asynchronously, streaming output line-by-line.
+     *
+     * Streams stdout and stderr to [onOutput] as they arrive.
+     * Returns a [CommandResult] with the process exit code and accumulated stderr.
+     * Used by both JsBridge (fire-and-forget) and PayloadManager (needs exit code).
      */
     suspend fun runStreaming(
         command: String,
         env: Map<String, String> = buildTermuxEnv(),
-        workDir: File = File(TERMUX_HOME),
+        workDir: File = resolveHomeDir(),
         onOutput: (String) -> Unit,
-    ) = withContext(Dispatchers.IO) {
+    ): CommandResult = withContext(Dispatchers.IO) {
+        val stderrLines = StringBuilder()
         try {
-            val pb = ProcessBuilder("bash", "-l", "-c", command)
+            val shell = resolveShell(env)
+            val pb = ProcessBuilder(shell, "-c", command)
             pb.environment().clear()
             pb.environment().putAll(safeEnv(env))
             pb.directory(safeWorkDir(workDir))
-            pb.redirectErrorStream(true)
+            pb.redirectErrorStream(false)
 
             val process = pb.start()
-            process.inputStream.bufferedReader().forEachLine { line ->
-                onOutput(line)
-            }
-            process.waitFor()
+
+            // Stream stdout line-by-line to caller
+            val stdoutThread = Thread {
+                process.inputStream.bufferedReader().forEachLine { line ->
+                    onOutput(line)
+                }
+            }.also { it.start() }
+
+            // Collect stderr; also forward to caller prefixed so it's visible
+            val stderrThread = Thread {
+                process.errorStream.bufferedReader().forEachLine { line ->
+                    stderrLines.appendLine(line)
+                    onOutput("[stderr] $line")
+                }
+            }.also { it.start() }
+
+            stdoutThread.join()
+            stderrThread.join()
+            val exitCode = process.waitFor()
+
+            CommandResult(exitCode, "", stderrLines.toString())
         } catch (e: Exception) {
             AppLogger.e(TAG, "runStreaming failed: ${e.message}", e)
             onOutput("Error: ${e.message}")
+            CommandResult(-1, "", e.message ?: "Unknown error")
         }
     }
 
     /**
-     * Check if OpenClaw is installed by verifying the installed.json marker.
+     * Check if OpenClaw is installed.
+     * Checks app-local path first, then legacy Termux path.
      */
-    fun isOpenClawInstalled(): Boolean = File(INSTALLED_MARKER).exists()
+    fun isOpenClawInstalled(): Boolean {
+        // App-local path (primary)
+        val localHome = System.getenv("HOME")
+        if (localHome != null) {
+            if (File("$localHome/.openclaw-android/installed.json").exists()) return true
+        }
+        // Legacy Termux path (fallback)
+        if (File(INSTALLED_MARKER).exists()) return true
+        return false
+    }
 
     /**
-     * Check if termux-setup-storage has already been run.
-     * Heuristic: ~/storage symlink exists.
+     * Create the openclaw-start.sh wrapper script.
+     * Writes to the app-local home dir (not Termux home).
+     * The script is self-contained: it sets all env vars and launches OpenClaw
+     * via the glibc-wrapped node, with no dependency on Termux.
      */
+    fun createWrapperScript(filesDir: File? = null): Boolean {
+        val env = if (filesDir != null) {
+            EnvironmentBuilder.buildEnvironment(filesDir)
+        } else {
+            buildTermuxEnv()
+        }
+
+        val home = env["HOME"] ?: return false
+        val prefix = env["PREFIX"] ?: return false
+        val appFilesDir = env["APP_FILES_DIR"] ?: filesDir?.absolutePath ?: prefix.removeSuffix("/usr")
+        val appPackage = env["APP_PACKAGE"] ?: "com.openclaw.android"
+        val ocaBin = "$home/.openclaw-android/bin"
+        val nodeDir = "$home/.openclaw-android/node"
+        val glibcLib = "$prefix/glibc/lib"
+        val tmpDir = env["TMPDIR"] ?: "$prefix/../tmp"
+        val certBundle = "$prefix/etc/tls/cert.pem"
+        val ocaMjs = "$prefix/lib/node_modules/openclaw/openclaw.mjs"
+
+        val scriptPath = File(home, "openclaw-start.sh")
+        val content = buildString {
+            appendLine("#!/bin/bash")
+            appendLine("# OpenClaw gateway launcher — generated by CommandRunner")
+            appendLine("# Runs OpenClaw independently of Termux.")
+            appendLine()
+            appendLine("export HOME=\"$home\"")
+            appendLine("export PREFIX=\"$prefix\"")
+            appendLine("export TMPDIR=\"$tmpDir\"")
+            appendLine("export APP_FILES_DIR=\"$appFilesDir\"")
+            appendLine("export APP_PACKAGE=\"$appPackage\"")
+            appendLine("export PATH=\"$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin\"")
+            appendLine("export LD_LIBRARY_PATH=\"$glibcLib:$prefix/lib\"")
+            appendLine("export SSL_CERT_FILE=\"$certBundle\"")
+            appendLine("export CURL_CA_BUNDLE=\"$certBundle\"")
+            appendLine("export GIT_SSL_CAINFO=\"$certBundle\"")
+            appendLine("export RESOLV_CONF=\"$prefix/etc/resolv.conf\"")
+            appendLine("export GIT_CONFIG_NOSYSTEM=1")
+            appendLine("export GIT_EXEC_PATH=\"$prefix/libexec/git-core\"")
+            appendLine("export GIT_TEMPLATE_DIR=\"$prefix/share/git-core/templates\"")
+            appendLine("export LANG=en_US.UTF-8")
+            appendLine("export TERM=xterm-256color")
+            appendLine("export ANDROID_DATA=/data")
+            appendLine("export ANDROID_ROOT=/system")
+            appendLine("export OA_GLIBC=1")
+            appendLine("export CONTAINER=1")
+            appendLine("export CLAWDHUB_WORKDIR=\"$home/.openclaw/workspace\"")
+            appendLine()
+            appendLine("# Unset LD_PRELOAD: prevents bionic libtermux-exec.so from")
+            appendLine("# loading into the glibc node process (causes PHDR crash).")
+            appendLine("unset LD_PRELOAD")
+            appendLine()
+            appendLine("exec \"$ocaBin/node\" \"$ocaMjs\" gateway --host 0.0.0.0")
+        }
+
+        return try {
+            scriptPath.parentFile?.mkdirs()
+            scriptPath.writeText(content)
+            scriptPath.setExecutable(true)
+            AppLogger.i(TAG, "Wrapper script created at ${scriptPath.absolutePath}")
+            true
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to create wrapper script: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Write the installed.json marker file to the app-local home dir.
+     */
+    fun writeInstalledMarker(filesDir: File? = null): Boolean {
+        val home = if (filesDir != null) {
+            filesDir.resolve("home").absolutePath
+        } else {
+            System.getenv("HOME") ?: TERMUX_HOME
+        }
+        val ocaDir = File("$home/.openclaw-android")
+        val marker = File(ocaDir, "installed.json")
+        return try {
+            ocaDir.mkdirs()
+            marker.writeText("""{"installed":true,"path":"${ocaDir.absolutePath}"}""")
+            AppLogger.i(TAG, "installed.json marker written at ${marker.absolutePath}")
+            true
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to write installed.json: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Launch the OpenClaw gateway.
+     * Uses the app-local openclaw-start.sh if it exists, otherwise builds
+     * the command directly from the environment.
+     * Returns the running Process so the caller can monitor/stream output.
+     */
+    fun launchGateway(filesDir: File? = null): Process? {
+        val env = if (filesDir != null) {
+            EnvironmentBuilder.buildEnvironment(filesDir)
+        } else {
+            buildTermuxEnv()
+        }
+
+        val home = env["HOME"] ?: return null
+        val prefix = env["PREFIX"] ?: return null
+        val ocaBin = "$home/.openclaw-android/bin"
+        val ocaMjs = "$prefix/lib/node_modules/openclaw/openclaw.mjs"
+
+        // Prefer the pre-written start script (idempotent, logged)
+        val startScript = File(home, "openclaw-start.sh")
+        if (!startScript.exists()) {
+            createWrapperScript(filesDir)
+        }
+
+        return try {
+            val shell = resolveShell(env)
+            val cmd = if (startScript.exists()) {
+                listOf(shell, startScript.absolutePath)
+            } else {
+                // Direct launch fallback
+                listOf(shell, "-c", "exec \"$ocaBin/node\" \"$ocaMjs\" gateway --host 0.0.0.0")
+            }
+
+            val pb = ProcessBuilder(cmd)
+            pb.environment().clear()
+            pb.environment().putAll(safeEnv(env))
+            pb.directory(File(home).also { it.mkdirs() })
+            pb.redirectErrorStream(true)
+
+            val process = pb.start()
+            AppLogger.i(TAG, "OpenClaw gateway launched")
+            process
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to launch gateway: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Resolve the best available shell.
+     * Prefers the bash from the app-local prefix, falls back to /system/bin/sh.
+     */
+    private fun resolveShell(env: Map<String, String>): String {
+        val prefix = env["PREFIX"]
+        if (prefix != null) {
+            val bash = File("$prefix/bin/bash")
+            if (bash.canExecute()) return bash.absolutePath
+        }
+        // Android 9+ has /bin/sh; older versions only have /system/bin/sh
+        return if (File("/bin/sh").exists()) "/bin/sh" else "/system/bin/sh"
+    }
+
+    /**
+     * Resolve the home directory from the current process environment.
+     */
+    private fun resolveHomeDir(): File {
+        val home = System.getenv("HOME")
+        if (home != null && File(home).exists()) return File(home)
+        return File("/data/local/tmp").also { it.mkdirs() }
+    }
+
+    // ── Legacy Termux helpers (kept for backward compatibility) ───────────────
+
+    /** Check if termux-setup-storage has been run. */
     fun isStorageSetupDone(): Boolean = File("$TERMUX_HOME/storage").exists()
 
     /**
-     * Run termux-setup-storage, auto-answering "y" to any prompt.
-     * Must be called before any installation that needs external storage.
+     * Run termux-setup-storage if Termux is available.
+     * No-op if Termux is not installed.
      */
     fun runTermuxSetupStorage(onOutput: (String) -> Unit = {}) {
-        if (isStorageSetupDone()) {
-            AppLogger.i(TAG, "termux-setup-storage already done, skipping")
-            onOutput("Storage already configured.")
+        if (!File(TERMUX_HOME).exists()) {
+            AppLogger.i(TAG, "Termux not installed, skipping termux-setup-storage")
+            onOutput("Termux not installed, skipping storage setup.")
             return
         }
-        // If Termux HOME doesn't exist, skip
-        if (!File(TERMUX_HOME).exists()) {
-            AppLogger.w(TAG, "Termux HOME directory not found, skipping termux-setup-storage")
-            onOutput("Termux directory not found, skipping storage setup.")
+        if (isStorageSetupDone()) {
+            AppLogger.i(TAG, "termux-setup-storage already done")
+            onOutput("Storage already configured.")
             return
         }
         AppLogger.i(TAG, "Running termux-setup-storage...")
         try {
-            val pb = ProcessBuilder("bash", "-l", "-c", "yes | termux-setup-storage")
+            val pb = ProcessBuilder("/system/bin/sh", "-c", "yes | termux-setup-storage")
             pb.environment().clear()
             pb.environment().putAll(safeEnv(buildTermuxEnv()))
             pb.directory(File(TERMUX_HOME))
@@ -155,72 +361,6 @@ object CommandRunner {
         } catch (e: Exception) {
             AppLogger.e(TAG, "termux-setup-storage failed: ${e.message}", e)
             onOutput("Error: ${e.message}")
-        }
-    }
-
-    /**
-     * Create the openclaw-start.sh wrapper script in Termux home.
-     * Uses grun (glibc-runner) — never calls node directly.
-     */
-    fun createWrapperScript(): Boolean {
-        val script = File(WRAPPER_SCRIPT)
-        val content =
-            """
-            #!/data/data/com.termux/files/usr/bin/bash
-
-            export HOME=$TERMUX_HOME
-            export PATH=$OPENCLAW_BIN:$TERMUX_PREFIX/bin:$TERMUX_PREFIX/bin/applets:${'$'}PATH
-
-            exec grun openclaw gateway --host 0.0.0.0
-            """.trimIndent()
-        return try {
-            script.parentFile?.mkdirs()
-            script.writeText(content)
-            script.setExecutable(true)
-            AppLogger.i(TAG, "Wrapper script created at $WRAPPER_SCRIPT")
-            true
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to create wrapper script: ${e.message}", e)
-            false
-        }
-    }
-
-    /**
-     * Write the installed.json marker file.
-     */
-    fun writeInstalledMarker(): Boolean {
-        val marker = File(INSTALLED_MARKER)
-        return try {
-            marker.parentFile?.mkdirs()
-            marker.writeText(
-                """{"installed":true,"path":"$OPENCLAW_DIR"}""",
-            )
-            AppLogger.i(TAG, "installed.json marker written")
-            true
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to write installed.json: ${e.message}", e)
-            false
-        }
-    }
-
-    /**
-     * Launch the OpenClaw gateway using the wrapper script.
-     * Returns the running Process so the caller can monitor it.
-     */
-    fun launchGateway(): Process? {
-        createWrapperScript()
-        return try {
-            val pb = ProcessBuilder("bash", "-l", "-c", WRAPPER_SCRIPT)
-            pb.environment().clear()
-            pb.environment().putAll(buildTermuxEnv())
-            pb.directory(File(TERMUX_HOME))
-            pb.redirectErrorStream(true)
-            val process = pb.start()
-            AppLogger.i(TAG, "OpenClaw gateway launched via $WRAPPER_SCRIPT")
-            process
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to launch gateway: ${e.message}", e)
-            null
         }
     }
 }

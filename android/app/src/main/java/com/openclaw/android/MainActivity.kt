@@ -1,6 +1,7 @@
 package com.openclaw.android
 
 import android.annotation.SuppressLint
+import java.io.File
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -76,8 +77,12 @@ class MainActivity : AppCompatActivity() {
         // Request storage permissions before any installation
         requestStoragePermissions()
 
-        val isInstalled = bootstrapManager.isInstalled()
-        AppLogger.i(TAG, "Bootstrap installed: $isInstalled, openclawInstalled: ${bootstrapManager.isOpenClawInstalled()}, needsPostSetup: ${bootstrapManager.needsPostSetup()}")
+        val rootfsManager = RootfsManager(this)
+        val payloadManager = PayloadManager(this)
+        // Check all install paths: payload (preferred), rootfs, bootstrap (legacy Termux)
+        val isInstalled = payloadManager.isReady() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
+        val isOpenClawInstalled = payloadManager.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
+        AppLogger.i(TAG, "Installed: $isInstalled (payload=${payloadManager.isReady()}, rootfs=${rootfsManager.isInstalled()}, bootstrap=${bootstrapManager.isInstalled()}), openclaw=$isOpenClawInstalled")
 
         // Sync www assets and check for APK version upgrade
         if (isInstalled) {
@@ -85,35 +90,58 @@ class MainActivity : AppCompatActivity() {
             val savedVersionCode = prefs.getInt("versionCode", 0)
             val currentVersionCode = packageManager.getPackageInfo(packageName, 0).versionCode
             // Always sync www from assets to pick up UI updates
-            bootstrapManager.syncWwwFromAssets()
-            // Ensure oa CLI is installed (network, run in background)
-            Thread { bootstrapManager.installOaCli() }.start()
-            if (currentVersionCode > savedVersionCode) {
-                AppLogger.i(TAG, "APK version upgrade detected: $savedVersionCode -> $currentVersionCode")
-                bootstrapManager.applyScriptUpdate()
-                prefs.edit().putInt("versionCode", currentVersionCode).apply()
+            when {
+                payloadManager.isReady() -> {
+                    payloadManager.syncWwwFromAssets()
+                    if (currentVersionCode > savedVersionCode) {
+                        AppLogger.i(TAG, "APK version upgrade detected: $savedVersionCode -> $currentVersionCode")
+                        payloadManager.applyScriptUpdate()
+                        prefs.edit().putInt("versionCode", currentVersionCode).apply()
+                    }
+                }
+                rootfsManager.isInstalled() -> {
+                    rootfsManager.syncWwwFromAssets()
+                    if (currentVersionCode > savedVersionCode) {
+                        AppLogger.i(TAG, "APK version upgrade detected: $savedVersionCode -> $currentVersionCode")
+                        rootfsManager.applyScriptUpdate()
+                        prefs.edit().putInt("versionCode", currentVersionCode).apply()
+                    }
+                }
+                else -> {
+                    bootstrapManager.syncWwwFromAssets()
+                    Thread { bootstrapManager.installOaCli() }.start()
+                    if (currentVersionCode > savedVersionCode) {
+                        AppLogger.i(TAG, "APK version upgrade detected: $savedVersionCode -> $currentVersionCode")
+                        bootstrapManager.applyScriptUpdate()
+                        prefs.edit().putInt("versionCode", currentVersionCode).apply()
+                    }
+                }
             }
         }
         if (isInstalled) {
             showTerminal()
             val session = sessionManager.createSession()
-            if (bootstrapManager.needsPostSetup()) {
-                AppLogger.i(TAG, "Running post-setup script in terminal")
-                val script = bootstrapManager.postSetupScript.absolutePath
-                binding.terminalView.post {
-                    session.write("bash $script\n")
+            val needsPostSetup = !payloadManager.isReady() && !rootfsManager.isInstalled() && bootstrapManager.needsPostSetup()
+            when {
+                needsPostSetup -> {
+                    AppLogger.i(TAG, "Running post-setup script in terminal")
+                    val script = bootstrapManager.postSetupScript.absolutePath
+                    binding.terminalView.post {
+                        session.write("bash $script\n")
+                    }
                 }
-            } else if (intent?.getBooleanExtra("from_boot", false) == true) {
-                val platformFile = java.io.File(bootstrapManager.homeDir, ".openclaw-android/.platform")
-                val platformId = if (platformFile.exists()) platformFile.readText().trim() else "openclaw"
-                AppLogger.i(TAG, "Boot launch — auto-starting $platformId gateway via grun")
-                binding.terminalView.post {
-                    // Use wrapper script which calls grun — never call node directly
-                    session.write("${CommandRunner.WRAPPER_SCRIPT}\n")
+                intent?.getBooleanExtra("from_boot", false) == true -> {
+                    val startScript = when {
+                        payloadManager.isReady() -> File(filesDir, "payload/run-openclaw.sh")
+                        else -> File(filesDir, "home/openclaw-start.sh")
+                    }
+                    AppLogger.i(TAG, "Boot launch — auto-starting gateway")
+                    binding.terminalView.post {
+                        session.write("${startScript.absolutePath}\n")
+                    }
                 }
             }
         }
-        // else: WebView shows setup UI, user triggers startSetup via JsBridge
     }
 
     // --- Storage permissions ---

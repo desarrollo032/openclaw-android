@@ -15,19 +15,25 @@ import { SettingsTools } from './screens/SettingsTools'
 
 type Tab = 'terminal' | 'dashboard' | 'settings'
 
+interface SetupStatus {
+  bootstrapInstalled: boolean
+  runtimeInstalled: boolean
+  wwwInstalled: boolean
+  platformInstalled: boolean
+}
+
 export function App() {
   const { path, navigate } = useRoute()
   const [hasUpdates, setHasUpdates] = useState(false)
   const [setupDone, setSetupDone] = useState<boolean | null>(null)
 
   useEffect(() => {
-    const status = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string }>(
-      'getSetupStatus'
-    )
+    // Use getSetupStatus — same source as MainActivity.bootstrapManager.isInstalled()
+    const status = bridge.callJson<SetupStatus>('getSetupStatus')
     if (status) {
       setSetupDone(!!status.bootstrapInstalled && !!status.platformInstalled)
     } else {
-      // Bridge no disponible (modo dev) — asumir setup completo
+      // Bridge not available (dev mode) — assume setup complete
       setSetupDone(true)
     }
 
@@ -38,7 +44,7 @@ export function App() {
   const onUpdateAvailable = useCallback(() => setHasUpdates(true), [])
   useNativeEvent('update_available', onUpdateAvailable)
 
-  // Determinar pestaña activa desde la ruta
+  // Determine active tab from route
   const activeTab: Tab = path.startsWith('/settings') || path.startsWith('/setup')
     ? 'settings'
     : 'dashboard'
@@ -60,45 +66,54 @@ export function App() {
 
   if (setupDone === null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100dvh' }}>
-        <div className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100dvh', flexDirection: 'column', gap: 16,
+      }}>
+        <img src="./openclaw.svg" alt="OpenClaw" style={{ width: 56, height: 56, opacity: 0.6 }} />
+        <div className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
       </div>
     )
   }
 
   if (!setupDone && !path.startsWith('/setup')) {
-    return null // redirect in progress via useEffect
+    return null
   }
 
   return (
     <>
-      {/* Barra de pestañas */}
-      <nav className="tab-bar">
+      {/* Tab bar */}
+      <nav className="tab-bar" role="navigation" aria-label="Main navigation">
         <button
           className="tab-bar-item"
           onClick={() => handleTabClick('terminal')}
+          aria-label={t('tab_terminal')}
         >
           <span className="tab-icon">⌨</span>
-          <span className="tab-label">{t('tab_terminal').replace(/^\S+\s/, '')}</span>
+          <span className="tab-label">Terminal</span>
         </button>
         <button
           className={`tab-bar-item${activeTab === 'dashboard' ? ' active' : ''}`}
           onClick={() => handleTabClick('dashboard')}
+          aria-label={t('tab_dashboard')}
+          aria-current={activeTab === 'dashboard' ? 'page' : undefined}
         >
           <span className="tab-icon">◈</span>
-          <span className="tab-label">{t('tab_dashboard').replace(/^\S+\s/, '')}</span>
+          <span className="tab-label">Dashboard</span>
         </button>
         <button
           className={`tab-bar-item${activeTab === 'settings' ? ' active' : ''}`}
           onClick={() => handleTabClick('settings')}
+          aria-label={t('tab_settings')}
+          aria-current={activeTab === 'settings' ? 'page' : undefined}
         >
           <span className="tab-icon">⚙</span>
-          <span className="tab-label">{t('tab_settings').replace(/^\S+\s/, '')}</span>
-          {hasUpdates && <span className="badge" />}
+          <span className="tab-label">Settings</span>
+          {hasUpdates && <span className="badge" aria-label="Updates available" />}
         </button>
       </nav>
 
-      {/* Rutas */}
+      {/* Routes */}
       <Route path="/setup">
         <Setup onComplete={() => { setSetupDone(true); navigate('/dashboard') }} />
       </Route>

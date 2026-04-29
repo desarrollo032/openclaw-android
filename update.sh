@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# update.sh - Thin wrapper that downloads and runs update-core.sh
-# Usage: curl -sL https://raw.githubusercontent.com/AidanPark/openclaw-android/main/update.sh | bash
+# update.sh — OpenClaw on Android updater entry point
+# Served at: curl -sL myopenclawhub.com/update | bash
+# Also available at: curl -sL https://raw.githubusercontent.com/AidanPark/openclaw-android/main/update.sh | bash
 #   or:  oaupdate  (after initial install)
 set -euo pipefail
 
@@ -36,13 +37,14 @@ resolve_repo_base() {
     done
     return 1
 }
-resolve_repo_base
+resolve_repo_base || true
 
 # Prepare log directory
 mkdir -p "$HOME/.openclaw-android"
 
 # Download update-core.sh
-TMPFILE=$(mktemp "${PREFIX:-/tmp}/tmp/update-core.XXXXXX.sh" 2>/dev/null) || TMPFILE=$(mktemp /tmp/update-core.XXXXXX.sh)
+TMPFILE=$(mktemp "${TMPDIR:-${PREFIX:-/tmp}/tmp}/update-core.XXXXXX") || \
+    TMPFILE=$(mktemp "/tmp/update-core.XXXXXX")
 trap 'rm -f "$TMPFILE"' EXIT
 
 if ! curl -sfL "$REPO_BASE/update-core.sh" -o "$TMPFILE"; then
