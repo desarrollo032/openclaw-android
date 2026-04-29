@@ -2,27 +2,35 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRoute } from '../lib/router'
 import { bridge } from '../lib/bridge'
 import { useNativeEvent } from '../lib/useNativeEvent'
+import { t } from '../i18n'
 
-interface Tool {
-  id: string
-  name: string
-  desc: string
-  category: string
+interface Tool { id: string; name: string; desc: string; category: string }
+
+// Las descripciones se generan dentro del componente para respetar el locale
+function getTools(): Tool[] {
+  return [
+    { id: 'tmux', name: 'tmux', desc: t('tool_tmux'), category: 'terminal' },
+    { id: 'code-server', name: 'code-server', desc: t('tool_code_server'), category: 'terminal' },
+    { id: 'claude-code', name: 'Claude Code', desc: t('tool_claude_code'), category: 'ai' },
+    { id: 'gemini-cli', name: 'Gemini CLI', desc: t('tool_gemini_cli'), category: 'ai' },
+    { id: 'codex-cli', name: 'Codex CLI', desc: t('tool_codex_cli'), category: 'ai' },
+    { id: 'openssh-server', name: 'SSH Server', desc: t('tool_ttyd'), category: 'network' },
+    { id: 'ttyd', name: 'ttyd', desc: t('tool_ttyd'), category: 'network' },
+    { id: 'dufs', name: 'dufs', desc: t('tool_dufs'), category: 'network' },
+    { id: 'android-tools', name: 'Android Tools', desc: 'ADB — Phantom Process Killer', category: 'system' },
+    { id: 'chromium', name: 'Chromium', desc: 'Browser automation (~400MB)', category: 'system' },
+  ]
 }
 
-const TOOLS: Tool[] = [
-  { id: 'tmux', name: 'tmux', desc: 'Terminal multiplexer', category: 'Terminal Tools' },
-  { id: 'code-server', name: 'code-server', desc: 'VS Code in browser', category: 'Terminal Tools' },
-  { id: 'opencode', name: 'OpenCode', desc: 'AI coding assistant (TUI)', category: 'AI Tools' },
-  { id: 'claude-code', name: 'Claude Code', desc: 'Anthropic AI CLI', category: 'AI Tools' },
-  { id: 'gemini-cli', name: 'Gemini CLI', desc: 'Google AI CLI', category: 'AI Tools' },
-  { id: 'codex-cli', name: 'Codex CLI', desc: 'OpenAI AI CLI', category: 'AI Tools' },
-  { id: 'openssh-server', name: 'SSH Server', desc: 'SSH remote access', category: 'Network & Access' },
-  { id: 'ttyd', name: 'ttyd', desc: 'Web terminal access', category: 'Network & Access' },
-  { id: 'dufs', name: 'dufs', desc: 'File server (WebDAV)', category: 'Network & Access' },
-  { id: 'android-tools', name: 'Android Tools', desc: 'ADB for disabling Phantom Process Killer', category: 'System' },
-  { id: 'chromium', name: 'Chromium', desc: 'Browser automation (~400MB)', category: 'System' },
-]
+function getCatLabel(cat: string): string {
+  const map: Record<string, string> = {
+    terminal: `🖥 ${t('tools_cat_terminal')}`,
+    ai: `🤖 ${t('tools_cat_ai')}`,
+    network: `🌐 ${t('tools_cat_network')}`,
+    system: `⚙ ${t('tools_cat_system')}`,
+  }
+  return map[cat] || cat
+}
 
 export function SettingsTools() {
   const { navigate } = useRoute()
@@ -32,11 +40,8 @@ export function SettingsTools() {
   const [progressMsg, setProgressMsg] = useState('')
 
   useEffect(() => {
-    // Check installed status for each tool
     const result = bridge.callJson<Array<{ id: string }>>('getInstalledTools')
-    if (result) {
-      setInstalled(new Set(result.map(t => t.id)))
-    }
+    if (result) setInstalled(new Set(result.map(r => r.id)))
   }, [])
 
   const onInstallProgress = useCallback((data: unknown) => {
@@ -47,6 +52,7 @@ export function SettingsTools() {
       if (d.target) setInstalled(prev => new Set([...prev, d.target!]))
       setInstalling(null)
       setProgress(0)
+      setProgressMsg('')
     }
   }, [])
   useNativeEvent('install_progress', onInstallProgress)
@@ -54,71 +60,85 @@ export function SettingsTools() {
   function handleInstall(id: string) {
     setInstalling(id)
     setProgress(0)
-    setProgressMsg(`Installing ${id}...`)
+    setProgressMsg(t('tools_installing', { name: id }))
     bridge.call('installTool', id)
   }
 
   function handleUninstall(id: string) {
     bridge.call('uninstallTool', id)
-    setInstalled(prev => {
-      const next = new Set(prev)
-      next.delete(id)
-      return next
-    })
+    setInstalled(prev => { const n = new Set(prev); n.delete(id); return n })
   }
 
-  // Group by category
-  const categories = [...new Set(TOOLS.map(t => t.category))]
+  const tools = getTools()
+  const categories = [...new Set(tools.map(tool => tool.category))]
 
   return (
     <div className="page">
       <div className="page-header">
         <button className="back-btn" onClick={() => navigate('/settings')}>←</button>
-        <div className="page-title">Additional Tools</div>
+        <div className="page-title">{t('tools_title')}</div>
       </div>
 
+      {/* Progreso de instalación */}
       {installing && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 14, marginBottom: 8 }}>Installing {installing}...</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div className="spinner" />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>
+              {t('tools_installing', { name: installing })}
+            </div>
+          </div>
           <div className="progress-bar">
             <div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
-            {progressMsg}
-          </div>
+          {progressMsg && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+              {progressMsg}
+            </div>
+          )}
         </div>
       )}
 
+      {/* Herramientas agrupadas por categoría */}
       {categories.map(cat => (
         <div key={cat}>
-          <div className="section-title">{cat}</div>
-          {TOOLS.filter(t => t.category === cat).map(tool => (
-            <div key={tool.id} className="card">
-              <div className="card-row">
-                <div className="card-content">
-                  <div className="card-label">{tool.name}</div>
-                  <div className="card-desc">{tool.desc}</div>
+          <div className="section-title">{getCatLabel(cat)}</div>
+          {tools.filter(tool => tool.category === cat).map(tool => {
+            const isInstalled = installed.has(tool.id)
+            const isInstalling = installing === tool.id
+            return (
+              <div key={tool.id} className="card">
+                <div className="card-row">
+                  <div className="card-content">
+                    <div className="card-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {tool.name}
+                      {isInstalled && (
+                        <span className="pill pill-success" style={{ fontSize: 10 }}>✓</span>
+                      )}
+                    </div>
+                    <div className="card-desc">{tool.desc}</div>
+                  </div>
+                  {isInstalled ? (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleUninstall(tool.id)}
+                      disabled={installing !== null}
+                    >
+                      {t('tools_installed')}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleInstall(tool.id)}
+                      disabled={installing !== null}
+                    >
+                      {isInstalling ? '...' : t('tools_install')}
+                    </button>
+                  )}
                 </div>
-                {installed.has(tool.id) ? (
-                  <button
-                    className="btn btn-small btn-secondary"
-                    onClick={() => handleUninstall(tool.id)}
-                    disabled={installing !== null}
-                  >
-                    Installed ✓
-                  </button>
-                ) : (
-                  <button
-                    className="btn btn-small btn-primary"
-                    onClick={() => handleInstall(tool.id)}
-                    disabled={installing !== null}
-                  >
-                    Install
-                  </button>
-                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ))}
     </div>

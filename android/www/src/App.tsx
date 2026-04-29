@@ -11,14 +11,13 @@ import { SettingsStorage } from './screens/SettingsStorage'
 import { SettingsAbout } from './screens/SettingsAbout'
 import { SettingsUpdates } from './screens/SettingsUpdates'
 import { SettingsPlatforms } from './screens/SettingsPlatforms'
+import { SettingsTools } from './screens/SettingsTools'
 
 type Tab = 'terminal' | 'dashboard' | 'settings'
 
 export function App() {
   const { path, navigate } = useRoute()
   const [hasUpdates, setHasUpdates] = useState(false)
-
-  // Check setup status on mount
   const [setupDone, setSetupDone] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -28,26 +27,21 @@ export function App() {
     if (status) {
       setSetupDone(!!status.bootstrapInstalled && !!status.platformInstalled)
     } else {
-      // Bridge not available (dev mode) — assume setup done
+      // Bridge no disponible (modo dev) — asumir setup completo
       setSetupDone(true)
     }
 
-    // Check for updates
     const updates = bridge.callJson<unknown[]>('checkForUpdates')
     if (updates && updates.length > 0) setHasUpdates(true)
   }, [])
 
-  const onUpdateAvailable = useCallback(() => {
-    setHasUpdates(true)
-  }, [])
+  const onUpdateAvailable = useCallback(() => setHasUpdates(true), [])
   useNativeEvent('update_available', onUpdateAvailable)
 
-  // Determine active tab from path
-  const activeTab: Tab = path.startsWith('/settings')
+  // Determinar pestaña activa desde la ruta
+  const activeTab: Tab = path.startsWith('/settings') || path.startsWith('/setup')
     ? 'settings'
-    : path.startsWith('/setup')
-      ? 'settings'
-      : 'dashboard'
+    : 'dashboard'
 
   function handleTabClick(tab: Tab) {
     if (tab === 'terminal') {
@@ -55,42 +49,56 @@ export function App() {
       return
     }
     bridge.call('showWebView')
-    if (tab === 'dashboard') navigate('/dashboard')
-    if (tab === 'settings') navigate('/settings')
+    navigate(tab === 'dashboard' ? '/dashboard' : '/settings')
   }
 
-  // Show setup flow if not completed
-  if (setupDone === null) return null // loading
+  useEffect(() => {
+    if (setupDone === false && !path.startsWith('/setup')) {
+      navigate('/setup')
+    }
+  }, [setupDone, path, navigate])
+
+  if (setupDone === null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100dvh' }}>
+        <div className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
+      </div>
+    )
+  }
+
   if (!setupDone && !path.startsWith('/setup')) {
-    navigate('/setup')
+    return null // redirect in progress via useEffect
   }
 
   return (
     <>
-      {/* Tab bar */}
+      {/* Barra de pestañas */}
       <nav className="tab-bar">
         <button
           className="tab-bar-item"
           onClick={() => handleTabClick('terminal')}
         >
-          {t('tab_terminal')}
+          <span className="tab-icon">⌨</span>
+          <span className="tab-label">{t('tab_terminal').replace(/^\S+\s/, '')}</span>
         </button>
         <button
-          className={`tab-bar-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+          className={`tab-bar-item${activeTab === 'dashboard' ? ' active' : ''}`}
           onClick={() => handleTabClick('dashboard')}
         >
-          {t('tab_dashboard')}
+          <span className="tab-icon">◈</span>
+          <span className="tab-label">{t('tab_dashboard').replace(/^\S+\s/, '')}</span>
         </button>
         <button
-          className={`tab-bar-item ${activeTab === 'settings' ? 'active' : ''}`}
+          className={`tab-bar-item${activeTab === 'settings' ? ' active' : ''}`}
           onClick={() => handleTabClick('settings')}
         >
-          {t('tab_settings')}
+          <span className="tab-icon">⚙</span>
+          <span className="tab-label">{t('tab_settings').replace(/^\S+\s/, '')}</span>
           {hasUpdates && <span className="badge" />}
         </button>
       </nav>
 
-      {/* Routes */}
+      {/* Rutas */}
       <Route path="/setup">
         <Setup onComplete={() => { setSetupDone(true); navigate('/dashboard') }} />
       </Route>
@@ -106,11 +114,11 @@ export function App() {
 
 function SettingsRouter() {
   const { path } = useRoute()
-  if (path === '/settings') return <Settings />
   if (path === '/settings/keep-alive') return <SettingsKeepAlive />
   if (path === '/settings/storage') return <SettingsStorage />
   if (path === '/settings/about') return <SettingsAbout />
   if (path === '/settings/updates') return <SettingsUpdates />
   if (path === '/settings/platforms') return <SettingsPlatforms />
+  if (path === '/settings/tools') return <SettingsTools />
   return <Settings />
 }

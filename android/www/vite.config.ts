@@ -10,5 +10,12 @@ export default defineConfig({
     assetsDir: 'assets',
     sourcemap: false,
     minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        // Keep a single chunk — WebView loads from file://, no HTTP/2 multiplexing benefit
+        // Splitting would require multiple file:// requests with no performance gain
+        manualChunks: undefined,
+      },
+    },
   },
 })

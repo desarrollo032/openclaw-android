@@ -12,7 +12,8 @@ interface MenuItem {
 function getMenu(): MenuItem[] {
   return [
     { icon: '📱', label: t('settings_platforms'), desc: t('settings_platforms_desc'), route: '/settings/platforms' },
-    { icon: '🔄', label: t('settings_updates'), desc: t('settings_updates_desc'), route: '/settings/updates', badge: false },
+    { icon: '🔧', label: t('tools_title'), desc: t('tools_cat_terminal'), route: '/settings/tools' },
+    { icon: '🔄', label: t('settings_updates'), desc: t('settings_updates_desc'), route: '/settings/updates' },
     { icon: '⚡', label: t('settings_keep_alive'), desc: t('settings_keep_alive_desc'), route: '/settings/keep-alive' },
     { icon: '💾', label: t('settings_storage'), desc: t('settings_storage_desc'), route: '/settings/storage' },
     { icon: 'ℹ️', label: t('settings_about'), desc: t('settings_about_desc'), route: '/settings/about' },
@@ -21,23 +22,25 @@ function getMenu(): MenuItem[] {
 
 export function Settings() {
   const { navigate } = useRoute()
+  const currentLocale = getLocale()
 
   return (
     <div className="page">
-      <div className="page-title" style={{ marginBottom: 24 }}>{t('settings_title')}</div>
-      {/* Language selector */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-row">
+      <div className="page-title" style={{ marginBottom: 20 }}>{t('settings_title')}</div>
+
+      {/* Selector de idioma */}
+      <div className="section-title">Idioma / Language</div>
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 48 }}>
           <span className="card-icon">🌐</span>
           <div className="card-content">
-            <div className="card-label">Language</div>
+            <div className="card-label">Idioma</div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {availableLocales.map(loc => (
               <button
                 key={loc.code}
-                className={`btn ${getLocale() === loc.code ? 'btn-primary' : ''}`}
-                style={{ padding: '4px 12px', fontSize: 13 }}
+                className={`lang-btn${currentLocale === loc.code ? ' active' : ''}`}
                 onClick={() => { setLocale(loc.code); window.location.reload() }}
               >
                 {loc.label}
@@ -47,8 +50,14 @@ export function Settings() {
         </div>
       </div>
 
+      {/* Menú de ajustes */}
+      <div className="section-title">{t('settings_title')}</div>
       {getMenu().map(item => (
-        <div key={item.route} className="card" onClick={() => navigate(item.route)}>
+        <div
+          key={item.route}
+          className="card clickable"
+          onClick={() => navigate(item.route)}
+        >
           <div className="card-row">
             <span className="card-icon">{item.icon}</span>
             <div className="card-content">

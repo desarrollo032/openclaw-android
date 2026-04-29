@@ -7,7 +7,7 @@ interface Props {
   onComplete: () => void
 }
 
-type SetupPhase = 'platform-select' | 'tool-select' | 'installing' | 'done'
+type SetupPhase = 'platform-select' | 'path-select' | 'tool-select' | 'installing' | 'done'
 
 interface Platform {
   id: string
@@ -42,6 +42,8 @@ export function Setup({ onComplete }: Props) {
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [selectedPlatform, setSelectedPlatform] = useState('')
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
+  const [installPath, setInstallPath] = useState<'local' | 'termux'>('local')
+  const [appFilesInfo, setAppFilesInfo] = useState<{ filesDir?: string; prefix?: string } | null>(null)
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -57,6 +59,9 @@ export function Setup({ onComplete }: Props) {
         { id: 'openclaw', name: 'OpenClaw', icon: '/openclaw.svg', desc: 'AI agent platform' },
       ])
     }
+    // Load app files info once
+    const filesInfo = bridge.callJson<{ filesDir?: string; prefix?: string }>('getAppFilesDir')
+    setAppFilesInfo(filesInfo)
   }, [])
 
   const onProgress = useCallback((data: unknown) => {
@@ -73,7 +78,7 @@ export function Setup({ onComplete }: Props) {
 
   function handleSelectPlatform(id: string) {
     setSelectedPlatform(id)
-    setPhase('tool-select')
+    setPhase('path-select')
   }
 
   function toggleTool(id: string) {
@@ -86,6 +91,9 @@ export function Setup({ onComplete }: Props) {
   }
 
   function handleStartSetup() {
+    // Save install path preference
+    bridge.call('saveInstallPath', installPath)
+
     // Save tool selections
     const selections: Record<string, boolean> = {}
     getOptionalTools().forEach(tool => {
@@ -103,10 +111,11 @@ export function Setup({ onComplete }: Props) {
 
   // --- Stepper ---
   const currentStep = phase === 'platform-select' ? 0
-    : phase === 'tool-select' ? 1
-    : phase === 'installing' ? 2 : 3
+    : phase === 'path-select' ? 1
+      : phase === 'tool-select' ? 2
+        : phase === 'installing' ? 3 : 4
 
-  const STEPS = [t('step_platform'), t('step_tools'), t('step_setup')]
+  const STEPS = [t('step_platform'), t('step_path'), t('step_tools'), t('step_setup')]
 
   function renderStepper() {
     return (
@@ -134,23 +143,89 @@ export function Setup({ onComplete }: Props) {
         {platforms.map(p => (
           <div
             key={p.id}
-            className="card"
-            style={{ maxWidth: 340, width: '100%', cursor: 'pointer' }}
+            className="platform-card"
             onClick={() => handleSelectPlatform(p.id)}
           >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>
               {p.icon.startsWith('/') ? (
-                <img src={p.icon.replace(/^\//, './')} alt={p.name} style={{ width: 40, height: 40 }} />
+                <img src={p.icon.replace(/^\//, './')} alt={p.name} style={{ width: 44, height: 44 }} />
               ) : p.icon}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 600 }}>{p.name}</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>{p.name}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
               {p.desc}
             </div>
           </div>
         ))}
 
         <div className="setup-subtitle">{t('setup_more_platforms')}</div>
+      </div>
+    )
+  }
+
+  // --- Path Select ---
+  if (phase === 'path-select') {
+    const localPath = appFilesInfo?.prefix || t('setup_path_local_default')
+    const termuxPath = '/data/data/com.termux/files/usr'
+
+    return (
+      <div className="setup-container" style={{ justifyContent: 'flex-start', paddingTop: 48 }}>
+        {renderStepper()}
+        <div className="setup-title" style={{ fontSize: 22 }}>{t('setup_path_title')}</div>
+        <div className="setup-subtitle">{t('setup_path_desc')}</div>
+
+        <div style={{ width: '100%', maxWidth: 360 }}>
+          {([
+            {
+              id: 'local' as const,
+              label: t('setup_path_local_label'),
+              desc: localPath,
+              badge: t('setup_path_recommended'),
+            },
+            {
+              id: 'termux' as const,
+              label: t('setup_path_termux_label'),
+              desc: termuxPath,
+              badge: null,
+            },
+          ]).map(opt => {
+            const selected = installPath === opt.id
+            return (
+              <div
+                key={opt.id}
+                className="card"
+                style={{
+                  cursor: 'pointer', marginBottom: 10,
+                  border: selected ? '2px solid var(--accent)' : '2px solid transparent',
+                }}
+                onClick={() => setInstallPath(opt.id)}
+              >
+                <div className="card-row">
+                  <div className="card-content">
+                    <div className="card-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {opt.label}
+                      {opt.badge && (
+                        <span className="pill pill-accent" style={{ fontSize: 10 }}>{opt.badge}</span>
+                      )}
+                    </div>
+                    <div className="card-desc" style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>
+                      {opt.desc}
+                    </div>
+                  </div>
+                  <div style={{
+                    width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+                    border: selected ? '6px solid var(--accent)' : '2px solid var(--border)',
+                    background: 'var(--bg-secondary)',
+                  }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <button className="btn btn-primary" onClick={() => setPhase('tool-select')} style={{ marginTop: 8 }}>
+          {t('setup_next')}
+        </button>
       </div>
     )
   }
@@ -181,21 +256,12 @@ export function Setup({ onComplete }: Props) {
                     <div className="card-label">{tool.name}</div>
                     <div className="card-desc">{tool.desc}</div>
                   </div>
+                  {/* Evitar doble disparo: el click ya lo maneja el card padre */}
                   <div
-                    style={{
-                      width: 44, height: 24, borderRadius: 12,
-                      backgroundColor: isSelected ? 'var(--accent)' : 'var(--bg-tertiary)',
-                      position: 'relative', flexShrink: 0,
-                      transition: 'background-color 0.2s',
-                    }}
+                    className={`toggle${isSelected ? ' on' : ''}`}
+                    onClick={e => e.stopPropagation()}
                   >
-                    <div style={{
-                      width: 20, height: 20, borderRadius: 10,
-                      backgroundColor: '#fff', position: 'absolute', top: 2,
-                      left: isSelected ? 22 : 2,
-                      transition: 'left 0.2s',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                    }} />
+                    <div className="toggle-thumb" />
                   </div>
                 </div>
               </div>

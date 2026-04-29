@@ -39,15 +39,6 @@ class MainActivity : AppCompatActivity() {
         private const val MIN_TEXT_SIZE = 8
         private const val MAX_TEXT_SIZE = 32
         private const val KEYBOARD_SHOW_DELAY_MS = 200L
-        private const val TAB_NAME_TEXT_SIZE = 12f
-        private const val TAB_CLOSE_TEXT_SIZE = 14f
-        private const val TAB_ADD_TEXT_SIZE = 18f
-        private const val TAB_MARGIN_DP = 2
-        private const val TAB_HPAD_DP = 10
-        private const val TAB_VPAD_DP = 4
-        private const val TAB_CLOSE_PAD_DP = 6
-        private const val TAB_ADD_PAD_DP = 12
-        private const val INDICATOR_HEIGHT_DP = 2
         private const val INPUT_MODE_TYPE_NULL = 1
         private const val REQUEST_STORAGE_PERMISSIONS = 100
         private const val REQUEST_MANAGE_STORAGE = 101
@@ -274,6 +265,11 @@ class MainActivity : AppCompatActivity() {
         binding.webView.reload()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        jsBridge.cancel()
+    }
+
     // --- View switching ---
 
     fun showTerminal() {
@@ -427,10 +423,9 @@ class MainActivity : AppCompatActivity() {
         tabsLayout.removeAllViews()
 
         val sessions = sessionManager.getSessionsInfo()
-        val density = resources.displayMetrics.density
 
         for (info in sessions) {
-            val tabWrapper = createSessionTab(info, density)
+            val tabWrapper = createSessionTab(info)
             tabsLayout.addView(tabWrapper)
             if (info["active"] as Boolean) {
                 binding.sessionTabBar.post {
@@ -439,13 +434,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        tabsLayout.addView(createAddButton(density))
+        tabsLayout.addView(createAddButton())
     }
 
-    private fun createSessionTab(
-        info: Map<String, Any>,
-        density: Float,
-    ): LinearLayout {
+    private fun createSessionTab(info: Map<String, Any>): LinearLayout {
         val id = info["id"] as String
         val name = info["name"] as String
         val active = info["active"] as Boolean
@@ -455,26 +447,20 @@ class MainActivity : AppCompatActivity() {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams =
-                    LinearLayout
-                        .LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                        ).apply {
-                            marginEnd = (TAB_MARGIN_DP * density).toInt()
-                        }
-                val bgColor =
-                    if (active) {
-                        R.color.tabActiveBackground
-                    } else {
-                        R.color.tabInactiveBackground
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                    ).apply {
+                        marginEnd = resources.getDimensionPixelSize(R.dimen.tab_margin)
                     }
+                val bgColor = if (active) R.color.tabActiveBackground else R.color.tabInactiveBackground
                 setBackgroundColor(ContextCompat.getColor(this@MainActivity, bgColor))
                 isFocusable = false
                 isFocusableInTouchMode = false
             }
 
-        val tabContent = createTabContent(name, active, finished, id, density)
-        val indicator = createTabIndicator(active, density)
+        val tabContent = createTabContent(name, active, finished, id)
+        val indicator = createTabIndicator(active)
 
         tabWrapper.addView(tabContent)
         tabWrapper.addView(indicator)
@@ -491,21 +477,21 @@ class MainActivity : AppCompatActivity() {
         active: Boolean,
         finished: Boolean,
         id: String,
-        density: Float,
     ): LinearLayout {
+        val hPad = resources.getDimensionPixelSize(R.dimen.tab_padding_h)
+        val vPad = resources.getDimensionPixelSize(R.dimen.tab_padding_v)
+        val closePad = resources.getDimensionPixelSize(R.dimen.tab_close_size) / 4
+
         val tabContent =
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                val hPad = (TAB_HPAD_DP * density).toInt()
-                val vPad = (TAB_VPAD_DP * density).toInt()
-                setPadding(hPad, vPad, (TAB_CLOSE_PAD_DP * density).toInt(), vPad)
-                layoutParams =
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        0,
-                        1f,
-                    )
+                setPadding(hPad, vPad, closePad, vPad)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    0,
+                    1f,
+                )
                 isFocusable = false
                 isFocusableInTouchMode = false
             }
@@ -513,34 +499,31 @@ class MainActivity : AppCompatActivity() {
         val nameView =
             TextView(this).apply {
                 text = name
-                textSize = TAB_NAME_TEXT_SIZE
-                val textColor =
-                    when {
-                        finished -> R.color.tabTextFinished
-                        active -> R.color.tabTextPrimary
-                        else -> R.color.tabTextSecondary
-                    }
+                textSize = resources.getDimension(R.dimen.tab_name_text_size) / resources.displayMetrics.scaledDensity
+                val textColor = when {
+                    finished -> R.color.tabTextFinished
+                    active -> R.color.tabTextPrimary
+                    else -> R.color.tabTextSecondary
+                }
                 setTextColor(ContextCompat.getColor(this@MainActivity, textColor))
                 if (finished) setTypeface(typeface, Typeface.ITALIC)
                 isSingleLine = true
-                layoutParams =
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    )
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                )
             }
 
         val closeView =
             TextView(this).apply {
-                text = "\u00D7"
-                textSize = TAB_CLOSE_TEXT_SIZE
+                text = getString(R.string.close_session)
+                textSize = resources.getDimension(R.dimen.tab_close_text_size) / resources.displayMetrics.scaledDensity
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.tabTextSecondary))
-                setPadding((TAB_CLOSE_PAD_DP * density).toInt(), 0, 0, 0)
-                layoutParams =
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    )
+                setPadding(closePad, 0, 0, 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                )
                 isFocusable = false
                 isFocusableInTouchMode = false
                 setOnClickListener { closeSessionFromTab(id) }
@@ -551,33 +534,28 @@ class MainActivity : AppCompatActivity() {
         return tabContent
     }
 
-    private fun createTabIndicator(
-        active: Boolean,
-        density: Float,
-    ): View =
+    private fun createTabIndicator(active: Boolean): View =
         View(this).apply {
-            layoutParams =
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    (INDICATOR_HEIGHT_DP * density).toInt(),
-                )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                resources.getDimensionPixelSize(R.dimen.tab_indicator_height),
+            )
             val color = if (active) R.color.tabAccent else android.R.color.transparent
             setBackgroundColor(ContextCompat.getColor(this@MainActivity, color))
         }
 
-    private fun createAddButton(density: Float): TextView =
+    private fun createAddButton(): TextView =
         TextView(this).apply {
-            text = "+"
-            textSize = TAB_ADD_TEXT_SIZE
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.tabTextSecondary))
-            val pad = (TAB_ADD_PAD_DP * density).toInt()
+            text = getString(R.string.add_session)
+            textSize = resources.getDimension(R.dimen.tab_add_text_size) / resources.displayMetrics.scaledDensity
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.tabAddButton))
+            val pad = resources.getDimensionPixelSize(R.dimen.tab_add_padding)
             setPadding(pad, 0, pad, 0)
             gravity = Gravity.CENTER
-            layoutParams =
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+            )
             isFocusable = false
             isFocusableInTouchMode = false
             setOnClickListener {

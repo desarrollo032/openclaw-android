@@ -6,12 +6,22 @@ export const en = {
 
   // Setup - steps
   step_platform: 'Platform',
+  step_path: 'Path',
   step_tools: 'Tools',
   step_setup: 'Setup',
 
   // Setup - platform select
   setup_choose_platform: 'Choose your platform',
   setup_more_platforms: 'More platforms available in Settings.',
+
+  // Setup - path select
+  setup_path_title: 'Install Location',
+  setup_path_desc: 'Choose where to install the runtime. Use the app-local path unless you have Termux installed.',
+  setup_path_local_label: 'App-local (this app)',
+  setup_path_local_default: 'App internal storage',
+  setup_path_termux_label: 'Use Termux',
+  setup_path_recommended: 'Recommended',
+  setup_next: 'Next',
 
   // Setup - tool select
   setup_optional_tools: 'Optional Tools',
@@ -41,6 +51,9 @@ export const en = {
   tool_claude_code: 'Anthropic AI CLI',
   tool_gemini_cli: 'Google AI CLI',
   tool_codex_cli: 'OpenAI AI CLI',
+
+  // Runtime environment detection
+  env_not_detected: 'not found',
 
   // Dashboard
   dash_setup_required: 'Setup Required',
@@ -121,4 +134,15 @@ export const en = {
   platforms_installing: 'Installing {name}...',
   platforms_active: 'Active',
   platforms_install: 'Install & Switch',
+
+  // Settings - Tools
+  tools_title: 'Additional Tools',
+  tools_installing: 'Installing {name}...',
+  tools_installed: 'Installed ✓',
+  tools_install: 'Install',
+  tools_uninstall: 'Uninstall',
+  tools_cat_terminal: 'Terminal Tools',
+  tools_cat_ai: 'AI Tools',
+  tools_cat_network: 'Network & Access',
+  tools_cat_system: 'System',
 }

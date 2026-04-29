@@ -14,10 +14,94 @@
 
 set -eo pipefail
 
-# ─── Paths ────────────────────────────────────
-: "${PREFIX:?PREFIX not set}"
-: "${HOME:?HOME not set}"
+# ════════════════════════════════════════════════════════════════════════
+# FASE 0 — Bootstrap de entorno (OBLIGATORIO antes de cualquier red/apt)
+# Debe ejecutarse ANTES de cualquier curl, apt, pkg o acceso a red.
+# ════════════════════════════════════════════════════════════════════════
+
+# ─── 0.1 Corrección de rutas: si PREFIX apunta a com.termux pero no existe,
+#         usar la ruta local de la app (filesDir/usr) ─────────────────────
+if [ -n "$PREFIX" ] && echo "$PREFIX" | grep -q "com\.termux" && [ ! -d "$PREFIX" ]; then
+    # Detectar filesDir de la app desde el HOME actual
+    _APP_FILES_DIR="$(dirname "$(dirname "$HOME")")"
+    if [ -d "$_APP_FILES_DIR/usr" ] || mkdir -p "$_APP_FILES_DIR/usr" 2>/dev/null; then
+        export PREFIX="$_APP_FILES_DIR/usr"
+        export HOME="$_APP_FILES_DIR/home"
+        export TMPDIR="$_APP_FILES_DIR/tmp"
+        mkdir -p "$HOME" "$TMPDIR"
+    fi
+fi
+
+# ─── 0.2 Paths base ───────────────────────────────────────────────────
+: "${PREFIX:?PREFIX no está definido}"
+: "${HOME:?HOME no está definido}"
 : "${TMPDIR:=$(dirname "$PREFIX")/tmp}"
+
+# ─── 0.3 FIX DNS — Configurar resolv.conf ANTES de cualquier petición ─
+# Android sandbox no hereda /etc/resolv.conf del sistema.
+# Sin esto: "Could not resolve host" en curl, apt, npm, git.
+_RESOLV_CONF="$PREFIX/etc/resolv.conf"
+mkdir -p "$PREFIX/etc"
+if [ ! -s "$_RESOLV_CONF" ] || ! grep -q "nameserver" "$_RESOLV_CONF" 2>/dev/null; then
+    printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n' > "$_RESOLV_CONF"
+fi
+# También escribir en la ruta glibc (usada por Node.js glibc)
+mkdir -p "$PREFIX/glibc/etc"
+if [ ! -s "$PREFIX/glibc/etc/resolv.conf" ]; then
+    cp "$_RESOLV_CONF" "$PREFIX/glibc/etc/resolv.conf" 2>/dev/null || \
+        printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > "$PREFIX/glibc/etc/resolv.conf"
+fi
+
+# ─── 0.4 FIX SSL — Activar certificados CA ANTES de cualquier HTTPS ───
+# ca-certificates puede no estar instalado aún. Intentar activar lo que haya.
+# Si no hay certs, curl usará --insecure solo para descargar ca-certificates.
+_CERT_BUNDLE="$PREFIX/etc/tls/cert.pem"
+_CERT_DIR="$PREFIX/etc/tls/certs"
+_CERT_ACTIVATED=false
+
+if [ -d "$_CERT_DIR" ] && ls "$_CERT_DIR"/*.pem >/dev/null 2>&1; then
+    # Regenerar bundle desde certs individuales
+    mkdir -p "$PREFIX/etc/tls"
+    cat "$_CERT_DIR"/*.pem > "$_CERT_BUNDLE" 2>/dev/null && _CERT_ACTIVATED=true
+fi
+
+# Fallback: usar certs del sistema Android si el bundle no existe
+if [ "$_CERT_ACTIVATED" = "false" ] && [ ! -s "$_CERT_BUNDLE" ]; then
+    mkdir -p "$PREFIX/etc/tls"
+    # Android almacena certs del sistema en /system/etc/security/cacerts/
+    if [ -d "/system/etc/security/cacerts" ]; then
+        cat /system/etc/security/cacerts/*.0 > "$_CERT_BUNDLE" 2>/dev/null && _CERT_ACTIVATED=true
+    fi
+fi
+
+# Exportar variables SSL para todos los procesos hijos
+export CURL_CA_BUNDLE="$_CERT_BUNDLE"
+export SSL_CERT_FILE="$_CERT_BUNDLE"
+export GIT_SSL_CAINFO="$_CERT_BUNDLE"
+
+# Si aún no hay certs, curl necesitará --insecure para la descarga inicial
+_CURL_INSECURE=""
+if [ "$_CERT_ACTIVATED" = "false" ] || [ ! -s "$_CERT_BUNDLE" ]; then
+    _CURL_INSECURE="--insecure"
+    echo "[WARN] No se encontraron certificados CA. Usando --insecure para descarga inicial."
+fi
+
+# ─── 0.5 FIX SHEBANGS — Reparar scripts de Termux con rutas hardcodeadas ─
+# El bootstrap de Termux tiene scripts en $PREFIX/bin/ con shebangs
+# hardcodeados a /data/data/com.termux/... que fallan cuando el nombre
+# del paquete de la app es diferente (ej: com.openclaw.android.debug).
+# libtermux-exec solo intercepta execve(), no open(), así que hay que
+# parchear las líneas de shebang directamente.
+_APP_PKG="$(basename "$(dirname "$(dirname "$PREFIX")")")"
+if [ -n "$_APP_PKG" ] && [ "$_APP_PKG" != "com.termux" ]; then
+    for _f in "$PREFIX/bin"/*; do
+        [ -f "$_f" ] || continue
+        _head=$(head -c 4 "$_f" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        [ "$_head" = "7f454c46" ] && continue
+        head -1 "$_f" 2>/dev/null | grep -q "com\.termux" || continue
+        sed -i "s|com\.termux|$_APP_PKG|g" "$_f" 2>/dev/null || true
+    done
+fi
 
 OCA_DIR="$HOME/.openclaw-android"
 NODE_DIR="$OCA_DIR/node"
@@ -31,11 +115,34 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# ─── 0.6 Validación de conectividad de red ────────────────────────────
+# Verificar que hay red antes de continuar. Reintenta hasta 3 veces.
+_check_network() {
+    local _tries=0
+    while [ $_tries -lt 3 ]; do
+        if curl -sI $_CURL_INSECURE --connect-timeout 5 --max-time 10 \
+                "https://packages-cf.termux.dev" >/dev/null 2>&1; then
+            return 0
+        fi
+        _tries=$((_tries + 1))
+        [ $_tries -lt 3 ] && sleep 2
+    done
+    return 1
+}
+
+if ! _check_network; then
+    echo -e "${RED}✗ Sin conexión a internet. Verifica tu red y vuelve a intentarlo.${NC}"
+    echo "  DNS configurado en: $_RESOLV_CONF"
+    echo "  Contenido: $(cat "$_RESOLV_CONF" 2>/dev/null || echo 'vacío')"
+    exit 1
+fi
+echo -e "  ${GREEN}✓${NC} Conectividad de red verificada"
+
 # ─── GitHub mirror fallback (for China/restricted networks) ──
 REPO_BASE_ORIGIN="https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
 REPO_BASE="$REPO_BASE_ORIGIN"
 resolve_repo_base() {
-    if curl -sI --connect-timeout 3 "$REPO_BASE_ORIGIN/oa.sh" >/dev/null 2>&1; then
+    if curl -sI $_CURL_INSECURE --connect-timeout 3 "$REPO_BASE_ORIGIN/oa.sh" >/dev/null 2>&1; then
         REPO_BASE="$REPO_BASE_ORIGIN"; return 0
     fi
     local mirrors=(
@@ -44,7 +151,7 @@ resolve_repo_base() {
         "https://mirror.ghproxy.com/$REPO_BASE_ORIGIN"
     )
     for m in "${mirrors[@]}"; do
-        if curl -sI --connect-timeout 3 "$m/oa.sh" >/dev/null 2>&1; then
+        if curl -sI $_CURL_INSECURE --connect-timeout 3 "$m/oa.sh" >/dev/null 2>&1; then
             echo -e "  ${YELLOW}[MIRROR]${NC} Using mirror for GitHub downloads"
             REPO_BASE="$m"; return 0
         fi
@@ -59,10 +166,10 @@ resolve_npm_registry() {
     local choice
     local cache_file="$OCA_DIR/.npm-registry"
     local reachable=0
-    if curl -sI --connect-timeout 5 "$NPM_REGISTRY_ORIGIN" >/dev/null 2>&1; then
+    if curl -sI $_CURL_INSECURE --connect-timeout 5 "$NPM_REGISTRY_ORIGIN" >/dev/null 2>&1; then
         choice="$NPM_REGISTRY_ORIGIN"
         reachable=1
-    elif curl -sI --connect-timeout 5 "$NPM_REGISTRY_MIRROR" >/dev/null 2>&1; then
+    elif curl -sI $_CURL_INSECURE --connect-timeout 5 "$NPM_REGISTRY_MIRROR" >/dev/null 2>&1; then
         echo -e "  ${YELLOW}[MIRROR]${NC} Using npm mirror: ${NPM_REGISTRY_MIRROR}"
         choice="$NPM_REGISTRY_MIRROR"
         reachable=1
@@ -92,15 +199,38 @@ export GIT_EXEC_PATH="$PREFIX/libexec/git-core"
 # Git template dir (hardcoded /data/data/com.termux path workaround)
 export GIT_TEMPLATE_DIR="$PREFIX/share/git-core/templates"
 
+# ─── Repair bin/ shebangs ────────────────────────────────────────────
+# The Termux bootstrap has scripts in $PREFIX/bin/ (pkg, apt, termux-*)
+# with shebangs hardcoded to /data/data/com.termux/... which breaks when
+# the app package name differs (e.g. com.openclaw.android.debug).
+# libtermux-exec only intercepts execve(), not open(), so we must patch
+# the shebang lines directly. This is idempotent and safe to run always.
+_APP_PKG="$(basename "$(dirname "$(dirname "$PREFIX")")")"
+if [ -n "$_APP_PKG" ] && [ "$_APP_PKG" != "com.termux" ]; then
+    for _f in "$PREFIX/bin"/*; do
+        [ -f "$_f" ] || continue
+        # Only patch text files (skip ELF binaries)
+        _head=$(head -c 4 "$_f" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        [ "$_head" = "7f454c46" ] && continue
+        # Only patch if shebang contains com.termux
+        head -1 "$_f" 2>/dev/null | grep -q "com\.termux" || continue
+        sed -i "s|com\.termux|$_APP_PKG|g" "$_f" 2>/dev/null || true
+    done
+fi
+
 if [ -f "$MARKER" ]; then
-    echo -e "${GREEN}Post-setup already completed.${NC}"
+    echo -e "${GREEN}Configuración ya completada.${NC}"
     exit 0
 fi
 
 echo ""
 echo "══════════════════════════════════════════════"
-echo "  OpenClaw Android — Installing components"
+echo "  OpenClaw Android — Instalando componentes"
 echo "══════════════════════════════════════════════"
+echo ""
+echo "  PREFIX : $PREFIX"
+echo "  HOME   : $HOME"
+echo "  TMPDIR : $TMPDIR"
 echo ""
 
 mkdir -p "$OCA_DIR" "$OCA_DIR/patches" "$TMPDIR"
@@ -112,6 +242,15 @@ DEB_DIR="$TMPDIR/debs"
 PKG_DIR="$TMPDIR/pkgs"
 EXTRACT_DIR="$TMPDIR/pkg-extract"
 
+# Asegurar que los directorios de trabajo existen y son accesibles
+mkdir -p "$DEB_DIR" "$PKG_DIR" "$EXTRACT_DIR" "$TMPDIR"
+
+# Wrapper para dpkg-deb: evita que intente crear /data/data/com.termux
+# usando DPKG_ADMINDIR y DPKG_ROOT apuntando a nuestro PREFIX
+export DPKG_ADMINDIR="$PREFIX/var/lib/dpkg"
+export DPKG_ROOT="$PREFIX"
+mkdir -p "$DPKG_ADMINDIR"
+
 # ─── Helper: install_deb ──────────────────────
 # Downloads a .deb from Termux repo and extracts into $PREFIX
 install_deb() {
@@ -122,15 +261,23 @@ install_deb() {
     local deb_file="${DEB_DIR}/$(basename "$filename")"
 
     if [ -f "$deb_file" ]; then
-        echo "    (cached) $name"
+        echo "    (caché) $name"
     else
-        echo "    downloading $name..."
+        echo "    descargando $name..."
         curl -fsSL --max-time 120 -o "$deb_file" "$url"
     fi
 
     rm -rf "$EXTRACT_DIR"
     mkdir -p "$EXTRACT_DIR"
-    dpkg-deb -x "$deb_file" "$EXTRACT_DIR" 2>/dev/null
+
+    # Usar dpkg-deb con --root para evitar que acceda a rutas hardcodeadas de com.termux
+    # Si falla, intentar con ar/tar directamente
+    if ! dpkg-deb --fsys-tarfile "$deb_file" 2>/dev/null | tar -x -C "$EXTRACT_DIR" 2>/dev/null; then
+        # Fallback: extraer con ar + tar
+        (cd "$EXTRACT_DIR" && ar x "$deb_file" 2>/dev/null && \
+            { tar -xf data.tar.xz 2>/dev/null || tar -xf data.tar.gz 2>/dev/null || \
+              tar -xf data.tar.bz2 2>/dev/null || tar -xJf data.tar.xz 2>/dev/null || true; }) || true
+    fi
 
     # Relocate: data/data/com.termux/files/usr/* → $PREFIX/
     if [ -d "$EXTRACT_DIR/$TERMUX_INNER" ]; then
@@ -193,6 +340,7 @@ get_deb_filename() {
 
 # Packages to install via dpkg-deb (dependency order, only those missing from bootstrap)
 DEB_PACKAGES=(
+    ca-certificates   # SSL certs — must be first so apt/curl can verify mirrors
     libexpat          # git dep
     pcre2             # git dep
     git               # for npm/openclaw
@@ -213,6 +361,16 @@ done
 
 # Make sure newly extracted binaries are executable
 chmod +x "$PREFIX/bin/"* 2>/dev/null || true
+
+# ─── Activate ca-certificates ────────────────────────────────────────
+# ca-certificates extracts certs to $PREFIX/etc/tls/certs/ but curl and
+# apt look for the bundle at $PREFIX/etc/tls/cert.pem (already set via
+# CURL_CA_BUNDLE). Regenerate the bundle from the extracted certs so
+# all subsequent HTTPS requests (apt, curl, npm) can verify SSL.
+if [ -d "$PREFIX/etc/tls/certs" ]; then
+    cat "$PREFIX/etc/tls/certs/"*.pem > "$PREFIX/etc/tls/cert.pem" 2>/dev/null || true
+    echo -e "  ${GREEN}✓${NC} ca-certificates activated"
+fi
 
 # Verify git
 if [ -f "$PREFIX/bin/git" ]; then
@@ -525,6 +683,19 @@ else
     echo -e "  ${GREEN}✓${NC} OpenClaw $OC_VER"
 fi
 
+# ─── Repair openclaw wrapper ─────────────────
+# The external installer (myopenclawhub.com/install) creates $PREFIX/bin/openclaw
+# with #!/usr/bin/env node which doesn't exist in this environment.
+# Always rewrite it to use our glibc-wrapped node from BIN_DIR.
+_OC_MJS="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
+_OC_BIN="$PREFIX/bin/openclaw"
+if [ -f "$_OC_MJS" ]; then
+    [ -L "$_OC_BIN" ] && rm -f "$_OC_BIN"
+    printf '#!%s/bin/bash\nexec "%s/node" "%s" "$@"\n' "$PREFIX" "$BIN_DIR" "$_OC_MJS" > "$_OC_BIN"
+    chmod +x "$_OC_BIN"
+    echo -e "  ${GREEN}✓${NC} openclaw wrapper repaired → $BIN_DIR/node"
+fi
+
 # Restore optional/channel deps that --ignore-scripts skips.
 # Uses npm_config_ignore_scripts=true so sharp's native build doesn't block.
 OPENCLAW_DIR="$(npm root -g)/openclaw"
@@ -757,12 +928,12 @@ touch "$MARKER"
 
 echo ""
 echo "══════════════════════════════════════════════"
-echo -e "  ${GREEN}✓ Installation complete!${NC}"
+echo -e "  ${GREEN}✓ ¡Instalación completa!${NC}"
 echo "══════════════════════════════════════════════"
 echo ""
-echo "  Loading environment..."
+echo "  Cargando entorno..."
 source "$HOME/.bashrc"
 echo ""
-echo "  Starting OpenClaw onboard..."
+echo "  Iniciando OpenClaw onboard..."
 echo ""
 openclaw onboard

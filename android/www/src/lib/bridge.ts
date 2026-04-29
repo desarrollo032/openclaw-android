@@ -11,10 +11,13 @@ interface OpenClawBridge {
   closeSession(id: string): void
   getTerminalSessions(): string
   writeToTerminal(id: string, data: string): void
+  runInNewSession(command: string): void
   getSetupStatus(): string
   getBootstrapStatus(): string
+  getAppFilesDir(): string
   startSetup(): void
   saveToolSelections(json: string): void
+  saveInstallPath(path: string): void
   getAvailablePlatforms(): string
   getInstalledPlatforms(): string
   installPlatform(id: string): void
@@ -25,6 +28,7 @@ interface OpenClawBridge {
   installTool(id: string): void
   uninstallTool(id: string): void
   isToolInstalled(id: string): string
+  getEnvironmentInfo(): string
   runCommand(cmd: string): string
   runCommandAsync(callbackId: string, cmd: string): void
   checkForUpdates(): string

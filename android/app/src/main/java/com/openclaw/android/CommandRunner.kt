@@ -29,24 +29,26 @@ object CommandRunner {
 
     /**
      * Build the environment map for Termux commands.
-     * Always sets HOME and PATH pointing to the real Termux installation.
+     * Detecta automáticamente si usar rutas de Termux o locales.
      */
-    fun buildTermuxEnv(): Map<String, String> =
-        buildMap {
-            put("HOME", TERMUX_HOME)
-            put("PREFIX", TERMUX_PREFIX)
-            put("TMPDIR", "$TERMUX_PREFIX/../tmp")
-            put(
-                "PATH",
-                "$OPENCLAW_BIN:$TERMUX_PREFIX/bin:$TERMUX_PREFIX/bin/applets:/system/bin:/bin",
-            )
-            put("LD_LIBRARY_PATH", "$TERMUX_PREFIX/lib")
-            put("LANG", "en_US.UTF-8")
-            put("TERM", "xterm-256color")
-            put("ANDROID_DATA", "/data")
-            put("ANDROID_ROOT", "/system")
-            put("OA_GLIBC", "1")
-            put("CONTAINER", "1")
+    fun buildTermuxEnv(): Map<String, String> = EnvironmentBuilder.buildTermuxEnvironment()
+
+    /**
+     * Build a safe working directory, falling back to TERMUX_HOME or /data/local/tmp.
+     */
+    private fun safeWorkDir(workDir: File): File = when {
+        workDir.exists() -> workDir
+        File(TERMUX_HOME).exists() -> File(TERMUX_HOME)
+        else -> File("/data/local/tmp").also { it.mkdirs() }
+    }
+
+    /**
+     * Strip LD_PRELOAD if the referenced library doesn't exist (prevents crash).
+     */
+    private fun safeEnv(env: Map<String, String>): Map<String, String> =
+        env.toMutableMap().apply {
+            val ldPreload = get("LD_PRELOAD")
+            if (ldPreload != null && !File(ldPreload).exists()) remove("LD_PRELOAD")
         }
 
     /**
@@ -62,8 +64,8 @@ object CommandRunner {
         try {
             val pb = ProcessBuilder("bash", "-l", "-c", command)
             pb.environment().clear()
-            pb.environment().putAll(env)
-            pb.directory(if (workDir.exists()) workDir else File(TERMUX_HOME))
+            pb.environment().putAll(safeEnv(env))
+            pb.directory(safeWorkDir(workDir))
             pb.redirectErrorStream(false)
 
             val process = pb.start()
@@ -73,7 +75,7 @@ object CommandRunner {
 
             if (!exited) {
                 process.destroyForcibly()
-                CommandResult(-1, stdout, "Command timed out after ${timeoutMs}ms")
+                CommandResult(-1, stdout, "Command timed out (${timeoutMs}ms)")
             } else {
                 CommandResult(process.exitValue(), stdout, stderr)
             }
@@ -94,8 +96,8 @@ object CommandRunner {
         try {
             val pb = ProcessBuilder("bash", "-l", "-c", command)
             pb.environment().clear()
-            pb.environment().putAll(env)
-            pb.directory(if (workDir.exists()) workDir else File(TERMUX_HOME))
+            pb.environment().putAll(safeEnv(env))
+            pb.directory(safeWorkDir(workDir))
             pb.redirectErrorStream(true)
 
             val process = pb.start()
@@ -130,11 +132,17 @@ object CommandRunner {
             onOutput("Storage already configured.")
             return
         }
+        // If Termux HOME doesn't exist, skip
+        if (!File(TERMUX_HOME).exists()) {
+            AppLogger.w(TAG, "Termux HOME directory not found, skipping termux-setup-storage")
+            onOutput("Termux directory not found, skipping storage setup.")
+            return
+        }
         AppLogger.i(TAG, "Running termux-setup-storage...")
         try {
             val pb = ProcessBuilder("bash", "-l", "-c", "yes | termux-setup-storage")
             pb.environment().clear()
-            pb.environment().putAll(buildTermuxEnv())
+            pb.environment().putAll(safeEnv(buildTermuxEnv()))
             pb.directory(File(TERMUX_HOME))
             pb.redirectErrorStream(true)
             val process = pb.start()

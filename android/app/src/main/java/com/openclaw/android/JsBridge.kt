@@ -29,7 +29,10 @@ class JsBridge(
     private val gson = Gson()
 
     // Shared IO dispatcher — avoids spawning a new thread pool per coroutine
-    private val ioScope = CoroutineScope(Dispatchers.IO)
+    private val ioScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
+    /** Cancel all pending coroutines — call from MainActivity.onDestroy(). */
+    fun cancel() = ioScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
 
     companion object {
         private const val TAG = "JsBridge"
@@ -153,8 +156,18 @@ class JsBridge(
             mapOf(
                 "installed" to bootstrapManager.isInstalled(),
                 "openclawInstalled" to bootstrapManager.isOpenClawInstalled(),
-                "prefixPath" to CommandRunner.TERMUX_PREFIX,
+                "prefixPath" to EnvironmentBuilder.resolveActivePaths(activity.filesDir).first,
                 "openclawPath" to CommandRunner.OPENCLAW_DIR,
+            ),
+        )
+
+    @JavascriptInterface
+    fun getAppFilesDir(): String =
+        gson.toJson(
+            mapOf(
+                "filesDir"  to activity.filesDir.absolutePath,
+                "prefix"    to EnvironmentBuilder.resolveActivePaths(activity.filesDir).first,
+                "home"      to EnvironmentBuilder.resolveActivePaths(activity.filesDir).second,
             ),
         )
 
@@ -171,6 +184,15 @@ class JsBridge(
                 )
             }
         }
+    }
+
+    @JavascriptInterface
+    fun saveInstallPath(path: String) {
+        // "local" = app-local filesDir/usr, "termux" = /data/data/com.termux/files/usr
+        activity.getSharedPreferences("openclaw", 0)
+            .edit()
+            .putString("install_path", path)
+            .apply()
     }
 
     @JavascriptInterface
@@ -279,13 +301,17 @@ class JsBridge(
 
     @JavascriptInterface
     fun getInstalledTools(): String {
-        // Use real Termux prefix for binary detection
-        val prefix = CommandRunner.TERMUX_PREFIX
-        val tools = mutableListOf<Map<String, String>>()
+        // Check both the app-local prefix and the real Termux prefix
+        val (activePrefix, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        val termuxPrefix = CommandRunner.TERMUX_PREFIX
+        val prefixes = linkedSetOf(activePrefix, termuxPrefix) // dedup, local first
 
-        // Termux packages — check binary path
-        val pkgChecks =
-            mapOf(
+        val tools = mutableListOf<Map<String, String>>()
+        val seen = mutableSetOf<String>()
+
+        for (prefix in prefixes) {
+            // Termux packages — check binary path
+            val pkgChecks = mapOf(
                 "tmux" to "$prefix/bin/tmux",
                 "ttyd" to "$prefix/bin/ttyd",
                 "dufs" to "$prefix/bin/dufs",
@@ -293,34 +319,94 @@ class JsBridge(
                 "android-tools" to "$prefix/bin/adb",
                 "code-server" to "$prefix/bin/code-server",
             )
-        for ((id, path) in pkgChecks) {
-            if (java.io.File(path).exists()) {
-                tools.add(mapOf("id" to id, "name" to id, "version" to "installed"))
+            for ((id, path) in pkgChecks) {
+                if (!seen.contains(id) && java.io.File(path).exists()) {
+                    tools.add(mapOf("id" to id, "name" to id, "version" to "installed"))
+                    seen.add(id)
+                }
+            }
+
+            // Chromium — check multiple possible paths
+            if (!seen.contains("chromium") &&
+                (java.io.File("$prefix/bin/chromium-browser").exists() ||
+                    java.io.File("$prefix/bin/chromium").exists())
+            ) {
+                tools.add(mapOf("id" to "chromium", "name" to "chromium", "version" to "installed"))
+                seen.add("chromium")
             }
         }
 
-        // Chromium — check multiple possible paths
-        if (java.io.File("$prefix/bin/chromium-browser").exists() ||
-            java.io.File("$prefix/bin/chromium").exists()
-        ) {
-            tools.add(mapOf("id" to "chromium", "name" to "chromium", "version" to "installed"))
+        // npm global packages — check in both openclaw bin dirs
+        val (activeHome, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir).let {
+            Pair(it.second, it.first)
         }
-
-        // npm global packages — check binary in openclaw bin dir
-        val npmBinChecks =
-            mapOf(
-                "claude-code" to "${CommandRunner.OPENCLAW_BIN}/claude",
-                "gemini-cli" to "${CommandRunner.OPENCLAW_BIN}/gemini",
-                "codex-cli" to "${CommandRunner.OPENCLAW_BIN}/codex",
-                "opencode" to "${CommandRunner.OPENCLAW_BIN}/opencode",
-            )
-        for ((id, path) in npmBinChecks) {
-            if (java.io.File(path).exists()) {
-                tools.add(mapOf("id" to id, "name" to id, "version" to "installed"))
+        val binDirs = linkedSetOf(
+            "$activeHome/.openclaw-android/bin",
+            CommandRunner.OPENCLAW_BIN,
+        )
+        val npmBinChecks = mapOf(
+            "claude-code" to "claude",
+            "gemini-cli" to "gemini",
+            "codex-cli" to "codex",
+            "opencode" to "opencode",
+        )
+        for ((id, bin) in npmBinChecks) {
+            if (!seen.contains(id)) {
+                for (binDir in binDirs) {
+                    if (java.io.File("$binDir/$bin").exists()) {
+                        tools.add(mapOf("id" to id, "name" to id, "version" to "installed"))
+                        seen.add(id)
+                        break
+                    }
+                }
             }
         }
 
         return gson.toJson(tools)
+    }
+
+    /**
+     * Returns detected versions of core runtime components (node, git, openclaw).
+     * Checks both the app-local prefix and the real Termux prefix.
+     */
+    @JavascriptInterface
+    fun getEnvironmentInfo(): String {
+        val env = CommandRunner.buildTermuxEnv()
+        val home = java.io.File(CommandRunner.TERMUX_HOME).let {
+            if (it.exists()) it else activity.filesDir.resolve("home")
+        }
+
+        fun runV(cmd: String): String {
+            val r = CommandRunner.runSync(cmd, env, home, timeoutMs = 5_000)
+            return r.stdout.trim().ifEmpty { r.stderr.trim() }
+        }
+
+        val nodeRaw = runV("node -v 2>/dev/null || node --version 2>/dev/null")
+        val gitRaw = runV("git --version 2>/dev/null")
+        val ocRaw = runV("openclaw --version 2>/dev/null")
+
+        // Resolve which prefix is active
+        val (activePrefix, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+
+        return gson.toJson(mapOf(
+            "node" to mapOf(
+                "version" to nodeRaw.ifEmpty { null },
+                "detected" to nodeRaw.isNotEmpty(),
+                "path" to "$activeHome/.openclaw-android/bin/node",
+            ),
+            "git" to mapOf(
+                "version" to gitRaw.replace("git version ", "").ifEmpty { null },
+                "detected" to gitRaw.isNotEmpty(),
+                "path" to "$activePrefix/bin/git",
+            ),
+            "openclaw" to mapOf(
+                "version" to ocRaw.ifEmpty { null },
+                "detected" to ocRaw.isNotEmpty(),
+                "path" to "$activePrefix/bin/openclaw",
+            ),
+            "prefix" to activePrefix,
+            "home" to activeHome,
+        ))
     }
 
     @JavascriptInterface
@@ -426,9 +512,11 @@ class JsBridge(
                 "code-server" -> java.io.File("$prefix/bin/code-server").exists()
                 else -> {
                     // npm global packages: check via command -v
+                    // Sanitize id to prevent shell injection (allow only alphanumeric, dash, @, /)
+                    val safeId = id.replace(Regex("[^a-zA-Z0-9@/_.-]"), "")
                     val result =
                         CommandRunner.runSync(
-                            "command -v $id 2>/dev/null",
+                            "command -v $safeId 2>/dev/null",
                             env,
                             java.io.File(CommandRunner.TERMUX_HOME),
                             timeoutMs = COMMAND_TIMEOUT_MS,

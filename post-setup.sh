@@ -92,6 +92,25 @@ export GIT_EXEC_PATH="$PREFIX/libexec/git-core"
 # Git template dir (hardcoded /data/data/com.termux path workaround)
 export GIT_TEMPLATE_DIR="$PREFIX/share/git-core/templates"
 
+# ─── Repair bin/ shebangs ────────────────────────────────────────────
+# The Termux bootstrap has scripts in $PREFIX/bin/ (pkg, apt, termux-*)
+# with shebangs hardcoded to /data/data/com.termux/... which breaks when
+# the app package name differs (e.g. com.openclaw.android.debug).
+# libtermux-exec only intercepts execve(), not open(), so we must patch
+# the shebang lines directly. This is idempotent and safe to run always.
+_APP_PKG="$(basename "$(dirname "$(dirname "$PREFIX")")")"
+if [ -n "$_APP_PKG" ] && [ "$_APP_PKG" != "com.termux" ]; then
+    for _f in "$PREFIX/bin"/*; do
+        [ -f "$_f" ] || continue
+        # Only patch text files (skip ELF binaries)
+        _head=$(head -c 4 "$_f" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        [ "$_head" = "7f454c46" ] && continue
+        # Only patch if shebang contains com.termux
+        head -1 "$_f" 2>/dev/null | grep -q "com\.termux" || continue
+        sed -i "s|com\.termux|$_APP_PKG|g" "$_f" 2>/dev/null || true
+    done
+fi
+
 if [ -f "$MARKER" ]; then
     echo -e "${GREEN}Post-setup already completed.${NC}"
     exit 0
@@ -193,6 +212,7 @@ get_deb_filename() {
 
 # Packages to install via dpkg-deb (dependency order, only those missing from bootstrap)
 DEB_PACKAGES=(
+    ca-certificates   # SSL certs — must be first so apt/curl can verify mirrors
     libexpat          # git dep
     pcre2             # git dep
     git               # for npm/openclaw
@@ -213,6 +233,17 @@ done
 
 # Make sure newly extracted binaries are executable
 chmod +x "$PREFIX/bin/"* 2>/dev/null || true
+
+# ─── Activate ca-certificates ────────────────────────────────────────
+# ca-certificates extracts certs to $PREFIX/etc/tls/certs/ but curl and
+# apt look for the bundle at $PREFIX/etc/tls/cert.pem (already set via
+# CURL_CA_BUNDLE). Regenerate the bundle from the extracted certs so
+# all subsequent HTTPS requests (apt, curl, npm) can verify SSL.
+if [ -d "$PREFIX/etc/tls/certs" ]; then
+    # Concatenate all PEM certs into the bundle curl/apt already use
+    cat "$PREFIX/etc/tls/certs/"*.pem > "$PREFIX/etc/tls/cert.pem" 2>/dev/null || true
+    echo -e "  ${GREEN}✓${NC} ca-certificates activated"
+fi
 
 # Verify git
 if [ -f "$PREFIX/bin/git" ]; then
@@ -523,6 +554,19 @@ else
     npm install -g openclaw@latest --ignore-scripts 2>&1
     OC_VER=$(openclaw --version 2>/dev/null || echo "installed")
     echo -e "  ${GREEN}✓${NC} OpenClaw $OC_VER"
+fi
+
+# ─── Repair openclaw wrapper ─────────────────
+# The external installer (myopenclawhub.com/install) creates $PREFIX/bin/openclaw
+# with #!/usr/bin/env node which doesn't exist in this environment.
+# Always rewrite it to use our glibc-wrapped node from BIN_DIR.
+_OC_MJS="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
+_OC_BIN="$PREFIX/bin/openclaw"
+if [ -f "$_OC_MJS" ]; then
+    [ -L "$_OC_BIN" ] && rm -f "$_OC_BIN"
+    printf '#!%s/bin/bash\nexec "%s/node" "%s" "$@"\n' "$PREFIX" "$BIN_DIR" "$_OC_MJS" > "$_OC_BIN"
+    chmod +x "$_OC_BIN"
+    echo -e "  ${GREEN}✓${NC} openclaw wrapper repaired → $BIN_DIR/node"
 fi
 
 # Restore optional/channel deps that --ignore-scripts skips.

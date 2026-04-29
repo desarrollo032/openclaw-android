@@ -1,0 +1,147 @@
+export const es = {
+    // Barra de pestañas
+    tab_terminal: '🖥 Terminal',
+    tab_dashboard: '📊 Panel',
+    tab_settings: '⚙ Ajustes',
+
+    // Setup - pasos
+    step_platform: 'Plataforma',
+    step_path: 'Ruta',
+    step_tools: 'Herramientas',
+    step_setup: 'Instalación',
+
+    // Setup - selección de plataforma
+    setup_choose_platform: 'Elige tu plataforma',
+    setup_more_platforms: 'Más plataformas disponibles en Ajustes.',
+
+    // Setup - selección de ruta
+    setup_path_title: 'Ubicación de instalación',
+    setup_path_desc: 'Elige dónde instalar el entorno. Usa la ruta local de la app salvo que tengas Termux instalado.',
+    setup_path_local_label: 'Local de la app',
+    setup_path_local_default: 'Almacenamiento interno de la app',
+    setup_path_termux_label: 'Usar Termux',
+    setup_path_recommended: 'Recomendado',
+    setup_next: 'Siguiente',
+
+    // Setup - selección de herramientas
+    setup_optional_tools: 'Herramientas opcionales',
+    setup_tools_desc: 'Selecciona herramientas para instalar junto a {platform}. Puedes añadir más en Ajustes.',
+    setup_start: 'Iniciar instalación',
+
+    // Setup - instalando
+    setup_setting_up: 'Instalando...',
+    setup_preparing: 'Preparando instalación...',
+
+    // Setup - listo
+    setup_done_title: '¡Todo listo!',
+    setup_done_desc: 'El terminal instalará los componentes de ejecución y las herramientas seleccionadas. Tarda entre 3 y 10 minutos.',
+    setup_open_terminal: 'Abrir terminal',
+
+    // Setup - consejos
+    tip_1: 'Puedes instalar varias plataformas de IA y cambiar entre ellas en cualquier momento.',
+    tip_2: 'La instalación es única. Los arranques posteriores son instantáneos.',
+    tip_3: 'Una vez completada, tu IA funciona a plena velocidad, igual que en un ordenador.',
+    tip_4: 'Todo el procesamiento ocurre localmente en tu dispositivo. Tus datos no salen del móvil.',
+
+    // Setup - descripciones de herramientas
+    tool_tmux: 'Multiplexor de terminal para sesiones en segundo plano',
+    tool_ttyd: 'Terminal web — accede desde el navegador',
+    tool_dufs: 'Servidor de archivos (WebDAV)',
+    tool_code_server: 'VS Code en el navegador',
+    tool_claude_code: 'CLI de IA de Anthropic',
+    tool_gemini_cli: 'CLI de IA de Google',
+    tool_codex_cli: 'CLI de IA de OpenAI',
+
+    // Panel
+    dash_setup_required: 'Instalación requerida',
+    dash_setup_desc: 'El entorno de ejecución aún no está instalado.',
+    dash_commands: 'Comandos',
+    dash_runtime: 'Entorno de ejecución',
+    dash_management: 'Gestión',
+
+    env_not_detected: 'no encontrado',
+
+    // Panel - comandos
+    cmd_gateway: 'Iniciar la pasarela',
+    cmd_status: 'Ver estado de la pasarela',
+    cmd_onboard: 'Asistente de configuración inicial',
+    cmd_logs: 'Ver registros en tiempo real',
+    cmd_update: 'Actualizar OpenClaw y todos los componentes',
+    cmd_install_tools: 'Añadir o eliminar herramientas opcionales',
+
+    // Ajustes
+    settings_title: 'Ajustes',
+    settings_platforms: 'Plataformas',
+    settings_platforms_desc: 'Gestionar plataformas instaladas',
+    settings_updates: 'Actualizaciones',
+    settings_updates_desc: 'Buscar actualizaciones',
+    settings_keep_alive: 'Mantener activo',
+    settings_keep_alive_desc: 'Evitar que Android lo detenga',
+    settings_storage: 'Almacenamiento',
+    settings_storage_desc: 'Gestionar uso del disco',
+    settings_about: 'Acerca de',
+    settings_about_desc: 'Información de la app y licencias',
+
+    // Ajustes - Mantener activo
+    ka_title: 'Mantener activo',
+    ka_desc: 'Android puede detener procesos en segundo plano. Sigue estos pasos para evitarlo.',
+    ka_battery: '1. Optimización de batería',
+    ka_status: 'Estado',
+    ka_excluded: '✓ Excluido',
+    ka_request: 'Solicitar exclusión',
+    ka_developer: '2. Opciones de desarrollador',
+    ka_developer_desc: '• Activar opciones de desarrollador\n• Activar "Pantalla siempre encendida"',
+    ka_open_dev: 'Abrir opciones de desarrollador',
+    ka_phantom: '3. Eliminador de procesos fantasma (Android 12+)',
+    ka_phantom_desc: 'Conecta por USB y activa la depuración ADB, luego ejecuta este comando en tu PC:',
+    ka_copy: 'Copiar',
+    ka_copied: '¡Copiado!',
+    ka_charge: '4. Límite de carga (opcional)',
+    ka_charge_desc: 'Establece el límite de carga al 80% para uso continuo. Se configura en los ajustes de batería del móvil.',
+
+    // Ajustes - Almacenamiento
+    storage_title: 'Almacenamiento',
+    storage_total: 'Total usado: ',
+    storage_bootstrap: 'Bootstrap (usr/)',
+    storage_www: 'Interfaz web (www/)',
+    storage_free: 'Espacio libre',
+    storage_clear: 'Limpiar caché',
+    storage_clearing: 'Limpiando...',
+    storage_loading: 'Cargando información de almacenamiento...',
+
+    // Ajustes - Acerca de
+    about_title: 'Acerca de',
+    about_version: 'Versión',
+    about_apk: 'APK',
+    about_update_available: 'Actualización disponible',
+    about_package: 'Paquete',
+    about_script: 'Script',
+    about_runtime: 'Entorno',
+    about_license: 'Licencia',
+    about_app_info: 'Info de la app',
+    about_made_for: 'Hecho para Android',
+
+    // Ajustes - Actualizaciones
+    updates_title: 'Actualizaciones',
+    updates_checking: 'Buscando actualizaciones...',
+    updates_up_to_date: 'Todo está actualizado.',
+    updates_updating: 'Actualizando {name}...',
+    updates_update: 'Actualizar',
+
+    // Ajustes - Plataformas
+    platforms_title: 'Plataformas',
+    platforms_installing: 'Instalando {name}...',
+    platforms_active: 'Activa',
+    platforms_install: 'Instalar y cambiar',
+
+    // Herramientas adicionales
+    tools_title: 'Herramientas adicionales',
+    tools_installing: 'Instalando {name}...',
+    tools_installed: 'Instalado ✓',
+    tools_install: 'Instalar',
+    tools_uninstall: 'Desinstalar',
+    tools_cat_terminal: 'Herramientas de terminal',
+    tools_cat_ai: 'Herramientas de IA',
+    tools_cat_network: 'Red y acceso',
+    tools_cat_system: 'Sistema',
+}

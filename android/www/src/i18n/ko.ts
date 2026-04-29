@@ -4,11 +4,19 @@ export const ko = {
   tab_settings: '⚙ 설정',
 
   step_platform: '플랫폼',
+  step_path: '경로',
   step_tools: '도구',
   step_setup: '설치',
 
   setup_choose_platform: '플랫폼을 선택하세요',
   setup_more_platforms: '더 많은 플랫폼은 설정에서 확인할 수 있습니다.',
+  setup_path_title: '설치 위치',
+  setup_path_desc: '런타임을 설치할 위치를 선택하세요. Termux가 설치되어 있지 않으면 앱 로컬 경로를 사용하세요.',
+  setup_path_local_label: '앱 로컬 (이 앱)',
+  setup_path_local_default: '앱 내부 저장소',
+  setup_path_termux_label: 'Termux 사용',
+  setup_path_recommended: '권장',
+  setup_next: '다음',
   setup_optional_tools: '선택 도구',
   setup_tools_desc: '{platform}과 함께 설치할 도구를 선택하세요. 나중에 설정에서 추가할 수 있습니다.',
   setup_start: '설치 시작',
@@ -36,6 +44,8 @@ export const ko = {
   dash_commands: '명령어',
   dash_runtime: '런타임',
   dash_management: '관리',
+
+  env_not_detected: '찾을 수 없음',
 
   cmd_gateway: '게이트웨이 시작',
   cmd_status: '게이트웨이 상태 확인',
@@ -102,4 +112,15 @@ export const ko = {
   platforms_installing: '{name} 설치 중...',
   platforms_active: '활성',
   platforms_install: '설치 및 전환',
+
+  // 도구
+  tools_title: '추가 도구',
+  tools_installing: '{name} 설치 중...',
+  tools_installed: '설치됨 ✓',
+  tools_install: '설치',
+  tools_uninstall: '제거',
+  tools_cat_terminal: '터미널 도구',
+  tools_cat_ai: 'AI 도구',
+  tools_cat_network: '네트워크 및 접근',
+  tools_cat_system: '시스템',
 }

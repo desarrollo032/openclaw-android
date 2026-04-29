@@ -4,11 +4,19 @@ export const zh = {
   tab_settings: '⚙ 设置',
 
   step_platform: '平台',
+  step_path: '路径',
   step_tools: '工具',
   step_setup: '安装',
 
   setup_choose_platform: '选择你的平台',
   setup_more_platforms: '更多平台可在设置中查看。',
+  setup_path_title: '安装位置',
+  setup_path_desc: '选择运行时的安装位置。如果未安装 Termux，请使用应用本地路径。',
+  setup_path_local_label: '应用本地（此应用）',
+  setup_path_local_default: '应用内部存储',
+  setup_path_termux_label: '使用 Termux',
+  setup_path_recommended: '推荐',
+  setup_next: '下一步',
   setup_optional_tools: '可选工具',
   setup_tools_desc: '选择与 {platform} 一起安装的工具。稍后可以在设置中随时添加。',
   setup_start: '开始安装',
@@ -36,6 +44,8 @@ export const zh = {
   dash_commands: '命令',
   dash_runtime: '运行时',
   dash_management: '管理',
+
+  env_not_detected: '未找到',
 
   cmd_gateway: '启动网关',
   cmd_status: '查看网关状态',
@@ -102,4 +112,15 @@ export const zh = {
   platforms_installing: '正在安装 {name}...',
   platforms_active: '当前使用',
   platforms_install: '安装并切换',
+
+  // 工具
+  tools_title: '附加工具',
+  tools_installing: '正在安装 {name}...',
+  tools_installed: '已安装 ✓',
+  tools_install: '安装',
+  tools_uninstall: '卸载',
+  tools_cat_terminal: '终端工具',
+  tools_cat_ai: 'AI 工具',
+  tools_cat_network: '网络与访问',
+  tools_cat_system: '系统',
 }

@@ -4,11 +4,7 @@ import { bridge } from '../lib/bridge'
 import { useNativeEvent } from '../lib/useNativeEvent'
 import { t } from '../i18n'
 
-interface UpdateItem {
-  component: string
-  currentVersion: string
-  newVersion: string
-}
+interface UpdateItem { component: string; currentVersion: string; newVersion: string }
 
 export function SettingsUpdates() {
   const { navigate } = useRoute()
@@ -46,24 +42,32 @@ export function SettingsUpdates() {
         <div className="page-title">{t('updates_title')}</div>
       </div>
 
+      {/* Progreso de actualización */}
+      {updating && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div className="spinner" />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>
+              {t('updates_updating', { name: updating })}
+            </div>
+          </div>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
       {checking && (
-        <div style={{ textAlign: 'center', color: 'var(--text-secondary)', marginTop: 40 }}>
-          {t('updates_checking')}
+        <div className="empty-state">
+          <div className="spinner" />
+          <div className="empty-state-text">{t('updates_checking')}</div>
         </div>
       )}
 
       {!checking && updates.length === 0 && (
-        <div style={{ textAlign: 'center', color: 'var(--text-secondary)', marginTop: 40 }}>
-          {t('updates_up_to_date')}
-        </div>
-      )}
-
-      {updating && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 14, marginBottom: 8 }}>{t('updates_updating', { name: updating })}</div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
-          </div>
+        <div className="empty-state">
+          <div className="empty-state-icon">✓</div>
+          <div className="empty-state-text">{t('updates_up_to_date')}</div>
         </div>
       )}
 
@@ -73,15 +77,17 @@ export function SettingsUpdates() {
             <div className="card-content">
               <div className="card-label">{u.component}</div>
               <div className="card-desc">
-                {u.currentVersion} → {u.newVersion}
+                <span style={{ fontFamily: 'monospace' }}>{u.currentVersion}</span>
+                {' → '}
+                <span style={{ fontFamily: 'monospace', color: 'var(--success)' }}>{u.newVersion}</span>
               </div>
             </div>
             <button
-              className="btn btn-small btn-primary"
+              className="btn btn-primary btn-sm"
               onClick={() => handleApply(u.component)}
               disabled={updating !== null}
             >
-              {t('updates_update')}
+              {updating === u.component ? '...' : t('updates_update')}
             </button>
           </div>
         </div>

@@ -5,62 +5,86 @@ import java.io.File
 
 /**
  * Builds the complete process environment for Termux commands.
- * Always uses the real Termux paths and ensures grun is available.
- * Never references /usr/bin/node directly — use grun instead.
+ * Detecta automáticamente si usar las rutas reales de Termux o las locales de la app.
+ * Nunca referencia /usr/bin/node directamente — usar grun en su lugar.
  */
 object EnvironmentBuilder {
-    // Real Termux paths — these are fixed regardless of app package name
     private const val TERMUX_HOME = CommandRunner.TERMUX_HOME
     private const val TERMUX_PREFIX = CommandRunner.TERMUX_PREFIX
     private const val OPENCLAW_BIN = CommandRunner.OPENCLAW_BIN
 
-    fun build(context: Context): Map<String, String> = buildTermuxEnvironment()
+    fun build(context: Context): Map<String, String> = buildEnvironment(context.filesDir)
 
-    fun build(filesDir: File): Map<String, String> = buildTermuxEnvironment()
+    fun build(filesDir: File): Map<String, String> = buildEnvironment(filesDir)
 
     /**
-     * Full Termux environment with correct HOME, PATH, and grun support.
+     * Resuelve las rutas reales a usar:
+     * - Si Termux está instalado y accesible → usa sus rutas
+     * - Si no → usa las rutas locales de la app (filesDir/usr, filesDir/home)
      */
-    fun buildTermuxEnvironment(): Map<String, String> =
-        buildMap {
-            put("HOME", TERMUX_HOME)
-            put("PREFIX", TERMUX_PREFIX)
-            put("TMPDIR", "$TERMUX_PREFIX/../tmp")
+    fun resolveActivePaths(filesDir: File? = null): Pair<String, String> {
+        val termuxPrefixFile = File(TERMUX_PREFIX)
+        val termuxHomeFile = File(TERMUX_HOME)
 
-            // PATH: openclaw bin first (contains grun), then termux bins
-            put(
-                "PATH",
-                "$OPENCLAW_BIN:$TERMUX_PREFIX/bin:$TERMUX_PREFIX/bin/applets:/system/bin:/bin",
-            )
-            put("LD_LIBRARY_PATH", "$TERMUX_PREFIX/lib")
+        return if (termuxPrefixFile.resolve("bin/sh").exists() && termuxHomeFile.canWrite()) {
+            // Termux real disponible y accesible
+            Pair(TERMUX_PREFIX, TERMUX_HOME)
+        } else if (filesDir != null) {
+            // Usar rutas locales de la app
+            val localPrefix = filesDir.resolve("usr")
+            val localHome = filesDir.resolve("home")
+            localHome.mkdirs()
+            Pair(localPrefix.absolutePath, localHome.absolutePath)
+        } else {
+            // Fallback: intentar Termux de todas formas
+            Pair(TERMUX_PREFIX, TERMUX_HOME)
+        }
+    }
 
-            // libtermux-exec for path rewriting
-            val termuxExecLib = File("$TERMUX_PREFIX/lib/libtermux-exec.so")
+    fun buildTermuxEnvironment(): Map<String, String> = buildEnvironment(null)
+
+    fun buildEnvironment(filesDir: File?): Map<String, String> {
+        val (prefix, home) = resolveActivePaths(filesDir)
+        val openclawDir = "$home/.openclaw-android"
+        val openclawBin = "$openclawDir/bin"
+        val tmpDir = File(prefix).parent?.let { "$it/tmp" } ?: "/data/local/tmp"
+
+        return buildMap {
+            put("HOME", home)
+            put("PREFIX", prefix)
+            put("TMPDIR", tmpDir)
+
+            // PATH: bin de openclaw primero (contiene grun), luego bins de termux
+            put("PATH", "$openclawBin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin")
+            put("LD_LIBRARY_PATH", "$prefix/lib")
+
+            // libtermux-exec solo si existe (evita crash por librería no encontrada)
+            val termuxExecLib = File("$prefix/lib/libtermux-exec.so")
             if (termuxExecLib.exists()) {
                 put("LD_PRELOAD", termuxExecLib.absolutePath)
             }
 
-            // Termux prefix vars
-            put("TERMUX__PREFIX", TERMUX_PREFIX)
-            put("TERMUX_PREFIX", TERMUX_PREFIX)
-            put("TERMUX__ROOTFS", "$TERMUX_PREFIX/..")
+            // Variables de prefix de Termux
+            put("TERMUX__PREFIX", prefix)
+            put("TERMUX_PREFIX", prefix)
+            put("TERMUX__ROOTFS", File(prefix).parent ?: prefix)
 
             // apt/dpkg
-            put("APT_CONFIG", "$TERMUX_PREFIX/etc/apt/apt.conf")
-            put("DPKG_ADMINDIR", "$TERMUX_PREFIX/var/lib/dpkg")
-            put("DPKG_ROOT", TERMUX_PREFIX)
+            put("APT_CONFIG", "$prefix/etc/apt/apt.conf")
+            put("DPKG_ADMINDIR", "$prefix/var/lib/dpkg")
+            put("DPKG_ROOT", prefix)
 
             // SSL
-            put("SSL_CERT_FILE", "$TERMUX_PREFIX/etc/tls/cert.pem")
-            put("CURL_CA_BUNDLE", "$TERMUX_PREFIX/etc/tls/cert.pem")
-            put("GIT_SSL_CAINFO", "$TERMUX_PREFIX/etc/tls/cert.pem")
+            put("SSL_CERT_FILE", "$prefix/etc/tls/cert.pem")
+            put("CURL_CA_BUNDLE", "$prefix/etc/tls/cert.pem")
+            put("GIT_SSL_CAINFO", "$prefix/etc/tls/cert.pem")
 
             // Git
             put("GIT_CONFIG_NOSYSTEM", "1")
-            put("GIT_EXEC_PATH", "$TERMUX_PREFIX/libexec/git-core")
-            put("GIT_TEMPLATE_DIR", "$TERMUX_PREFIX/share/git-core/templates")
+            put("GIT_EXEC_PATH", "$prefix/libexec/git-core")
+            put("GIT_TEMPLATE_DIR", "$prefix/share/git-core/templates")
 
-            // Locale and terminal
+            // Locale y terminal
             put("LANG", "en_US.UTF-8")
             put("TERM", "xterm-256color")
 
@@ -68,10 +92,11 @@ object EnvironmentBuilder {
             put("ANDROID_DATA", "/data")
             put("ANDROID_ROOT", "/system")
 
-            // OpenClaw — glibc compat required, never use node directly
+            // OpenClaw — compatibilidad glibc requerida, nunca usar node directamente
             put("OA_GLIBC", "1")
             put("CONTAINER", "1")
-            put("CLAWDHUB_WORKDIR", "$TERMUX_HOME/.openclaw/workspace")
-            put("CPATH", "$TERMUX_PREFIX/include/glib-2.0:$TERMUX_PREFIX/lib/glib-2.0/include")
+            put("CLAWDHUB_WORKDIR", "$home/.openclaw/workspace")
+            put("CPATH", "$prefix/include/glib-2.0:$prefix/lib/glib-2.0/include")
         }
+    }
 }

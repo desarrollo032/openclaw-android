@@ -262,6 +262,18 @@ class BootstrapManager(
                 }
             }
         }
+
+        // Fix shebangs in bin/ scripts (e.g. pkg, apt, termux-* helpers)
+        // These have hardcoded /data/data/com.termux/... shebangs that break
+        // when the app package name differs (e.g. com.openclaw.android.debug).
+        val binDir = dir.resolve("bin")
+        if (binDir.isDirectory) {
+            binDir.listFiles()?.forEach { file ->
+                if (file.isFile && !isElfBinary(file)) {
+                    fixTextFile(file, "com.termux", ourPackage)
+                }
+            }
+        }
     }
 
     private fun fixTextFile(
