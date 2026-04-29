@@ -24,12 +24,12 @@ import java.io.File
 object EnvironmentBuilder {
 
     fun build(context: Context): Map<String, String> =
-        buildEnvironment(context.filesDir, context.packageName)
+        buildEnvironment(normalizeFilesDir(context.filesDir), context.packageName)
 
-    fun build(filesDir: File): Map<String, String> = buildEnvironment(filesDir)
+    fun build(filesDir: File): Map<String, String> = buildEnvironment(normalizeFilesDir(filesDir))
 
     fun buildTermuxEnvironment(context: Context? = null): Map<String, String> {
-        val filesDir = context?.filesDir ?: resolveFilesDirFromEnv()
+        val filesDir = context?.filesDir?.let { normalizeFilesDir(it) } ?: resolveFilesDirFromEnv()
         return buildEnvironment(filesDir, context?.packageName)
     }
 
@@ -122,10 +122,15 @@ object EnvironmentBuilder {
             // This intercepts execve() to rewrite hardcoded com.termux paths.
             // The node wrapper unsets LD_PRELOAD before launching node.real via
             // ld.so to prevent bionic libtermux-exec.so from crashing glibc.
-            val termuxExec = "$prefix/lib/libtermux-exec.so"
-            if (File(termuxExec).exists()) {
-                put("LD_PRELOAD", termuxExec)
+            // Bug #5 fix: use the normalized prefix path so the .so is found even
+            // when context.filesDir returns /data/user/0/... instead of /data/data/...
+            val termuxExecFile = File("$prefix/lib/libtermux-exec.so")
+            if (termuxExecFile.exists()) {
+                put("LD_PRELOAD", termuxExecFile.absolutePath)
             }
+            // Note: if libtermux-exec.so is missing, dpkg/apt will fail to rewrite
+            // hardcoded com.termux paths. The dpkg wrapper script handles confdir
+            // errors as a fallback, but the .so is required for full compatibility.
 
             // ── Termux-compat vars ────────────────────────────────────────────
             // Point TERMUX__PREFIX to OUR prefix so the bootstrap bash binary
@@ -201,5 +206,20 @@ object EnvironmentBuilder {
                 // Non-fatal
             }
         }
+    }
+
+    /**
+     * Bug #1 fix: normalize /data/user/0/<pkg>/files → /data/data/<pkg>/files.
+     *
+     * Android 7+ with multi-user support exposes context.filesDir as
+     * /data/user/0/<pkg>/files (a bind-mount alias). Bootstrap binaries compiled
+     * for Termux have /data/data/... hardcoded in ELF strings and config lookups
+     * via open()/opendir() — calls NOT intercepted by libtermux-exec.so.
+     * Using the canonical path ensures dpkg, bash, and apt find their config dirs.
+     */
+    private fun normalizeFilesDir(filesDir: File): File {
+        val path = filesDir.absolutePath
+        val normalized = path.replace(Regex("^/data/user/\\d+/"), "/data/data/")
+        return if (normalized != path) File(normalized) else filesDir
     }
 }

@@ -28,11 +28,19 @@ class BootstrapManager(
         private const val SYMLINK_PARTS_COUNT = 2
     }
 
-    val prefixDir = File(context.filesDir, "usr")
-    val homeDir = File(context.filesDir, "home")
-    val tmpDir = File(context.filesDir, "tmp")
+    // Bug #1 fix: context.filesDir on some Android versions resolves to
+    // /data/user/0/<pkg>/files (a bind-mount alias) instead of the canonical
+    // /data/data/<pkg>/files path that bootstrap binaries have hardcoded.
+    // Normalizing to the canonical path ensures dpkg, bash and other binaries
+    // that use open()/opendir() (not intercepted by libtermux-exec) find their
+    // config files at the expected location.
+    private val filesDir: File = normalizeFilesDir(context.filesDir)
+
+    val prefixDir = File(filesDir, "usr")
+    val homeDir = File(filesDir, "home")
+    val tmpDir = File(filesDir, "tmp")
     val wwwDir = File(prefixDir, "share/openclaw-app/www")
-    private val stagingDir = File(context.filesDir, "usr-staging")
+    private val stagingDir = File(filesDir, "usr-staging")
 
     // Real Termux paths for detection — independent of app package name
     private val termuxHome = File(CommandRunner.TERMUX_HOME)
@@ -362,17 +370,54 @@ class BootstrapManager(
         // apt.conf: full rewrite with correct paths
         val aptConf = dir.resolve("etc/apt/apt.conf")
         aptConf.parentFile?.mkdirs()
-        // Create directories needed by apt and dpkg
-        dir.resolve("etc/apt/apt.conf.d").mkdirs()
-        dir.resolve("etc/apt/preferences.d").mkdirs()
-        dir.resolve("etc/dpkg/dpkg.cfg.d").mkdirs()
-        dir.resolve("var/cache/apt").mkdirs()
-        dir.resolve("var/log/apt").mkdirs()
+
+        // Bug #3 fix: create ALL directories that apt and dpkg require before
+        // writing apt.conf. Missing dirs cause "lock" and "status" errors at runtime.
+        val requiredDirs = listOf(
+            "etc/apt/apt.conf.d",
+            "etc/apt/preferences.d",
+            "etc/apt/trusted.gpg.d",
+            "etc/dpkg/dpkg.cfg.d",
+            "var/lib/dpkg",           // Bug #4: dpkg lock lives here
+            "var/lib/dpkg/info",
+            "var/lib/dpkg/updates",
+            "var/lib/dpkg/parts",
+            "var/lib/apt",
+            "var/lib/apt/lists",
+            "var/lib/apt/lists/partial",
+            "var/cache/apt",
+            "var/cache/apt/archives",
+            "var/cache/apt/archives/partial",
+            "var/log/apt",
+            "tmp",
+        )
+        requiredDirs.forEach { relPath ->
+            val d = dir.resolve(relPath)
+            d.mkdirs()
+            // Bug #4 fix: ensure the app user can write lock files in dpkg/apt dirs
+            d.setWritable(true, false)
+        }
+
+        // Ensure dpkg status file exists (dpkg refuses to run without it)
+        val dpkgStatus = dir.resolve("var/lib/dpkg/status")
+        if (!dpkgStatus.exists()) {
+            dpkgStatus.createNewFile()
+        }
+        val dpkgAvailable = dir.resolve("var/lib/dpkg/available")
+        if (!dpkgAvailable.exists()) {
+            dpkgAvailable.createNewFile()
+        }
+
+        // Bug #2 fix: Dir::State::status must be an ABSOLUTE path.
+        // When Dir is set to "$prefix/" and Dir::State is "var/lib/apt/",
+        // apt resolves status as "$prefix/var/lib/apt/" + "var/lib/dpkg/status"
+        // = "$prefix/var/lib/apt/var/lib/dpkg/status" (duplicated path).
+        // Using the absolute path breaks the relative resolution chain.
         aptConf.writeText(
             """
             Dir "$prefix/";
             Dir::State "var/lib/apt/";
-            Dir::State::status "var/lib/dpkg/status";
+            Dir::State::status "$prefix/var/lib/dpkg/status";
             Dir::Cache "var/cache/apt/";
             Dir::Log "var/log/apt/";
             Dir::Etc "etc/apt/";
@@ -415,6 +460,34 @@ class BootstrapManager(
         tmpDir.mkdirs()
         wwwDir.mkdirs()
         File(homeDir, ".openclaw-android/patches").mkdirs()
+
+        // Bug #3 fix: ensure all dpkg/apt directories exist in the final prefixDir
+        // (configureApt creates them in stagingDir; after the atomic rename they
+        // should already exist, but guard here in case of partial installs).
+        val dpkgDirs = listOf(
+            "var/lib/dpkg",
+            "var/lib/dpkg/info",
+            "var/lib/dpkg/updates",
+            "var/lib/dpkg/parts",
+            "var/lib/apt",
+            "var/lib/apt/lists",
+            "var/lib/apt/lists/partial",
+            "var/cache/apt/archives/partial",
+            "var/log/apt",
+            "etc/apt/apt.conf.d",
+            "etc/apt/preferences.d",
+            "etc/apt/trusted.gpg.d",
+            "etc/dpkg/dpkg.cfg.d",
+        )
+        dpkgDirs.forEach { rel ->
+            val d = File(prefixDir, rel)
+            d.mkdirs()
+            d.setWritable(true, false)  // Bug #4: ensure app user can write lock files
+        }
+
+        // Ensure dpkg status and available files exist
+        File(prefixDir, "var/lib/dpkg/status").let { if (!it.exists()) it.createNewFile() }
+        File(prefixDir, "var/lib/dpkg/available").let { if (!it.exists()) it.createNewFile() }
 
         // Configurar resolv.conf en el prefix de la app para DNS
         // Necesario porque el sandbox de Android no hereda /etc/resolv.conf del sistema
@@ -610,4 +683,24 @@ private object Os {
     ) {
         android.system.Os.symlink(target, path)
     }
+}
+
+/**
+ * Normalize context.filesDir to its canonical /data/data/<pkg>/files path.
+ *
+ * On Android 7+ with multi-user support, context.filesDir may return
+ * /data/user/0/<pkg>/files which is a bind-mount alias for the same inode.
+ * Bootstrap binaries compiled for Termux have /data/data/... hardcoded in
+ * their ELF strings and config lookups (open/opendir, not intercepted by
+ * libtermux-exec). Using the canonical path avoids "No such file or directory"
+ * errors in dpkg, bash, and apt when they try to open their config dirs.
+ */
+private fun normalizeFilesDir(filesDir: File): File {
+    // /data/user/0/<pkg>/files → /data/data/<pkg>/files
+    val path = filesDir.absolutePath
+    val normalized = path.replace(
+        Regex("^/data/user/\\d+/"),
+        "/data/data/",
+    )
+    return if (normalized != path) File(normalized) else filesDir
 }
