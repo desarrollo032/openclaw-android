@@ -134,7 +134,8 @@ class MainActivity : AppCompatActivity() {
                 isInstalled && !isOpenClawInstalled -> {
                     AppLogger.i(TAG, "Bootstrap ready, OpenClaw not installed — running auto-install")
                     binding.terminalView.post {
-                        session.write("curl -sL myopenclawhub.com/install | bash\n")
+                        val helper = TermuxIntegrationHelper(this, bootstrapManager)
+                        helper.installOpenClaw(session)
                     }
                 }
                 intent?.getBooleanExtra("from_boot", false) == true -> {
