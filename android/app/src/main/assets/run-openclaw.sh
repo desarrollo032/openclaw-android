@@ -1,4 +1,4 @@
-#!/system/bin/sh
+#!/bin/sh
 # =============================================================================
 # run-openclaw.sh — OpenClaw Gateway Launcher
 # =============================================================================
@@ -111,7 +111,7 @@ if [ ! -s "$CERT_BUNDLE" ]; then
     log "  Cert bundle empty — rebuilding from Android system certs..."
     mkdir -p "$(dirname "$CERT_BUNDLE")"
     if [ -d "/system/etc/security/cacerts" ]; then
-        local _cert_count=0
+        _cert_count=0
         for _cert_file in /system/etc/security/cacerts/*.0; do
             [ -f "$_cert_file" ] || continue
             if head -c 27 "$_cert_file" 2>/dev/null | grep -q "BEGIN CERTIFICATE"; then
@@ -173,10 +173,11 @@ log "  Command: $GLIBC_LDSO --library-path $GLIBC_LIB $NODE_REAL $OC_MJS"
 log "  Log: $LOG_FILE"
 log ""
 
-# Exec replaces this shell process — no subshell overhead
+# Exec replaces this shell process — no subshell overhead.
+# Note: piping to tee would break exec (creates a subshell).
+# Logging is handled by the caller (OpenClawService) via stdout capture.
 exec "$GLIBC_LDSO" \
     --library-path "$GLIBC_LIB" \
     "$NODE_REAL" \
     "$OC_MJS" \
-    "$@" \
-    2>&1 | tee -a "$LOG_FILE"
+    "$@"

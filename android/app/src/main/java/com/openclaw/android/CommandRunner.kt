@@ -297,16 +297,25 @@ object CommandRunner {
 
     /**
      * Resolve the best available shell from the app sandbox only.
-     * Prefers bash from the app-local prefix (with -c for non-interactive use).
-     * Falls back to /system/bin/sh which is always available on Android.
      *
-     * NOTE: This shell is used for non-interactive command execution (runSync,
-     * runStreaming). It is NOT the interactive terminal shell — that is handled
-     * by TerminalSessionManager which passes --norc --noprofile to bash.
-     * For non-interactive use, BASH_ENV=/dev/null (set by EnvironmentBuilder)
-     * prevents bash from sourcing any startup file.
+     * For non-interactive command execution (runSync, runStreaming) we prefer
+     * /system/bin/sh over the bootstrap bash because:
+     *   1. post-setup.sh runs BEFORE the bootstrap is fully configured, so
+     *      $PREFIX/bin/bash may not exist yet or may fail to start if
+     *      libtermux-exec.so is missing (hardcoded com.termux paths in ELF).
+     *   2. /system/bin/sh (mksh/ash on Android) is always available and has
+     *      no dependency on the app sandbox state.
+     *
+     * Bootstrap bash is only used if /system/bin/sh is genuinely absent
+     * (should never happen on Android 6+).
      */
     private fun resolveShell(env: Map<String, String>): String {
+        // Always prefer the system shell for non-interactive execution.
+        // It has no dependency on the bootstrap or libtermux-exec.so.
+        if (File("/system/bin/sh").exists()) return "/system/bin/sh"
+        if (File("/bin/sh").exists()) return "/bin/sh"
+
+        // Last resort: bootstrap bash (may fail if bootstrap not yet configured)
         val prefix = env["PREFIX"]
         if (prefix != null) {
             val bash = File("$prefix/bin/bash")
@@ -314,7 +323,7 @@ object CommandRunner {
             val sh = File("$prefix/bin/sh")
             if (sh.canExecute()) return sh.absolutePath
         }
-        return if (File("/bin/sh").exists()) "/bin/sh" else "/system/bin/sh"
+        return "/system/bin/sh"
     }
 
     /**

@@ -32,6 +32,10 @@ import com.openclaw.android.databinding.ActivityMainBinding
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalViewClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
     companion object {
@@ -196,11 +200,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // ── Case 5: Fully installed and ready → show terminal ─────────────
+            // ── Case 5: Fully installed and ready → show dashboard ───────────
             else -> {
-                AppLogger.i(TAG, "Fully installed — showing terminal")
-                showTerminal()
-                sessionManager.createSession()
+                AppLogger.i(TAG, "Fully installed — showing dashboard")
+                showWebView()
             }
         }
     }
@@ -210,6 +213,13 @@ class MainActivity : AppCompatActivity() {
      *
      * Priority: payload (offline, bundled) > rootfs (pre-built tar) > bootstrap (network).
      * The user sees the terminal with live output — no button tap required.
+     *
+     * IMPORTANT: This runs while the terminal is visible. We do NOT delegate to
+     * jsBridge.startPayloadInstall() / startRootfsInstall() here because those
+     * methods emit progress events to the WebView (which is hidden at this point)
+     * and show no output in the terminal. Instead we run the installation directly
+     * in a coroutine and write progress lines to the terminal session, then switch
+     * to the dashboard when done.
      */
     private fun autoStartInstallation(
         session: com.termux.terminal.TerminalSession,
@@ -217,32 +227,27 @@ class MainActivity : AppCompatActivity() {
         rootfsManager: RootfsManager,
     ) {
         when {
+            // ── Path 1: Payload (fully offline, bundled in APK) ───────────────
             payloadManager.hasPayloadAsset() -> {
-                AppLogger.i(TAG, "Auto-install: payload path")
-                // Delegate to JsBridge so progress events reach the WebView too
-                jsBridge.startPayloadInstall()
-            }
-            rootfsManager.let {
-                try { it.javaClass.getDeclaredMethod("assetExists"); true } catch (_: Exception) { false }
-            } -> {
-                // rootfs asset present — use rootfs installer
-                AppLogger.i(TAG, "Auto-install: rootfs path")
-                jsBridge.startRootfsInstall()
-            }
-            else -> {
-                // Network bootstrap — run post-setup.sh which downloads everything
-                AppLogger.i(TAG, "Auto-install: bootstrap + post-setup.sh path")
-                val postSetup = bootstrapManager.postSetupScript
-                if (postSetup.exists()) {
-                    session.write("bash \"${postSetup.absolutePath}\"\n")
-                } else {
-                    // Bootstrap not yet extracted — trigger full bootstrap setup
-                    jsBridge.startSetup()
+                AppLogger.i(TAG, "Auto-install: payload path (offline)")
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        payloadManager.install { progress, message ->
+                            val pct = (progress * 100).toInt()
+                            session.write("[$pct%] $message\r\n")
+                            AppLogger.i(TAG, "[payload-install] $message")
+                        }
+                        payloadManager.syncWwwFromAssets()
+                        session.write("\r\n✓ Installation complete!\r\n")
+                        // Small delay so the user can read the final message
+                        kotlinx.coroutines.delay(1200)
+                        runOnUiThread { showWebView() }
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Payload install failed: ${e.message}", e)
+                        session.write("\r\n✗ Installation failed: ${e.message}\r\n")
+                        session.write("Check logs and try reinstalling.\r\n")
+                    }
                 }
-            }
-        }
-    }
-    }
 
     // --- Storage permissions ---
 

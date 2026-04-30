@@ -316,19 +316,26 @@ class PayloadManager(
     /**
      * Runs post-setup.sh from the extracted payload.
      * The script is fully offline — no network access required.
+     *
+     * Search order:
+     *   1. filesDir/payload/post-setup.sh  (extracted from payload asset)
+     *   2. assets/post-setup.sh            (bundled directly in APK root assets)
+     * This ensures the script is always found even if build-payload.sh did not
+     * include it in the payload directory.
      */
     private suspend fun runPostSetup(onProgress: (Float, String) -> Unit) =
         withContext(Dispatchers.IO) {
-            val postSetupScript = File(payloadDir, "post-setup.sh")
-            if (!postSetupScript.exists()) {
-                // Fall back to the one in assets (copied by extractPayloadAssets)
-                throw IllegalStateException("post-setup.sh not found in payload: ${postSetupScript.absolutePath}")
-            }
+            // Resolve script: payload dir first, then APK root assets as fallback
+            val postSetupScript = resolvePostSetupScript()
+                ?: throw IllegalStateException(
+                    "post-setup.sh not found in payload (${payloadDir.absolutePath}) " +
+                        "or in APK root assets. Rebuild the APK.",
+                )
 
             postSetupScript.setExecutable(true, false)
 
             val env = buildPostSetupEnv()
-            AppLogger.i(TAG, "Running post-setup.sh with env: $env")
+            AppLogger.i(TAG, "Running post-setup.sh: ${postSetupScript.absolutePath}")
 
             onProgress(PROGRESS_SETUP_START, "Setting up glibc...")
 
@@ -338,7 +345,6 @@ class PayloadManager(
                 workDir = payloadDir,
                 onOutput = { line ->
                     AppLogger.i(TAG, "[post-setup] $line")
-                    // Parse progress from log lines
                     val progress = when {
                         line.contains("Step 1/5") -> PROGRESS_SETUP_START + 0.05f
                         line.contains("Step 2/5") -> PROGRESS_SETUP_START + 0.10f
@@ -348,9 +354,7 @@ class PayloadManager(
                         line.contains("Validating runtime") -> PROGRESS_SETUP_START + 0.38f
                         else -> null
                     }
-                    if (progress != null) {
-                        onProgress(progress, line.trim())
-                    }
+                    if (progress != null) onProgress(progress, line.trim())
                 },
             )
 
@@ -365,6 +369,30 @@ class PayloadManager(
             onProgress(PROGRESS_SETUP_DONE, "Setup complete")
             AppLogger.i(TAG, "post-setup.sh completed successfully")
         }
+
+    /**
+     * Resolves the post-setup.sh script location.
+     * Tries payload dir first; if missing, copies from APK root assets.
+     */
+    private fun resolvePostSetupScript(): File? {
+        // 1. Already in payload dir (normal case when build-payload.sh includes it)
+        val inPayload = File(payloadDir, "post-setup.sh")
+        if (inPayload.exists()) return inPayload
+
+        // 2. Copy from APK root assets (fallback for payloads that omit the script)
+        return try {
+            context.assets.open("post-setup.sh").use { input ->
+                inPayload.parentFile?.mkdirs()
+                inPayload.outputStream().use { output -> input.copyTo(output) }
+            }
+            inPayload.setExecutable(true, false)
+            AppLogger.i(TAG, "post-setup.sh copied from APK root assets to ${inPayload.absolutePath}")
+            inPayload
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "post-setup.sh not found in assets either: ${e.message}", e)
+            null
+        }
+    }
 
     private fun buildPostSetupEnv(): Map<String, String> {
         val env = EnvironmentBuilder.buildEnvironment(context.filesDir, context.packageName).toMutableMap()

@@ -143,7 +143,7 @@ if [ ! -x "$NODE_BIN" ]; then
     log "Installing nodejs via pkg..."
     if [ -x "$PREFIX/bin/pkg" ]; then
         pkg install -y nodejs 2>&1 | tee -a "$LOG_FILE" || \
-            log_warn "nodejs install had errors"
+            log_warn "nodejs install had errors — npm may be unavailable"
     fi
 fi
 
@@ -156,13 +156,20 @@ fi
 if [ -x "$NPM_BIN" ]; then
     log "Installing OpenClaw via npm..."
     "$NPM_BIN" install -g openclaw 2>&1 | tee -a "$LOG_FILE"
+    # Verify installation succeeded
+    OC_MJS="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
+    if [ ! -f "$OC_MJS" ]; then
+        log_err "npm install -g openclaw completed but openclaw.mjs not found at $OC_MJS"
+        log_err "Check npm output above for errors."
+        exit 1
+    fi
     log_ok "OpenClaw installed via npm"
 else
     log_warn "npm not found — attempting direct download"
     # Fallback: download and run the remote installer with correct env already set
     if command -v curl >/dev/null 2>&1; then
         log "Downloading remote installer..."
-        curl -sL myopenclawhub.com/install | bash 2>&1 | tee -a "$LOG_FILE"
+        curl -fsSL https://myopenclawhub.com/install | bash 2>&1 | tee -a "$LOG_FILE"
     else
         log_err "Neither npm nor curl available. Cannot install OpenClaw."
         exit 1

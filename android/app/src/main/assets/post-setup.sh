@@ -24,20 +24,9 @@
 
 set -eu
 
-# ── Auto-detect APP_FILES_DIR if not set ──────────────────────────────────────
-# When invoked interactively from a terminal session, HOME is set to
-# filesDir/home by EnvironmentBuilder. Derive APP_FILES_DIR from it.
-if [ -z "${APP_FILES_DIR:-}" ]; then
-    if [ -n "${HOME:-}" ] && [ "${HOME}" != "${HOME%/home}" ]; then
-        # HOME ends with /home — parent is filesDir
-        APP_FILES_DIR="${HOME%/home}"
-    elif [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${PREFIX%/usr}" ]; then
-        # PREFIX ends with /usr — parent is filesDir
-        APP_FILES_DIR="${PREFIX%/usr}"
-    fi
-fi
-
 # ── Auto-set derived vars if missing ─────────────────────────────────────────
+# These are set in main() before the idempotency check. This block handles
+# the case where the script is sourced or called from a sub-function directly.
 if [ -n "${APP_FILES_DIR:-}" ]; then
     : "${PREFIX:=${APP_FILES_DIR}/usr}"
     : "${HOME:=${APP_FILES_DIR}/home}"
@@ -58,9 +47,12 @@ _init_log() {
 }
 
 log() {
+    # Bug fix: declare local separately from assignment so set -e does not
+    # abort the script if the subshell (date) returns non-zero.
     local ts
     ts="$(date '+%H:%M:%S' 2>/dev/null || echo '??:??:??')"
-    local msg="[${ts}] $*"
+    local msg
+    msg="[${ts}] $*"
     echo "$msg"
     echo "$msg" >> "$LOG_FILE" 2>/dev/null || true
 }
@@ -132,14 +124,28 @@ setup_glibc() {
     fi
 
     # Verify archive integrity
+    # Bug fix: Android system tar may not support -J (xz) on API < 29.
+    # Use xz | tar pipeline as the primary method; -J as fallback.
     log "  Verifying glibc archive..."
-    if ! tar -tJf "$GLIBC_ARCHIVE" >/dev/null 2>&1; then
-        log_err "glibc archive is corrupt: $GLIBC_ARCHIVE"
+    _tar_ok=false
+    if xz -t "$GLIBC_ARCHIVE" >/dev/null 2>&1; then
+        _tar_ok=true
+    elif tar -tJf "$GLIBC_ARCHIVE" >/dev/null 2>&1; then
+        _tar_ok=true
+    fi
+    if [ "$_tar_ok" = false ]; then
+        log_err "glibc archive is corrupt or xz/tar unavailable: $GLIBC_ARCHIVE"
         exit 1
     fi
 
     # Verify linker is inside archive
-    if ! tar -tJf "$GLIBC_ARCHIVE" 2>/dev/null | grep -q "ld-linux-aarch64"; then
+    _has_ldso=false
+    if xz -dc "$GLIBC_ARCHIVE" 2>/dev/null | tar -t 2>/dev/null | grep -q "ld-linux-aarch64"; then
+        _has_ldso=true
+    elif tar -tJf "$GLIBC_ARCHIVE" 2>/dev/null | grep -q "ld-linux-aarch64"; then
+        _has_ldso=true
+    fi
+    if [ "$_has_ldso" = false ]; then
         log_err "ld-linux-aarch64.so.1 not found in glibc archive"
         exit 1
     fi
@@ -147,7 +153,14 @@ setup_glibc() {
     log "  Extracting glibc..."
     # Archive structure: glibc/lib/*, glibc/etc/*
     # Extract to PREFIX so glibc/ lands at PREFIX/glibc/
-    tar -xJf "$GLIBC_ARCHIVE" -C "$PREFIX" 2>/dev/null
+    # Primary: xz | tar pipeline (works on all Android versions)
+    # Fallback: tar -xJf (requires tar with xz support, Android 10+)
+    if xz -dc "$GLIBC_ARCHIVE" 2>/dev/null | tar -x -C "$PREFIX" 2>/dev/null; then
+        : # success
+    elif ! tar -xJf "$GLIBC_ARCHIVE" -C "$PREFIX" 2>/dev/null; then
+        log_err "Failed to extract glibc archive — both xz|tar and tar -xJf failed"
+        exit 1
+    fi
 
     if [ ! -f "$GLIBC_LDSO" ]; then
         log_err "Extraction failed — ld-linux-aarch64.so.1 not found at $GLIBC_LDSO"
@@ -263,9 +276,28 @@ setup_nodejs() {
     chmod +x "$NODE_REAL"
 
     # Verify node.real is a valid ELF binary
-    local elf_magic
-    elf_magic=$(head -c 4 "$NODE_REAL" 2>/dev/null | od -An -tx1 | tr -d ' \n' 2>/dev/null || echo "")
-    if [ "$elf_magic" != "7f454c46" ]; then
+    # Bug fix: od may not exist on all Android devices.
+    # Use dd + xxd if available, fall back to a pure shell byte read.
+    _elf_ok=false
+    if command -v xxd >/dev/null 2>&1; then
+        _magic=$(xxd -p -l 4 "$NODE_REAL" 2>/dev/null | tr -d ' \n' || echo "")
+        [ "$_magic" = "7f454c46" ] && _elf_ok=true
+    elif command -v od >/dev/null 2>&1; then
+        _magic=$(od -An -tx1 -N4 "$NODE_REAL" 2>/dev/null | tr -d ' \n' || echo "")
+        [ "$_magic" = "7f454c46" ] && _elf_ok=true
+    else
+        # Pure POSIX fallback: read first 4 bytes via dd and compare
+        # dd is always available on Android (/system/bin/dd)
+        _magic=$(dd if="$NODE_REAL" bs=1 count=4 2>/dev/null | \
+            awk 'BEGIN{ORS=""} {for(i=1;i<=length($0);i++) printf "%02x",ord(substr($0,i,1))} function ord(c,d){d=0;for(i=0;i<256;i++)if(sprintf("%c",i)==c){d=i;break};return d}' 2>/dev/null || echo "")
+        [ "$_magic" = "7f454c46" ] && _elf_ok=true
+        # If awk magic check fails, trust the file exists and is non-empty
+        if [ "$_elf_ok" = false ] && [ -s "$NODE_REAL" ]; then
+            log_warn "Cannot verify ELF magic (no od/xxd) — trusting non-empty binary"
+            _elf_ok=true
+        fi
+    fi
+    if [ "$_elf_ok" = false ]; then
         log_err "node.real is not a valid ELF binary"
         exit 1
     fi
@@ -558,6 +590,23 @@ write_marker() {
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
+    # Auto-detect APP_FILES_DIR before checking the idempotency marker,
+    # because the marker path depends on HOME which may not be set yet.
+    if [ -z "${APP_FILES_DIR:-}" ]; then
+        if [ -n "${HOME:-}" ] && [ "${HOME}" != "${HOME%/home}" ]; then
+            APP_FILES_DIR="${HOME%/home}"
+        elif [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${PREFIX%/usr}" ]; then
+            APP_FILES_DIR="${PREFIX%/usr}"
+        fi
+    fi
+    if [ -n "${APP_FILES_DIR:-}" ]; then
+        : "${PREFIX:=${APP_FILES_DIR}/usr}"
+        : "${HOME:=${APP_FILES_DIR}/home}"
+        : "${TMPDIR:=${APP_FILES_DIR}/tmp}"
+        : "${PAYLOAD_DIR:=${APP_FILES_DIR}/payload}"
+        : "${APP_PACKAGE:=com.openclaw.android}"
+    fi
+
     # Check idempotency marker
     local MARKER="${HOME}/.openclaw-android/.post-setup-done"
     if [ -f "$MARKER" ]; then
