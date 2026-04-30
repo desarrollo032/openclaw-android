@@ -160,6 +160,12 @@ class BootstrapManager(
                 // Bootstrap exists but setup is incomplete — wipe and reinstall
                 AppLogger.i(TAG, "Incomplete bootstrap detected, reinstalling...")
                 prefixDir.deleteRecursively()
+            } else if (prefixDir.exists()) {
+                // prefixDir exists from a previous failed/partial install but bin/sh is missing.
+                // File.renameTo() fails silently if the target directory already exists,
+                // so we must remove it before the atomic rename in step 4.
+                AppLogger.i(TAG, "Removing incomplete prefix dir before fresh install")
+                prefixDir.deleteRecursively()
             }
 
             // Step 1: Download or extract bootstrap
@@ -558,6 +564,15 @@ exit ${d}_rc
         copyBundledAsset("glibc-compat.js", File(ocaDir, "patches/glibc-compat.js"))
         copyBundledAsset("env-init.sh", File(ocaDir, "env-init.sh"))
         copyBundledAsset("run.sh", File(ocaDir, "run.sh"))
+
+        // Copy install.sh to filesDir/install/ so TerminalManager can find and run it
+        // after the bootstrap is installed.
+        val installDir = File(context.filesDir, "install")
+        installDir.mkdirs()
+        val installScript = File(installDir, "install.sh")
+        copyBundledAsset("install/install.sh", installScript)
+        installScript.setExecutable(true)
+        AppLogger.i(TAG, "install.sh deployed to ${installScript.absolutePath}")
     }
 
     private fun copyPostSetupScript(target: File) {

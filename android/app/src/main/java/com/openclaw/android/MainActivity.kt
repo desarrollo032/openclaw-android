@@ -234,18 +234,22 @@ class MainActivity : AppCompatActivity() {
                     try {
                         payloadManager.install { progress, message ->
                             val pct = (progress * 100).toInt()
-                            session.write("[$pct%] $message\r\n")
+                            val safe = message.replace("'", "\\'")
+                            session.write("echo '[$pct%] $safe'\n")
                             AppLogger.i(TAG, "[payload-install] $message")
                         }
                         payloadManager.syncWwwFromAssets()
-                        session.write("\r\n✓ Installation complete!\r\n")
+                        session.write("echo ''\n")
+                        session.write("echo 'Instalacion completa!'\n")
                         // Small delay so the user can read the final message
                         kotlinx.coroutines.delay(1200)
                         runOnUiThread { showWebView() }
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Payload install failed: ${e.message}", e)
-                        session.write("\r\n✗ Installation failed: ${e.message}\r\n")
-                        session.write("Check logs and try reinstalling.\r\n")
+                        val safeMsg = (e.message ?: "error desconocido").replace("'", "\\'")
+                        session.write("echo ''\n")
+                        session.write("echo 'Error en instalacion: $safeMsg'\n")
+                        session.write("echo 'Revisa los logs e intenta reinstalar.'\n")
                     }
                 }
             }
@@ -254,14 +258,16 @@ class MainActivity : AppCompatActivity() {
                 AppLogger.i(TAG, "Auto-install: online bootstrap download path")
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        session.write("Downloading bootstrap...\r\n")
+                        session.write("echo 'OpenClaw: descargando bootstrap de Termux...'\n")
                         bootstrapManager.startSetup { progress, message ->
                             val pct = (progress * 100).toInt()
-                            session.write("[$pct%] $message\r\n")
+                            val safe = message.replace("'", "\\'")
+                            session.write("echo '[$pct%] $safe'\n")
                             AppLogger.i(TAG, "[bootstrap] $message")
                         }
-                        session.write("\r\n✓ Bootstrap installed!\r\n")
-                        session.write("Installing OpenClaw...\r\n")
+                        session.write("echo ''\n")
+                        session.write("echo 'Bootstrap instalado. Iniciando instalacion de OpenClaw...'\n")
+                        session.write("echo ''\n")
                         delay(800)
                         val terminalManager = TerminalManager(this@MainActivity, filesDir)
                         runOnUiThread {
@@ -269,8 +275,10 @@ class MainActivity : AppCompatActivity() {
                         }
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Bootstrap install failed: ${e.message}", e)
-                        session.write("\r\n✗ Bootstrap install failed: ${e.message}\r\n")
-                        session.write("Check your internet connection and try again.\r\n")
+                        val safeMsg = (e.message ?: "error desconocido").replace("'", "\\'")
+                        session.write("echo ''\n")
+                        session.write("echo 'Error instalando bootstrap: $safeMsg'\n")
+                        session.write("echo 'Verifica tu conexion a internet e intenta de nuevo.'\n")
                     }
                 }
             }
