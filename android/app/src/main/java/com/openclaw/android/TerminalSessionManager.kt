@@ -57,10 +57,11 @@ class TerminalSessionManager(
         if (!payloadManager.isReady()) {
             AppLogger.w(TAG, "Incomplete environment detected. Entering Safe Mode (stripping linker vars).")
             env.remove("LD_PRELOAD")
-            // Only keep glibc in library path if it's actually there
+            // We must keep $prefix/lib for Termux binaries (like bash) to work.
+            // Only remove the glibc part.
             val glibcLib = java.io.File(prefix, "glibc/lib")
             if (!glibcLib.exists()) {
-                env.remove("LD_LIBRARY_PATH")
+                env["LD_LIBRARY_PATH"] = "$prefix/lib"
             }
         }
 

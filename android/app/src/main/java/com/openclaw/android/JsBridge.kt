@@ -210,12 +210,11 @@ class JsBridge(
                         "setup_progress",
                         mapOf("progress" to 1.0f, "message" to "Bootstrap instalado"),
                     )
-                    // After bootstrap, run install.sh in terminal
+                    // After bootstrap, run the OpenClaw installer script
                     activity.showTerminal()
                     val session = sessionManager.createSession()
-                    val terminalManager = TerminalManager(activity, activity.filesDir)
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        terminalManager.runInstallScript(session)
+                        TermuxIntegrationHelper(activity, bootstrapManager).installOpenClaw(session)
                     }, SHELL_INIT_DELAY_MS)
                 } else {
                     eventBridge.emit(
