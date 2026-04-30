@@ -20,8 +20,8 @@ android {
         applicationId = "com.openclaw.android"
         minSdk = 24
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.4.2"
+        versionCode = 12
+        versionName = "0.4.3"
 
         ndk { 
             // Support arm64-v8a (Android phones) and x86_64 (ChromeOS/Emulators)

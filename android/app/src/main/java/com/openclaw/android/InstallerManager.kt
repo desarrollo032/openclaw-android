@@ -144,11 +144,16 @@ class InstallerManager(private val context: Context) {
                     context, "$PAYLOAD_ASSET_DIR/$module", prefix,
                 )
                 AppLogger.i(TAG, "$module: $count entries extracted")
+                if (count == 0) {
+                    AppLogger.w(TAG, "$module extracted 0 entries - may be empty or corrupt")
+                }
             } catch (e: Exception) {
-                // Small modules may be empty placeholders — non-fatal
-                AppLogger.w(TAG, "$module extraction failed (non-fatal): ${e.message}")
+                // Log full error details
+                AppLogger.e(TAG, "$module extraction FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
+                // Small modules may be empty placeholders — non-fatal but log it
                 val dirName = module.substringBefore(".tar.gz")
                 File(prefix, dirName).mkdirs()
+                AppLogger.w(TAG, "Created empty directory $dirName as fallback for failed $module")
             }
         }
 

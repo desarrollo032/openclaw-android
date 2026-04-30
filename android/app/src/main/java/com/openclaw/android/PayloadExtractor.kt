@@ -214,33 +214,42 @@ object PayloadExtractor {
         while (entry != null) {
             val destFile = File(destDir, entry.name)
 
-            when {
-                entry.isDirectory -> {
-                    destFile.mkdirs()
-                }
-                entry.isSymbolicLink -> {
-                    destFile.parentFile?.mkdirs()
-                    try {
-                        android.system.Os.symlink(entry.linkName, destFile.absolutePath)
-                    } catch (e: Exception) {
-                        // Symlink failure is non-fatal (target may not exist yet)
-                        AppLogger.w(TAG, "Symlink failed: ${entry.name} -> ${entry.linkName}")
+            try {
+                when {
+                    entry.isDirectory -> {
+                        destFile.mkdirs()
+                        AppLogger.d(TAG, "Created directory: ${entry.name}")
+                    }
+                    entry.isSymbolicLink -> {
+                        destFile.parentFile?.mkdirs()
+                        try {
+                            android.system.Os.symlink(entry.linkName, destFile.absolutePath)
+                            AppLogger.d(TAG, "Created symlink: ${entry.name} -> ${entry.linkName}")
+                        } catch (e: Exception) {
+                            // Symlink failure is non-fatal (target may not exist yet)
+                            AppLogger.w(TAG, "Symlink failed: ${entry.name} -> ${entry.linkName}: ${e.message}")
+                        }
+                    }
+                    else -> {
+                        destFile.parentFile?.mkdirs()
+                        FileOutputStream(destFile).use { out ->
+                            tar.copyTo(out)
+                        }
+                        AppLogger.d(TAG, "Extracted file: ${entry.name} (${entry.size} bytes)")
+                        // Mark executable: files in bin/ or with executable permission in tar
+                        if (entry.name.contains("bin/") || (entry.mode and 0b001_001_001) != 0) {
+                            destFile.setExecutable(true, false)
+                            destFile.setExecutable(true, true)
+                        }
                     }
                 }
-                else -> {
-                    destFile.parentFile?.mkdirs()
-                    FileOutputStream(destFile).use { out ->
-                        tar.copyTo(out)
-                    }
-                    // Mark executable: files in bin/ or with executable permission in tar
-                    if (entry.name.contains("bin/") || (entry.mode and 0b001_001_001) != 0) {
-                        destFile.setExecutable(true, false)
-                    }
-                }
+                count++
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to extract entry ${entry.name}: ${e.message}", e)
             }
-            count++
             entry = tar.nextTarEntry
         }
+        AppLogger.i(TAG, "Total entries extracted: $count")
         return count
     }
 }
