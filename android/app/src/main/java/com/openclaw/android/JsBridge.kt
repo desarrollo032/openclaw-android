@@ -151,8 +151,21 @@ class JsBridge(
 
     @JavascriptInterface
     fun getSetupStatus(): String {
+        val installer = InstallerManager(activity)
         val rootfsManager = RootfsManager(activity)
-        // Prefer rootfs status if installed via that path
+        
+        // 1. Check if the new universal InstallerManager says we're fully installed
+        if (installer.isReady()) {
+            return gson.toJson(mapOf(
+                "bootstrapInstalled" to true,
+                "runtimeInstalled" to true,
+                "wwwInstalled" to true,
+                "platformInstalled" to true,
+                "source" to if (installer.hasPayloadAsset()) "payload" else "bootstrap"
+            ))
+        }
+        
+        // 2. Fallback to old rootfs/bootstrap logic just in case
         return if (rootfsManager.isInstalled()) {
             val status = rootfsManager.getStatus()
             gson.toJson(mapOf(
