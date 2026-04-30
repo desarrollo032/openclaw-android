@@ -118,6 +118,7 @@ dependencies {
     
     // For robust tar.gz extraction in PayloadInstaller
     implementation(libs.commons.compress)
+    implementation(libs.xz)
     // WebView + @JavascriptInterface — Android SDK built-in, no extra dependency
 
     // Test dependencies

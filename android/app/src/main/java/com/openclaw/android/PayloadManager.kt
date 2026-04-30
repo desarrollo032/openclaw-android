@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
 import java.io.*
 import java.util.zip.GZIPInputStream
 
@@ -145,6 +146,14 @@ class PayloadManager(private val context: Context) {
             val destFile = File(destDir, entry.name)
             if (entry.isDirectory) {
                 destFile.mkdirs()
+            } else if (entry.isSymbolicLink) {
+                destFile.parentFile?.mkdirs()
+                try {
+                    // Create actual symlink using Android OS API
+                    android.system.Os.symlink(entry.linkName, destFile.absolutePath)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to create symlink ${entry.name} -> ${entry.linkName}: ${e.message}")
+                }
             } else {
                 destFile.parentFile?.mkdirs()
                 FileOutputStream(destFile).use { output ->
@@ -160,13 +169,17 @@ class PayloadManager(private val context: Context) {
     }
 
     private fun extractTarXzSystem(archive: File, destDir: File) {
-        val process = Runtime.getRuntime().exec(
-            arrayOf("tar", "-xJf", archive.absolutePath, "-C", destDir.absolutePath)
-        )
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            val error = process.errorStream.bufferedReader().readText()
-            throw RuntimeException("tar -xJf failed (exit $exitCode): $error")
+        try {
+            archive.inputStream().use { inputStream ->
+                XZCompressorInputStream(inputStream).use { xzStream ->
+                    TarArchiveInputStream(xzStream).use { tarStream ->
+                        extractTarEntries(tarStream, destDir)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to extract XZ file ${archive.name}: ${e.message}", e)
+            throw IOException("Error extrayendo ${archive.name}: ${e.message}")
         }
     }
 
