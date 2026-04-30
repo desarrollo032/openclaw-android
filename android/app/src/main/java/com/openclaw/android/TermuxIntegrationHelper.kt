@@ -111,7 +111,7 @@ class TermuxIntegrationHelper(
             if (installScript.exists()) {
                 append("bash \"${installScript.absolutePath}\"")
             } else {
-                append("curl -sL myopenclawhub.com/install | bash")
+                append("npm install -g openclaw@latest")
             }
         }
 
@@ -174,7 +174,7 @@ class TermuxIntegrationHelper(
             AppLogger.i(TAG, "No local install.sh — running curl with injected env")
             terminalManager.runCommandInSession(
                 session,
-                "curl -sL myopenclawhub.com/install | bash",
+                "npm install -g openclaw@latest",
                 injectEnv = true,
             )
         }

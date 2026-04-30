@@ -60,10 +60,10 @@ APK único (sin Termux):
 <details><summary>💻 Termux</summary>
 
 ```bash
-pkg update -y && pkg install -y curl
-curl -sL myopenclawhub.com/install | bash && source ~/.bashrc
+pkg update -y && pkg install -y curl nodejs
+npm install -g openclaw@latest
 openclaw onboard
-openclaw gateway  # Nueva pestaña
+openclaw gateway
 ```
 
 </details>

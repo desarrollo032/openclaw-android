@@ -79,6 +79,16 @@ class TerminalSessionManager(
             "/system/bin/sh",
         ).firstOrNull { java.io.File(it).exists() } ?: "/system/bin/sh"
 
+        // If we must fall back to Android's system shell, we MUST strip Termux/glibc
+        // linker variables. Android's /system/bin/sh is dynamically linked against Bionic.
+        // If LD_LIBRARY_PATH points to $prefix/lib or LD_PRELOAD is set, the system linker
+        // will crash immediately (segmentation fault) before the shell even starts.
+        if (shellBin == "/system/bin/sh") {
+            AppLogger.w(TAG, "Falling back to /system/bin/sh. Stripping incompatible linker vars.")
+            env.remove("LD_PRELOAD")
+            env.remove("LD_LIBRARY_PATH")
+        }
+
         // Pass --norc --noprofile to bash so it does NOT source:
         //   - /etc/profile (--noprofile)
         //   - ~/.bashrc or the compiled-in TERMUX__PREFIX/etc/bash.bashrc (--norc)
