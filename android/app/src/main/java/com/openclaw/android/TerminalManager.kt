@@ -7,42 +7,30 @@ import com.termux.terminal.TerminalSession
 import java.io.File
 
 /**
- * TerminalManager — Orquesta la ejecución de scripts de instalación dentro de
- * una sesión de terminal existente, con el entorno correcto para que install.sh
- * funcione sin errores de rutas o de lock files.
+ * TerminalManager — orchestrates script execution inside an existing terminal
+ * session with the correct environment for install.sh to work without lock-file
+ * errors.
  *
- * ## Por qué falla install.sh sin este manager
+ * Root cause of the lock-file error:
+ *   "E: Could not open lock file /var/lib/dpkg/lock-frontend" happens because:
+ *   1. apt/dpkg look for lock files at ABSOLUTE paths hardcoded for Termux:
+ *      /data/data/com.termux/files/usr/var/lib/dpkg/lock-frontend
+ *   2. When the app runs as com.openclaw.android.debug, the real PREFIX is:
+ *      /data/data/com.openclaw.android.debug/files/usr
+ *   3. Without the correct env vars (HOME, PREFIX, PATH), bash cannot find
+ *      binaries or working directories, and apt fails trying to open lock files
+ *      at paths that don't exist or lack permissions.
  *
- * El error "E: Could not open lock file /var/lib/dpkg/lock-frontend" ocurre porque:
+ * Solution:
+ *   This manager writes a sourced env file to TMPDIR and sources it from the
+ *   shell session. This is more reliable than injecting raw export lines because
+ *   it avoids the race condition where the shell hasn't finished initializing
+ *   when the first bytes arrive.
  *
- * 1. apt/dpkg busca sus lock files en rutas ABSOLUTAS hardcodeadas para Termux:
- *    `/data/data/com.termux/files/usr/var/lib/dpkg/lock-frontend`
- *
- * 2. Cuando la app corre con ID `com.openclaw.android.debug`, el PREFIX real es:
- *    `/data/data/com.openclaw.android.debug/files/usr`
- *
- * 3. Sin las variables de entorno correctas (HOME, PREFIX, PATH), bash no sabe
- *    dónde están los binarios ni los directorios de trabajo, y apt falla al
- *    intentar abrir lock files en rutas que no existen o no tienen permisos.
- *
- * ## Solución
- *
- * Este manager inyecta las variables de entorno correctas ANTES de ejecutar
- * cualquier script, alineando HOME, PREFIX y PATH con la ruta real del sandbox
- * de la app. Esto hace que apt/dpkg encuentren sus directorios y lock files
- * en la ubicación correcta.
- *
- * ## Uso
- *
- * ```kotlin
- * val manager = TerminalManager(context, filesDir)
- *
- * // Ejecutar install.sh en una sesión existente
- * manager.runInstallScript(session, "files/install")
- *
- * // O ejecutar cualquier comando con el entorno correcto
- * manager.runCommandInSession(session, "pkg update && pkg install git")
- * ```
+ * Usage:
+ *   val manager = TerminalManager(context, filesDir)
+ *   manager.runInstallScript(session)
+ *   manager.runCommandInSession(session, "pkg update && pkg install git")
  */
 class TerminalManager(
     private val context: Context,
@@ -51,50 +39,34 @@ class TerminalManager(
     companion object {
         private const val TAG = "TerminalManager"
 
-        /**
-         * Delay en ms antes de escribir en la sesión.
-         * El proceso bash necesita inicializarse antes de recibir input.
-         * 500ms es suficiente para la mayoría de dispositivos; aumentar a 800ms
-         * si el dispositivo es lento y los comandos se pierden.
-         */
-        private const val SHELL_INIT_DELAY_MS = 500L
+        // Time to wait for the shell process to initialize before writing.
+        // 600ms covers slow devices; the env file approach makes this less critical.
+        private const val SHELL_INIT_DELAY_MS = 600L
 
-        /**
-         * Delay adicional entre el bloque de exports y el comando principal.
-         * Evita que el comando se ejecute antes de que el entorno esté listo.
-         */
-        private const val ENV_APPLY_DELAY_MS = 200L
+        // Extra delay between sourcing the env file and running the main command.
+        private const val ENV_APPLY_DELAY_MS = 250L
+
+        // Name of the env file written to TMPDIR
+        private const val ENV_FILE_NAME = "oca-env.sh"
     }
 
     private val handler = Handler(Looper.getMainLooper())
 
     /**
-     * Construye el bloque de variables de entorno para inyectar en la sesión.
+     * Builds the environment variable block as a shell-sourceable string.
      *
-     * CORRECCIÓN CRÍTICA: Estas variables resuelven el error de install.sh.
-     *
-     * - HOME: Directorio home del usuario dentro del sandbox de la app.
-     *   Sin esto, bash usa /root o un directorio inaccesible.
-     *
-     * - PREFIX: Ruta base del entorno Termux dentro del sandbox.
-     *   apt/dpkg derivan TODAS sus rutas de esta variable.
-     *   Con el PREFIX correcto, los lock files se crean en:
-     *   `$PREFIX/var/lib/dpkg/lock-frontend` (accesible por la app)
-     *   en lugar de `/data/data/com.termux/...` (inaccesible).
-     *
-     * - PATH: Orden de búsqueda de binarios. $PREFIX/bin debe ir primero
-     *   para que bash, apt, pkg, etc. se resuelvan desde el sandbox.
-     *
-     * - TMPDIR: Directorio temporal. Sin esto, algunos scripts fallan al
-     *   intentar crear archivos temporales en /tmp (no existe en Android).
-     *
-     * - TERMUX__PREFIX / TERMUX_PREFIX: Algunos binarios del bootstrap de
-     *   Termux leen estas variables para encontrar sus archivos de configuración.
-     *   Apuntarlas a nuestro PREFIX evita el error "bash.bashrc: Permission denied".
+     * Critical variables:
+     * - PREFIX: apt/dpkg derive ALL their paths from this. With the correct
+     *   PREFIX, lock files are created at $PREFIX/var/lib/dpkg/lock-frontend
+     *   (accessible) instead of /data/data/com.termux/... (inaccessible).
+     * - DPKG_ADMINDIR / DPKG_ROOT: explicit overrides so dpkg never falls back
+     *   to its compiled-in Termux paths.
+     * - APT_CONFIG: points apt to our apt.conf with absolute Dir::State::status,
+     *   which prevents the duplicated-path bug.
      */
     fun buildEnvBlock(): String {
-        // Normalizar la ruta: /data/user/0/<pkg>/files → /data/data/<pkg>/files
-        // Los binarios del bootstrap tienen /data/data/... hardcodeado en sus ELF strings.
+        // Normalize /data/user/0/<pkg>/files -> /data/data/<pkg>/files
+        // Bootstrap binaries have /data/data/... hardcoded in their ELF strings.
         val normalizedFilesDir = normalizeFilesDir(filesDir)
 
         val prefix = normalizedFilesDir.resolve("usr").absolutePath
@@ -105,7 +77,6 @@ class TerminalManager(
         val glibcLib = "$prefix/glibc/lib"
         val certBundle = "$prefix/etc/tls/cert.pem"
 
-        // Asegurar que los directorios existen antes de exportarlos
         File(home).mkdirs()
         File(tmpDir).mkdirs()
 
@@ -119,6 +90,11 @@ class TerminalManager(
             appendLine("export TERMUX__ROOTFS=\"${File(prefix).parent}\"")
             appendLine("export PATH=\"$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin\"")
             appendLine("export LD_LIBRARY_PATH=\"$glibcLib:$prefix/lib\"")
+            // dpkg/apt explicit overrides — prevent fallback to compiled-in Termux paths
+            appendLine("export DPKG_ADMINDIR=\"$prefix/var/lib/dpkg\"")
+            appendLine("export DPKG_ROOT=\"$prefix\"")
+            appendLine("export APT_CONFIG=\"$prefix/etc/apt/apt.conf\"")
+            appendLine("export DEBIAN_FRONTEND=noninteractive")
             appendLine("export SSL_CERT_FILE=\"$certBundle\"")
             appendLine("export CURL_CA_BUNDLE=\"$certBundle\"")
             appendLine("export GIT_SSL_CAINFO=\"$certBundle\"")
@@ -138,16 +114,29 @@ class TerminalManager(
     }
 
     /**
-     * Ejecuta el script install.sh dentro de una sesión de terminal existente.
+     * Writes the env block to a file in TMPDIR and returns the path.
+     * Sourcing a file is more reliable than injecting raw text because the
+     * shell processes it as a single atomic read rather than byte-by-byte input.
+     */
+    private fun writeEnvFile(): File {
+        val tmpDir = normalizeFilesDir(filesDir).resolve("tmp").also { it.mkdirs() }
+        val envFile = tmpDir.resolve(ENV_FILE_NAME)
+        envFile.writeText(buildEnvBlock())
+        envFile.setReadable(true)
+        return envFile
+    }
+
+    /**
+     * Runs install.sh inside an existing terminal session.
      *
-     * El script se busca en `filesDir/<installSubdir>/install.sh`.
-     * Antes de ejecutarlo, se inyectan todas las variables de entorno necesarias
-     * para que apt/dpkg funcionen correctamente.
+     * The script is looked up at filesDir/<installSubdir>/install.sh.
+     * Before running it, all required env vars are sourced from a temp file
+     * so that apt/dpkg find their directories at the correct sandbox paths.
      *
-     * @param session La sesión de terminal donde se ejecutará el script.
-     * @param installSubdir Subdirectorio relativo a filesDir donde está install.sh.
-     *                      Por defecto "install" → filesDir/install/install.sh
-     * @param onReady Callback opcional que se invoca cuando el comando ha sido enviado.
+     * @param session       Terminal session to write commands into.
+     * @param installSubdir Subdirectory relative to filesDir containing install.sh.
+     *                      Defaults to "install" -> filesDir/install/install.sh
+     * @param onReady       Optional callback invoked after the command is sent.
      */
     fun runInstallScript(
         session: TerminalSession,
@@ -159,21 +148,18 @@ class TerminalManager(
 
         if (!installScript.exists()) {
             AppLogger.e(TAG, "install.sh not found at: ${installScript.absolutePath}")
-            session.write("echo '[ERROR] install.sh no encontrado en: ${installScript.absolutePath}'\n")
+            session.write("echo '[ERROR] install.sh not found at: ${installScript.absolutePath}'\n")
             return
         }
 
-        // Asegurar que el script tiene permisos de ejecución
         installScript.setExecutable(true)
-
         AppLogger.i(TAG, "Running install.sh from: ${installScript.absolutePath}")
 
-        // Paso 1: Inyectar variables de entorno (con delay para que bash esté listo)
         handler.postDelayed({
-            val envBlock = buildEnvBlock()
-            session.write(envBlock)
+            val envFile = writeEnvFile()
+            // Source the env file, then run install.sh in its own directory
+            session.write(". \"${envFile.absolutePath}\"\n")
 
-            // Paso 2: Ejecutar install.sh (con delay adicional para que los exports se apliquen)
             handler.postDelayed({
                 session.write("cd \"${installDir.absolutePath}\" && bash install.sh\n")
                 onReady?.invoke()
@@ -183,14 +169,11 @@ class TerminalManager(
     }
 
     /**
-     * Ejecuta un comando arbitrario en la sesión con el entorno correcto.
+     * Runs an arbitrary command in the session with the correct environment.
      *
-     * Útil para comandos de diagnóstico o scripts adicionales que necesiten
-     * el mismo entorno que install.sh.
-     *
-     * @param session La sesión de terminal.
-     * @param command El comando a ejecutar (se añade \n automáticamente).
-     * @param injectEnv Si true (por defecto), inyecta las variables de entorno antes del comando.
+     * @param session    Terminal session.
+     * @param command    Command to run (newline appended automatically).
+     * @param injectEnv  If true (default), sources the env file before the command.
      */
     fun runCommandInSession(
         session: TerminalSession,
@@ -199,7 +182,8 @@ class TerminalManager(
     ) {
         handler.postDelayed({
             if (injectEnv) {
-                session.write(buildEnvBlock())
+                val envFile = writeEnvFile()
+                session.write(". \"${envFile.absolutePath}\"\n")
                 handler.postDelayed({
                     session.write("$command\n")
                 }, ENV_APPLY_DELAY_MS)
@@ -210,48 +194,46 @@ class TerminalManager(
     }
 
     /**
-     * Verifica si el entorno está correctamente configurado ejecutando un
-     * comando de diagnóstico en la sesión.
-     *
-     * Escribe en el terminal la información de diagnóstico para que el usuario
-     * pueda ver si las rutas son correctas.
+     * Writes diagnostic information to the terminal session.
+     * Useful for debugging environment issues.
      */
     fun runDiagnostics(session: TerminalSession) {
         handler.postDelayed({
-            session.write(buildEnvBlock())
+            val envFile = writeEnvFile()
+            session.write(". \"${envFile.absolutePath}\"\n")
             handler.postDelayed({
-                session.write(
-                    """
-                    echo "=== OpenClaw Environment Diagnostics ==="
-                    echo "HOME: ${'$'}HOME"
-                    echo "PREFIX: ${'$'}PREFIX"
-                    echo "PATH: ${'$'}PATH"
-                    echo "TMPDIR: ${'$'}TMPDIR"
-                    echo ""
-                    echo "=== Directory Check ==="
-                    ls "${'$'}PREFIX/bin/bash" 2>/dev/null && echo "bash: OK" || echo "bash: NOT FOUND"
-                    ls "${'$'}PREFIX/bin/apt" 2>/dev/null && echo "apt: OK" || echo "apt: NOT FOUND"
-                    ls "${'$'}PREFIX/var/lib/dpkg" 2>/dev/null && echo "dpkg dir: OK" || echo "dpkg dir: NOT FOUND"
-                    echo ""
-                    echo "=== Lock Files ==="
-                    ls -la "${'$'}PREFIX/var/lib/dpkg/lock-frontend" 2>/dev/null || echo "lock-frontend: not created yet (OK)"
-                    echo "=== End Diagnostics ==="
-                    
-                    """.trimIndent()
-                )
+                val diagScript = buildString {
+                    appendLine("echo '=== OpenClaw Environment Diagnostics ==='")
+                    appendLine("echo \"HOME: \$HOME\"")
+                    appendLine("echo \"PREFIX: \$PREFIX\"")
+                    appendLine("echo \"PATH: \$PATH\"")
+                    appendLine("echo \"TMPDIR: \$TMPDIR\"")
+                    appendLine("echo \"DPKG_ADMINDIR: \$DPKG_ADMINDIR\"")
+                    appendLine("echo \"APT_CONFIG: \$APT_CONFIG\"")
+                    appendLine("echo ''")
+                    appendLine("echo '=== Directory Check ==='")
+                    appendLine("ls \"\$PREFIX/bin/bash\" 2>/dev/null && echo 'bash: OK' || echo 'bash: NOT FOUND'")
+                    appendLine("ls \"\$PREFIX/bin/apt\" 2>/dev/null && echo 'apt: OK' || echo 'apt: NOT FOUND'")
+                    appendLine("ls \"\$PREFIX/var/lib/dpkg\" 2>/dev/null && echo 'dpkg dir: OK' || echo 'dpkg dir: NOT FOUND'")
+                    appendLine("echo ''")
+                    appendLine("echo '=== Lock Files ==='")
+                    appendLine("ls -la \"\$PREFIX/var/lib/dpkg/lock-frontend\" 2>/dev/null || echo 'lock-frontend: not created yet (OK)'")
+                    appendLine("echo '=== End Diagnostics ==='")
+                }
+                session.write(diagScript)
             }, ENV_APPLY_DELAY_MS)
         }, SHELL_INIT_DELAY_MS)
     }
 
     /**
-     * Normaliza /data/user/0/<pkg>/files → /data/data/<pkg>/files.
+     * Normalizes /data/user/0/<pkg>/files to /data/data/<pkg>/files.
      *
-     * Android 7+ con soporte multi-usuario expone context.filesDir como
-     * /data/user/0/<pkg>/files (un alias bind-mount). Los binarios del bootstrap
-     * de Termux tienen /data/data/... hardcodeado en sus strings ELF y en
-     * llamadas open()/opendir() que NO son interceptadas por libtermux-exec.so.
-     * Usar la ruta canónica evita errores "No such file or directory" en dpkg,
-     * bash y apt cuando intentan abrir sus directorios de configuración.
+     * Android 7+ with multi-user support exposes context.filesDir as
+     * /data/user/0/<pkg>/files (a bind-mount alias). Bootstrap binaries compiled
+     * for Termux have /data/data/... hardcoded in ELF strings and config lookups
+     * via open()/opendir() — calls NOT intercepted by libtermux-exec.so.
+     * Using the canonical path avoids "No such file or directory" errors in dpkg,
+     * bash, and apt when they try to open their config directories.
      */
     private fun normalizeFilesDir(dir: File): File {
         val path = dir.absolutePath

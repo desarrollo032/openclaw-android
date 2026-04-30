@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.security.MessageDigest
 
 /**
  * WebView → Kotlin bridge via @JavascriptInterface (§2.6).
@@ -47,6 +48,7 @@ class JsBridge(
         private const val PROGRESS_EXTRACT = 0.6f
         private const val PROGRESS_APPLY = 0.9f
         private const val PROGRESS_BOOTSTRAP_START = 0.1f
+        private const val PROGRESS_VERIFY = 0.4f
     }
 
     /**
@@ -808,30 +810,84 @@ class JsBridge(
     }
 
     private suspend fun updateWww() {
+        val resolver = UrlResolver(activity)
+        val wwwConfig = resolver.getWwwConfig()
+        val url = wwwConfig?.url ?: BuildConfig.WWW_URL
+
+        val zipFile = java.io.File(activity.cacheDir, "www.zip")
+        val stagingWww = java.io.File(activity.cacheDir, "www-staging")
+        val wwwDir = bootstrapManager.wwwDir
+        // Keep a backup of the current www so we can roll back on failure
+        val backupWww = java.io.File(activity.cacheDir, "www-backup")
+
         try {
-            val url = UrlResolver(activity).getWwwUrl()
-            val stagingWww = java.io.File(activity.cacheDir, "www-staging")
+            // ── 1. Download ───────────────────────────────────────────────
+            emitProgress("www", PROGRESS_DOWNLOAD, "Downloading...")
             stagingWww.deleteRecursively()
             stagingWww.mkdirs()
+            zipFile.delete()
 
-            emitProgress("www", PROGRESS_DOWNLOAD, "Downloading...")
-            val zipFile = java.io.File(activity.cacheDir, "www.zip")
             java.net.URL(url).openStream().use { input ->
                 zipFile.outputStream().use { output -> input.copyTo(output) }
             }
 
+            // ── 2. SHA-256 integrity check (if hash provided in config) ──
+            val expectedSha256 = wwwConfig?.sha256
+            if (!expectedSha256.isNullOrBlank()) {
+                emitProgress("www", PROGRESS_VERIFY, "Verifying integrity...")
+                val actualSha256 = sha256Hex(zipFile)
+                if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                    zipFile.delete()
+                    throw SecurityException(
+                        "www.zip integrity check failed: " +
+                            "expected=$expectedSha256 actual=$actualSha256",
+                    )
+                }
+                AppLogger.i(TAG, "www.zip SHA-256 verified: $actualSha256")
+            } else {
+                AppLogger.w(TAG, "No SHA-256 provided for www.zip — skipping integrity check")
+            }
+
+            // ── 3. Extract to staging ─────────────────────────────────────
             emitProgress("www", PROGRESS_EXTRACT, "Extracting...")
             extractZipToDir(zipFile, stagingWww)
             zipFile.delete()
 
+            // ── 4. Backup current www, then atomic swap ───────────────────
             emitProgress("www", PROGRESS_APPLY, "Applying...")
-            val wwwDir = bootstrapManager.wwwDir
+            backupWww.deleteRecursively()
+            if (wwwDir.exists()) {
+                // Copy (not rename) so wwwDir stays available during the swap
+                wwwDir.copyRecursively(backupWww, overwrite = true)
+            }
+
             wwwDir.deleteRecursively()
             wwwDir.parentFile?.mkdirs()
-            stagingWww.renameTo(wwwDir)
+            val renamed = stagingWww.renameTo(wwwDir)
+            if (!renamed) {
+                // renameTo can fail across mount points — fall back to copy
+                stagingWww.copyRecursively(wwwDir, overwrite = true)
+                stagingWww.deleteRecursively()
+            }
 
+            // ── 5. Reload WebView ─────────────────────────────────────────
+            backupWww.deleteRecursively()
             activity.runOnUiThread { activity.reloadWebView() }
+            AppLogger.i(TAG, "www updated successfully from $url")
         } catch (e: Exception) {
+            AppLogger.e(TAG, "www update failed: ${e.message}", e)
+
+            // Roll back to backup if the swap already happened
+            if (!wwwDir.resolve("index.html").exists() && backupWww.exists()) {
+                AppLogger.w(TAG, "Rolling back www to previous version")
+                wwwDir.deleteRecursively()
+                backupWww.renameTo(wwwDir)
+            }
+
+            // Clean up temp files
+            zipFile.delete()
+            stagingWww.deleteRecursively()
+
             emitProgress("www", PROGRESS_START, "Update failed: ${e.message}")
         }
     }
@@ -845,6 +901,23 @@ class JsBridge(
         } catch (e: Exception) {
             emitProgress("bootstrap", PROGRESS_START, "Update failed: ${e.message}")
         }
+    }
+
+    /**
+     * Computes the SHA-256 hex digest of a file.
+     * Used to verify www.zip integrity before applying an OTA update.
+     */
+    private fun sha256Hex(file: java.io.File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var read = input.read(buffer)
+            while (read != -1) {
+                digest.update(buffer, 0, read)
+                read = input.read(buffer)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun extractZipToDir(

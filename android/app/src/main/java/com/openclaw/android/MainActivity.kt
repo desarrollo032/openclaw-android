@@ -81,24 +81,50 @@ class MainActivity : AppCompatActivity() {
         // Android 13+: solicitar permiso de notificaciones para el foreground service
         requestNotificationPermission()
 
+        // Defer the install/launch decision until storage permissions are resolved.
+        // On Android 11+ requestStoragePermissions() launches a Settings activity
+        // and returns immediately — checkAndStartInstallation() will be called from
+        // onStoragePermissionsGranted() / onActivityResult() once the user responds.
+        // On Android 6-10 and when permissions are already granted, it is called
+        // directly from onStoragePermissionsGranted() which runs synchronously.
+    }
+
+    /**
+     * Evaluates the current install state and takes the appropriate action:
+     *
+     *  • Nothing installed at all  → auto-start the best available installer
+     *    (payload > rootfs > bootstrap) so the user never has to tap a button.
+     *  • Bootstrap installed, post-setup pending → run post-setup.sh in terminal.
+     *  • Fully installed, OpenClaw missing      → run auto-install via TermuxIntegrationHelper.
+     *  • Fully installed and ready              → show terminal / auto-start gateway.
+     *
+     * Called from onStoragePermissionsGranted() so storage is always available
+     * before any file-system or shell operation runs.
+     */
+    private fun checkAndStartInstallation() {
         val rootfsManager = RootfsManager(this)
         val payloadManager = PayloadManager(this)
-        // Check all install paths: payload (preferred), rootfs, bootstrap (legacy Termux)
+
         val isInstalled = payloadManager.isReady() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
         val isOpenClawInstalled = payloadManager.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
-        AppLogger.i(TAG, "Installed: $isInstalled (payload=${payloadManager.isReady()}, rootfs=${rootfsManager.isInstalled()}, bootstrap=${bootstrapManager.isInstalled()}), openclaw=$isOpenClawInstalled")
 
-        // Sync www assets and check for APK version upgrade
+        AppLogger.i(
+            TAG,
+            "checkAndStartInstallation: installed=$isInstalled " +
+                "(payload=${payloadManager.isReady()}, rootfs=${rootfsManager.isInstalled()}, " +
+                "bootstrap=${bootstrapManager.isInstalled()}), openclaw=$isOpenClawInstalled",
+        )
+
+        // ── Sync www assets and apply script updates on APK upgrade ──────────
         if (isInstalled) {
             val prefs = getSharedPreferences("openclaw", 0)
             val savedVersionCode = prefs.getInt("versionCode", 0)
             val currentVersionCode = packageManager.getPackageInfo(packageName, 0).versionCode
-            // Always sync www from assets to pick up UI updates
             when {
                 payloadManager.isReady() -> {
                     payloadManager.syncWwwFromAssets()
                     if (currentVersionCode > savedVersionCode) {
-                        AppLogger.i(TAG, "APK version upgrade detected: $savedVersionCode -> $currentVersionCode")
+                        AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode (payload)")
                         payloadManager.applyScriptUpdate()
                         prefs.edit().putInt("versionCode", currentVersionCode).apply()
                     }
@@ -106,7 +132,7 @@ class MainActivity : AppCompatActivity() {
                 rootfsManager.isInstalled() -> {
                     rootfsManager.syncWwwFromAssets()
                     if (currentVersionCode > savedVersionCode) {
-                        AppLogger.i(TAG, "APK version upgrade detected: $savedVersionCode -> $currentVersionCode")
+                        AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode (rootfs)")
                         rootfsManager.applyScriptUpdate()
                         prefs.edit().putInt("versionCode", currentVersionCode).apply()
                     }
@@ -115,45 +141,107 @@ class MainActivity : AppCompatActivity() {
                     bootstrapManager.syncWwwFromAssets()
                     Thread { bootstrapManager.installOaCli() }.start()
                     if (currentVersionCode > savedVersionCode) {
-                        AppLogger.i(TAG, "APK version upgrade detected: $savedVersionCode -> $currentVersionCode")
+                        AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode (bootstrap)")
                         bootstrapManager.applyScriptUpdate()
                         prefs.edit().putInt("versionCode", currentVersionCode).apply()
                     }
                 }
             }
         }
-        if (isInstalled) {
-            showTerminal()
-            val session = sessionManager.createSession()
-            val needsPostSetup = !payloadManager.isReady() && !rootfsManager.isInstalled() && bootstrapManager.needsPostSetup()
-            when {
-                needsPostSetup -> {
-                    AppLogger.i(TAG, "Running post-setup script in terminal")
-                    val script = bootstrapManager.postSetupScript.absolutePath
-                    binding.terminalView.post {
-                        session.write("bash $script\n")
-                    }
+
+        // ── Decide what to do based on install state ──────────────────────────
+        when {
+            // ── Case 1: Nothing installed → auto-start the best installer ────
+            !isInstalled -> {
+                AppLogger.i(TAG, "Nothing installed — starting automatic installation")
+                showTerminal()
+                val session = sessionManager.createSession()
+                binding.terminalView.post {
+                    autoStartInstallation(session, payloadManager, rootfsManager)
                 }
-                // Bootstrap is ready but OpenClaw is not installed — run auto-install
-                isInstalled && !isOpenClawInstalled -> {
-                    AppLogger.i(TAG, "Bootstrap ready, OpenClaw not installed — running auto-install")
-                    binding.terminalView.post {
-                        val helper = TermuxIntegrationHelper(this, bootstrapManager)
-                        helper.installOpenClaw(session)
-                    }
+            }
+
+            // ── Case 2: Bootstrap installed, post-setup.sh still pending ─────
+            bootstrapManager.isInstalled() && bootstrapManager.needsPostSetup() -> {
+                AppLogger.i(TAG, "Bootstrap ready — running post-setup.sh automatically")
+                showTerminal()
+                val session = sessionManager.createSession()
+                val script = bootstrapManager.postSetupScript.absolutePath
+                binding.terminalView.post {
+                    session.write("bash \"$script\"\n")
                 }
-                intent?.getBooleanExtra("from_boot", false) == true -> {
-                    val startScript = when {
-                        payloadManager.isReady() -> File(filesDir, "payload/run-openclaw.sh")
-                        else -> File(filesDir, "home/openclaw-start.sh")
-                    }
-                    AppLogger.i(TAG, "Boot launch — auto-starting gateway")
-                    binding.terminalView.post {
-                        session.write("${startScript.absolutePath}\n")
-                    }
+            }
+
+            // ── Case 3: Env installed but OpenClaw package missing ────────────
+            isInstalled && !isOpenClawInstalled -> {
+                AppLogger.i(TAG, "Environment ready — OpenClaw not installed, running auto-install")
+                showTerminal()
+                val session = sessionManager.createSession()
+                binding.terminalView.post {
+                    TermuxIntegrationHelper(this, bootstrapManager).installOpenClaw(session)
+                }
+            }
+
+            // ── Case 4: Boot intent → auto-start gateway ──────────────────────
+            intent?.getBooleanExtra("from_boot", false) == true -> {
+                val startScript = when {
+                    payloadManager.isReady() -> File(filesDir, "payload/run-openclaw.sh")
+                    else -> File(filesDir, "home/openclaw-start.sh")
+                }
+                AppLogger.i(TAG, "Boot launch — auto-starting gateway: ${startScript.absolutePath}")
+                showTerminal()
+                val session = sessionManager.createSession()
+                binding.terminalView.post {
+                    session.write("\"${startScript.absolutePath}\"\n")
+                }
+            }
+
+            // ── Case 5: Fully installed and ready → show terminal ─────────────
+            else -> {
+                AppLogger.i(TAG, "Fully installed — showing terminal")
+                showTerminal()
+                sessionManager.createSession()
+            }
+        }
+    }
+
+    /**
+     * Selects and launches the best available installer automatically.
+     *
+     * Priority: payload (offline, bundled) > rootfs (pre-built tar) > bootstrap (network).
+     * The user sees the terminal with live output — no button tap required.
+     */
+    private fun autoStartInstallation(
+        session: com.termux.terminal.TerminalSession,
+        payloadManager: PayloadManager,
+        rootfsManager: RootfsManager,
+    ) {
+        when {
+            payloadManager.hasPayloadAsset() -> {
+                AppLogger.i(TAG, "Auto-install: payload path")
+                // Delegate to JsBridge so progress events reach the WebView too
+                jsBridge.startPayloadInstall()
+            }
+            rootfsManager.let {
+                try { it.javaClass.getDeclaredMethod("assetExists"); true } catch (_: Exception) { false }
+            } -> {
+                // rootfs asset present — use rootfs installer
+                AppLogger.i(TAG, "Auto-install: rootfs path")
+                jsBridge.startRootfsInstall()
+            }
+            else -> {
+                // Network bootstrap — run post-setup.sh which downloads everything
+                AppLogger.i(TAG, "Auto-install: bootstrap + post-setup.sh path")
+                val postSetup = bootstrapManager.postSetupScript
+                if (postSetup.exists()) {
+                    session.write("bash \"${postSetup.absolutePath}\"\n")
+                } else {
+                    // Bootstrap not yet extracted — trigger full bootstrap setup
+                    jsBridge.startSetup()
                 }
             }
         }
+    }
     }
 
     // --- Storage permissions ---
@@ -272,7 +360,8 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Called once storage permissions are resolved (granted or denied).
-     * Runs termux-setup-storage if not already done, then proceeds with setup.
+     * Runs termux-setup-storage in the background, then evaluates the install
+     * state and starts the appropriate installer automatically.
      */
     private fun onStoragePermissionsGranted() {
         Thread {
@@ -280,6 +369,9 @@ class MainActivity : AppCompatActivity() {
                 AppLogger.i(TAG, "setup-storage: $line")
             }
         }.start()
+        // Always evaluate install state after permissions are settled.
+        // This is the single entry point for the install/launch decision.
+        checkAndStartInstallation()
     }
 
     // --- Terminal setup ---

@@ -1,0 +1,188 @@
+#!/bin/bash
+# =============================================================================
+# install.sh — OpenClaw Android Local Installer
+# =============================================================================
+# Bundled in assets/install/ and copied to filesDir/install/ at runtime.
+#
+# This script is designed to run INSIDE the app sandbox, not in a standard
+# Termux environment. All paths are derived from the environment variables
+# injected by TerminalManager.buildEnvBlock() / EnvironmentBuilder.
+#
+# Required env vars (injected by TerminalManager before this script runs):
+#   PREFIX   — filesDir/usr  (e.g. /data/data/com.openclaw.android.debug/files/usr)
+#   HOME     — filesDir/home
+#   TMPDIR   — filesDir/tmp
+#   PATH     — $PREFIX/bin:$PREFIX/bin/applets:/system/bin:/bin
+#
+# Why this script exists instead of curl | bash:
+#   The remote install.sh at myopenclawhub.com assumes a standard Termux
+#   environment (PREFIX=/data/data/com.termux/files/usr). Running it without
+#   the correct PREFIX causes apt/dpkg to look for lock files at the Termux
+#   path, which is inaccessible from this app's sandbox.
+#
+#   This local script uses the env vars already set by TerminalManager, so
+#   apt/dpkg always find their lock files at:
+#     $PREFIX/var/lib/dpkg/lock-frontend  ← correct, accessible
+# =============================================================================
+
+set -euo pipefail
+
+# ── Validate environment ──────────────────────────────────────────────────────
+: "${PREFIX:?PREFIX not set. Run this script via the OpenClaw terminal.}"
+: "${HOME:?HOME not set.}"
+: "${TMPDIR:=${PREFIX}/../tmp}"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG_FILE="${HOME}/.openclaw-android/logs/install-$(date +%Y%m%d-%H%M%S).log"
+mkdir -p "$(dirname "$LOG_FILE")" "$TMPDIR"
+
+log() {
+    local ts
+    ts="$(date '+%H:%M:%S' 2>/dev/null || echo '??:??:??')"
+    echo "[${ts}] $*" | tee -a "$LOG_FILE"
+}
+
+log_ok()   { log "[OK]   $*"; }
+log_err()  { log "[ERR]  $*" >&2; }
+log_warn() { log "[WARN] $*"; }
+
+log "=== OpenClaw Android Installer ==="
+log "  PREFIX  = $PREFIX"
+log "  HOME    = $HOME"
+log "  TMPDIR  = $TMPDIR"
+log "  PATH    = $PATH"
+
+# ── Verify bootstrap is ready ─────────────────────────────────────────────────
+if [ ! -x "$PREFIX/bin/bash" ] && [ ! -x "$PREFIX/bin/sh" ]; then
+    log_err "Bootstrap not installed. No shell found at $PREFIX/bin/"
+    log_err "Complete the bootstrap setup first."
+    exit 1
+fi
+
+# ── Verify apt is available ───────────────────────────────────────────────────
+APT_BIN="$PREFIX/bin/apt-get"
+if [ ! -x "$APT_BIN" ]; then
+    log_warn "apt-get not found at $APT_BIN"
+    log_warn "Trying pkg as fallback..."
+    APT_BIN="$PREFIX/bin/pkg"
+fi
+
+# ── Ensure dpkg/apt directories exist ────────────────────────────────────────
+# These should already exist from BootstrapManager.configureApt(), but we
+# create them here as a safety net in case of partial installs.
+for dir in \
+    "$PREFIX/var/lib/dpkg" \
+    "$PREFIX/var/lib/dpkg/info" \
+    "$PREFIX/var/lib/dpkg/updates" \
+    "$PREFIX/var/lib/dpkg/parts" \
+    "$PREFIX/var/lib/apt/lists" \
+    "$PREFIX/var/lib/apt/lists/partial" \
+    "$PREFIX/var/cache/apt/archives/partial" \
+    "$PREFIX/var/log/apt"; do
+    mkdir -p "$dir"
+    chmod 755 "$dir"
+done
+
+# Ensure dpkg status file exists
+[ -f "$PREFIX/var/lib/dpkg/status" ] || touch "$PREFIX/var/lib/dpkg/status"
+[ -f "$PREFIX/var/lib/dpkg/available" ] || touch "$PREFIX/var/lib/dpkg/available"
+
+log_ok "dpkg/apt directories verified"
+
+# ── Configure apt.conf ────────────────────────────────────────────────────────
+# Write apt.conf with absolute paths to prevent the duplicated-path bug.
+# Bug: if Dir::State::status is relative, apt resolves it as:
+#   Dir + Dir::State + Dir::State::status
+#   = "$PREFIX/" + "var/lib/apt/" + "var/lib/dpkg/status"
+#   = "$PREFIX/var/lib/apt/var/lib/dpkg/status"  ← WRONG (duplicated path)
+# Fix: use an absolute path for Dir::State::status.
+APT_CONF="$PREFIX/etc/apt/apt.conf"
+mkdir -p "$(dirname "$APT_CONF")"
+cat > "$APT_CONF" << APTCONF
+Dir "$PREFIX/";
+Dir::State "var/lib/apt/";
+Dir::State::status "$PREFIX/var/lib/dpkg/status";
+Dir::Cache "var/cache/apt/";
+Dir::Log "var/log/apt/";
+Dir::Etc "etc/apt/";
+Dir::Etc::SourceList "etc/apt/sources.list";
+Dir::Etc::SourceParts "";
+Dir::Bin::dpkg "$PREFIX/bin/dpkg";
+Dir::Bin::Methods "$PREFIX/lib/apt/methods/";
+Dir::Bin::apt-key "$PREFIX/bin/apt-key";
+Dpkg::Options:: "--force-configure-any";
+Dpkg::Options:: "--force-bad-path";
+Dpkg::Options:: "--instdir=$PREFIX";
+Dpkg::Options:: "--admindir=$PREFIX/var/lib/dpkg";
+Acquire::AllowInsecureRepositories "true";
+APT::Get::AllowUnauthenticated "true";
+APTCONF
+
+export APT_CONFIG="$APT_CONF"
+export DPKG_ADMINDIR="$PREFIX/var/lib/dpkg"
+export DPKG_ROOT="$PREFIX"
+log_ok "apt.conf written: $APT_CONF"
+
+# ── Install OpenClaw via pkg/apt ──────────────────────────────────────────────
+log "Installing OpenClaw dependencies..."
+
+# Update package lists
+if [ -x "$PREFIX/bin/pkg" ]; then
+    log "Running: pkg update"
+    pkg update -y 2>&1 | tee -a "$LOG_FILE" || log_warn "pkg update had errors (continuing)"
+elif [ -x "$APT_BIN" ]; then
+    log "Running: apt-get update"
+    DEBIAN_FRONTEND=noninteractive "$APT_BIN" update 2>&1 | tee -a "$LOG_FILE" || \
+        log_warn "apt-get update had errors (continuing)"
+fi
+
+# Install Node.js if not already present
+NODE_BIN="$HOME/.openclaw-android/bin/node"
+if [ ! -x "$NODE_BIN" ]; then
+    log "Node.js not found at $NODE_BIN"
+    log "Installing nodejs via pkg..."
+    if [ -x "$PREFIX/bin/pkg" ]; then
+        pkg install -y nodejs 2>&1 | tee -a "$LOG_FILE" || \
+            log_warn "nodejs install had errors"
+    fi
+fi
+
+# ── Install OpenClaw via npm ──────────────────────────────────────────────────
+NPM_BIN="$HOME/.openclaw-android/bin/npm"
+if [ ! -x "$NPM_BIN" ]; then
+    NPM_BIN="$PREFIX/bin/npm"
+fi
+
+if [ -x "$NPM_BIN" ]; then
+    log "Installing OpenClaw via npm..."
+    "$NPM_BIN" install -g openclaw 2>&1 | tee -a "$LOG_FILE"
+    log_ok "OpenClaw installed via npm"
+else
+    log_warn "npm not found — attempting direct download"
+    # Fallback: download and run the remote installer with correct env already set
+    if command -v curl >/dev/null 2>&1; then
+        log "Downloading remote installer..."
+        curl -sL myopenclawhub.com/install | bash 2>&1 | tee -a "$LOG_FILE"
+    else
+        log_err "Neither npm nor curl available. Cannot install OpenClaw."
+        exit 1
+    fi
+fi
+
+# ── Write installation marker ─────────────────────────────────────────────────
+OCA_DIR="$HOME/.openclaw-android"
+mkdir -p "$OCA_DIR"
+cat > "$OCA_DIR/installed.json" << MARKER
+{
+  "installed": true,
+  "source": "local-install-sh",
+  "installedAt": "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo 'unknown')",
+  "prefix": "$PREFIX",
+  "home": "$HOME"
+}
+MARKER
+
+log_ok "Installation marker written: $OCA_DIR/installed.json"
+log ""
+log "=== OpenClaw installation complete! ==="
+log "Run 'openclaw-start.sh' or type 'openclaw gateway' to start."
