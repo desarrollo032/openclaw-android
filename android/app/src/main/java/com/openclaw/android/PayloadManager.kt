@@ -209,6 +209,22 @@ class PayloadManager(private val context: Context) {
                 AppLogger.e(TAG, "Failed to create emergency bash: ${e.message}")
             }
         }
+
+        // Create global 'openclaw' command wrapper
+        val openclawBin = File(binDir, "openclaw")
+        if (!openclawBin.exists()) {
+            try {
+                val script = """
+                    #!/system/bin/sh
+                    exec "${context.filesDir.absolutePath}/payload/run-openclaw.sh" "${'$'}@"
+                """.trimIndent()
+                openclawBin.writeText(script + "\n")
+                openclawBin.setExecutable(true, false)
+                AppLogger.i(TAG, "openclaw global wrapper created at ${openclawBin.absolutePath}")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to create openclaw wrapper: ${e.message}")
+            }
+        }
     }
 
     /** Returns true if the environment is functional (glibc + node) */
