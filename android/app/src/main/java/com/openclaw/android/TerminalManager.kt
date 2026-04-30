@@ -108,6 +108,8 @@ class TerminalManager(
             appendLine("export CONTAINER=1")
             appendLine("export BASH_ENV=/dev/null")
             appendLine("export ENV=/dev/null")
+            appendLine("export APP_FILES_DIR=\"${normalizedFilesDir.absolutePath}\"")
+            appendLine("export APP_PACKAGE=\"${context.packageName}\"")
             appendLine("unset LD_PRELOAD")
             appendLine("# --- End Environment Setup ---")
         }

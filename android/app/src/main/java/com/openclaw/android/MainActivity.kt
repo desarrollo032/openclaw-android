@@ -172,7 +172,7 @@ class MainActivity : AppCompatActivity() {
                 val session = sessionManager.createSession()
                 val script = bootstrapManager.postSetupScript.absolutePath
                 binding.terminalView.post {
-                    session.write("bash \"$script\"\n")
+                    session.write("sh \"$script\"\n")
                 }
             }
 
@@ -250,14 +250,28 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             else -> {
-                // Network bootstrap — run post-setup.sh which downloads everything
-                AppLogger.i(TAG, "Auto-install: bootstrap + post-setup.sh path")
-                val postSetup = bootstrapManager.postSetupScript
-                if (postSetup.exists()) {
-                    session.write("sh \"${postSetup.absolutePath}\"\n")
-                } else {
-                    // Bootstrap not yet extracted — trigger full bootstrap setup
-                    jsBridge.startSetup()
+                // Network/bootstrap path — download Termux bootstrap, then run install.sh
+                AppLogger.i(TAG, "Auto-install: online bootstrap download path")
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        session.write("Downloading bootstrap...\r\n")
+                        bootstrapManager.startSetup { progress, message ->
+                            val pct = (progress * 100).toInt()
+                            session.write("[$pct%] $message\r\n")
+                            AppLogger.i(TAG, "[bootstrap] $message")
+                        }
+                        session.write("\r\n✓ Bootstrap installed!\r\n")
+                        session.write("Installing OpenClaw...\r\n")
+                        delay(800)
+                        val terminalManager = TerminalManager(this@MainActivity, filesDir)
+                        runOnUiThread {
+                            terminalManager.runInstallScript(session)
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Bootstrap install failed: ${e.message}", e)
+                        session.write("\r\n✗ Bootstrap install failed: ${e.message}\r\n")
+                        session.write("Check your internet connection and try again.\r\n")
+                    }
                 }
             }
         }

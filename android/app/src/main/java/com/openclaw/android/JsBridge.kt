@@ -91,7 +91,7 @@ class JsBridge(
                 // createSession() posts attachSession() via runOnUiThread; writing before
                 // that runs silently drops the data (mShellPid is still 0).
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    session.write("bash $script\n")
+                    session.write("sh $script\n")
                 }, SHELL_INIT_DELAY_MS)
             }
         }
