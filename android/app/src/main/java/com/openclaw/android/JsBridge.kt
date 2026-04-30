@@ -182,11 +182,13 @@ class JsBridge(
 
     @JavascriptInterface
     fun getBootstrapStatus(): String {
+        val installer = InstallerManager(activity)
         val rootfsManager = RootfsManager(activity)
-        // Check both install paths: rootfs (preferred) and bootstrap (legacy)
-        val installed = rootfsManager.isInstalled() || bootstrapManager.isInstalled()
-        val openclawInstalled = rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
+        
+        val installed = installer.isInstalled() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
+        val openclawInstalled = installer.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
         val (prefix, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        
         return gson.toJson(
             mapOf(
                 "installed" to installed,
@@ -194,6 +196,7 @@ class JsBridge(
                 "prefixPath" to prefix,
                 "openclawPath" to CommandRunner.OPENCLAW_DIR,
                 "source" to when {
+                    installer.isInstalled() -> if (installer.hasPayloadAsset()) "payload" else "bootstrap"
                     rootfsManager.isInstalled() -> "rootfs"
                     bootstrapManager.isInstalled() -> "bootstrap"
                     else -> "none"
