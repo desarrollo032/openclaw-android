@@ -307,8 +307,12 @@ class InstallerManager(private val context: Context) {
         else -> "not_installed"
     }
 
-    fun isOpenClawInstalled(): Boolean =
-        File(filesDir, "home/.openclaw-android/lib/openclaw/openclaw").exists()
+    fun isOpenClawInstalled(): Boolean {
+        // Offline payload path: wrapper is created by applyPermissions()
+        if (File(prefix, "bin/openclaw").exists()) return true
+        // Online bootstrap path
+        return File(filesDir, "home/.openclaw-android/lib/openclaw/openclaw").exists()
+    }
 
     /** Sync www assets from APK to the share directory. */
     fun syncWwwFromAssets() {
