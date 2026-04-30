@@ -274,7 +274,10 @@ class InstallerManager(private val context: Context) {
         // Mark all bin/ files executable
         val binDir = File(prefix, "bin")
         if (binDir.isDirectory) {
-            binDir.listFiles()?.forEach { it.setExecutable(true, false) }
+            binDir.listFiles()?.forEach { 
+                it.setExecutable(true, false)
+                it.setExecutable(true, true) // Also set for owner+group+others
+            }
             AppLogger.i(TAG, "Permissions set on ${binDir.listFiles()?.size ?: 0} bin files")
         }
 
@@ -284,6 +287,7 @@ class InstallerManager(private val context: Context) {
             val script = "#!/system/bin/sh\n# Emergency bash wrapper\nexec /system/bin/sh\n"
             bashFile.writeText(script)
             bashFile.setExecutable(true, false)
+            bashFile.setExecutable(true, true)
             AppLogger.i(TAG, "Emergency bash wrapper created")
         }
 
@@ -294,7 +298,35 @@ class InstallerManager(private val context: Context) {
             val script = "#!/system/bin/sh\nexec \"$runScript\" \"\$@\"\n"
             openclawBin.writeText(script)
             openclawBin.setExecutable(true, false)
-            AppLogger.i(TAG, "openclaw wrapper created")
+            openclawBin.setExecutable(true, true)
+            // Fallback: try chmod if setExecutable failed
+            try {
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", openclawBin.absolutePath))
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "chmod fallback failed for openclaw wrapper: ${e.message}")
+            }
+            AppLogger.i(TAG, "openclaw wrapper created with executable permissions")
+        } else {
+            // Ensure existing openclaw wrapper has executable permissions
+            openclawBin.setExecutable(true, false)
+            openclawBin.setExecutable(true, true)
+            try {
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", openclawBin.absolutePath))
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "chmod fallback failed for existing openclaw wrapper: ${e.message}")
+            }
+        }
+
+        // Ensure run-openclaw.sh exists and is executable
+        val runOpenclawScript = File(filesDir, "payload/run-openclaw.sh")
+        if (runOpenclawScript.exists()) {
+            runOpenclawScript.setExecutable(true, false)
+            runOpenclawScript.setExecutable(true, true)
+            try {
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", runOpenclawScript.absolutePath))
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "chmod fallback failed for run-openclaw.sh: ${e.message}")
+            }
         }
     }
 
