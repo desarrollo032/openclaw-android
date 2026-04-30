@@ -3,6 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+: declara el tipo de foreground service para el servicio de terminal -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Android 13+: requerido para mostrar la notificación persistente del servicio -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -38,9 +42,22 @@
             </intent-filter>
         </activity>
 
+        <!--
+            foregroundServiceType="specialUse" es requerido en Android 14+ (API 34).
+            Para targetSdk 28 (como este proyecto) no es obligatorio, pero declararlo
+            evita advertencias en Play Store y es compatible hacia atrás.
+            android:stopWithTask="false" asegura que el servicio sobreviva al swipe de la app.
+        -->
         <service
             android:name=".OpenClawService"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <!-- Requerido cuando foregroundServiceType="specialUse" en Android 14+ -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Terminal emulator session for OpenClaw AI platform" />
+        </service>
 
         <receiver
             android:name=".BootReceiver"

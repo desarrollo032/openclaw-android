@@ -40,9 +40,10 @@ class MainActivity : AppCompatActivity() {
         private const val MIN_TEXT_SIZE = 8
         private const val MAX_TEXT_SIZE = 32
         private const val KEYBOARD_SHOW_DELAY_MS = 200L
-        private const val INPUT_MODE_TYPE_NULL = 1
         private const val REQUEST_STORAGE_PERMISSIONS = 100
         private const val REQUEST_MANAGE_STORAGE = 101
+        // Android 13+ (API 33): permiso para mostrar notificaciones del foreground service
+        private const val REQUEST_POST_NOTIFICATIONS = 102
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -76,6 +77,9 @@ class MainActivity : AppCompatActivity() {
 
         // Request storage permissions before any installation
         requestStoragePermissions()
+
+        // Android 13+: solicitar permiso de notificaciones para el foreground service
+        requestNotificationPermission()
 
         val rootfsManager = RootfsManager(this)
         val payloadManager = PayloadManager(this)
@@ -154,6 +158,35 @@ class MainActivity : AppCompatActivity() {
 
     // --- Storage permissions ---
 
+    /**
+     * Solicita el permiso POST_NOTIFICATIONS en Android 13+ (API 33).
+     *
+     * Sin este permiso, el foreground service puede iniciarse pero su notificación
+     * persistente no se mostrará, lo que en Android 12+ puede causar que el sistema
+     * mate el servicio más agresivamente al no ver actividad visible.
+     *
+     * En versiones anteriores a Android 13, el permiso se concede automáticamente
+     * al declarar FOREGROUND_SERVICE en el manifest.
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // API 33
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS,
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                AppLogger.i(TAG, "Requesting POST_NOTIFICATIONS permission (Android 13+)")
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_POST_NOTIFICATIONS,
+                )
+            }
+        }
+    }
+
+    // --- Storage permissions ---
+
     private fun requestStoragePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Android 11+: request MANAGE_EXTERNAL_STORAGE via Settings
@@ -197,15 +230,26 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_STORAGE_PERMISSIONS) {
-            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            if (allGranted) {
-                AppLogger.i(TAG, "Storage permissions granted")
-                onStoragePermissionsGranted()
-            } else {
-                AppLogger.w(TAG, "Storage permissions denied — termux-setup-storage may fail")
-                // Continue anyway; some features may be limited
-                onStoragePermissionsGranted()
+        when (requestCode) {
+            REQUEST_STORAGE_PERMISSIONS -> {
+                val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+                if (allGranted) {
+                    AppLogger.i(TAG, "Storage permissions granted")
+                    onStoragePermissionsGranted()
+                } else {
+                    AppLogger.w(TAG, "Storage permissions denied — termux-setup-storage may fail")
+                    // Continue anyway; some features may be limited
+                    onStoragePermissionsGranted()
+                }
+            }
+            REQUEST_POST_NOTIFICATIONS -> {
+                // Android 13+: el foreground service funciona con o sin este permiso,
+                // pero la notificación persistente solo se muestra si se concede.
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    AppLogger.i(TAG, "POST_NOTIFICATIONS permission granted — notification will be visible")
+                } else {
+                    AppLogger.w(TAG, "POST_NOTIFICATIONS denied — service runs but notification hidden")
+                }
             }
         }
     }
@@ -726,8 +770,6 @@ class MainActivity : AppCompatActivity() {
         override fun shouldBackButtonBeMappedToEscape(): Boolean = false
 
         override fun shouldEnforceCharBasedInput(): Boolean = true
-
-        override fun getInputMode(): Int = INPUT_MODE_TYPE_NULL
 
         override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
 

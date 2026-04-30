@@ -280,14 +280,4 @@ public final class TerminalRow {
         return mStyle[column];
     }
 
-    public int getChar(int column) {
-        int charIndex = findStartOfColumn(column);
-        char c = mText[charIndex];
-        if (Character.isHighSurrogate(c)) {
-            return Character.toCodePoint(c, mText[charIndex + 1]);
-        } else {
-            return c;
-        }
-    }
-
 }

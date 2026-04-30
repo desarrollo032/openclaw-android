@@ -9,16 +9,26 @@ import android.os.Build
 import com.termux.terminal.TerminalSession
 import java.io.File
 
-class TermuxIntegrationHelper(private val context: Context, private val bootstrapManager: BootstrapManager) {
-
-    private fun isTermuxInstalled(): Boolean {
-        return try {
+/**
+ * Helper para integrar con Termux o ejecutar el instalador de OpenClaw
+ * directamente en el sandbox de la app cuando Termux no está disponible.
+ *
+ * Flujo:
+ * 1. Si Termux está instalado y tiene permisos → lanza via RUN_COMMAND intent
+ * 2. Si Termux no está instalado → ofrece instalarlo o usar el fallback
+ * 3. Fallback: usa TerminalManager para ejecutar install.sh con el entorno correcto
+ */
+class TermuxIntegrationHelper(
+    private val context: Context,
+    private val bootstrapManager: BootstrapManager,
+) {
+    private fun isTermuxInstalled(): Boolean =
+        try {
             context.packageManager.getPackageInfo("com.termux", 0)
             true
         } catch (e: PackageManager.NameNotFoundException) {
             false
         }
-    }
 
     fun installOpenClaw(session: TerminalSession) {
         if (!isTermuxInstalled()) {
@@ -31,7 +41,7 @@ class TermuxIntegrationHelper(private val context: Context, private val bootstra
         intent.putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
         intent.putExtra(
             "com.termux.RUN_COMMAND_ARGUMENTS",
-            arrayOf("-c", "curl -sL myopenclawhub.com/install | bash")
+            arrayOf("-c", "curl -sL myopenclawhub.com/install | bash"),
         )
         intent.putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
         intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
@@ -47,71 +57,80 @@ class TermuxIntegrationHelper(private val context: Context, private val bootstra
             showAllowExternalAppsDialog(session)
         } catch (e: Exception) {
             e.printStackTrace()
-            runFallbackScript(session)
+            runFallbackInstall(session)
         }
     }
 
     private fun showInstallTermuxDialog(session: TerminalSession) {
         AlertDialog.Builder(context)
-            .setTitle("Termux no encontrado")
-            .setMessage("Para una instalación óptima, se recomienda usar Termux. ¿Deseas instalarlo desde F-Droid?")
-            .setPositiveButton("Instalar") { _, _ ->
-                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/com.termux/"))
+            .setTitle("Termux not found")
+            .setMessage(
+                "For optimal installation, Termux is recommended. " +
+                    "Would you like to install it from F-Droid?",
+            )
+            .setPositiveButton("Install Termux") { _, _ ->
+                val browserIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://f-droid.org/packages/com.termux/"),
+                )
                 context.startActivity(browserIntent)
             }
-            .setNegativeButton("Continuar sin Termux (Fallback)") { _, _ ->
-                runFallbackScript(session)
+            .setNegativeButton("Continue without Termux") { _, _ ->
+                runFallbackInstall(session)
             }
             .show()
     }
 
     private fun showAllowExternalAppsDialog(session: TerminalSession) {
         AlertDialog.Builder(context)
-            .setTitle("Permiso Denegado")
-            .setMessage("Para instalar OpenClaw, debes permitir que Termux reciba comandos externos.\n\n" +
-                        "1. Abre Termux.\n" +
-                        "2. Ejecuta: nano ~/.termux/termux.properties\n" +
-                        "3. Cambia 'allow-external-apps = false' a 'true'.\n" +
-                        "4. Reinicia Termux.")
-            .setPositiveButton("Entendido") { _, _ -> }
-            .setNegativeButton("Usar método alternativo") { _, _ ->
-                runFallbackScript(session)
+            .setTitle("Permission Denied")
+            .setMessage(
+                "To install OpenClaw, you must allow Termux to receive external commands.\n\n" +
+                    "1. Open Termux.\n" +
+                    "2. Run: nano ~/.termux/termux.properties\n" +
+                    "3. Change 'allow-external-apps = false' to 'true'.\n" +
+                    "4. Restart Termux.",
+            )
+            .setPositiveButton("Got it") { _, _ -> }
+            .setNegativeButton("Use alternative method") { _, _ ->
+                runFallbackInstall(session)
             }
             .show()
     }
 
-    private fun runFallbackScript(session: TerminalSession) {
-        val prefix = bootstrapManager.prefixDir.absolutePath
-        val script = """
-            echo "[*] Preparando entorno de instalación emulado..."
+    /**
+     * Fallback: ejecuta install.sh directamente en el sandbox de la app.
+     *
+     * Usa TerminalManager para inyectar las variables de entorno correctas
+     * ANTES de ejecutar el script. Esto resuelve el error:
+     *   "E: Could not open lock file /var/lib/dpkg/lock-frontend"
+     *
+     * El error ocurre porque apt/dpkg busca sus lock files en rutas absolutas
+     * hardcodeadas para Termux. Con PREFIX apuntando al sandbox de la app,
+     * los lock files se crean en la ruta correcta y accesible.
+     *
+     * El script install.sh se busca en:
+     *   filesDir/install/install.sh
+     */
+    private fun runFallbackInstall(session: TerminalSession) {
+        val filesDir = (context as? MainActivity)?.filesDir ?: context.filesDir
+        val terminalManager = TerminalManager(context, filesDir)
 
-            export PREFIX="$prefix"
-            export LD_LIBRARY_PATH="${'$'}PREFIX/lib"
-            export PATH="${'$'}PREFIX/bin:${'$'}PATH"
+        // Verificar si existe install.sh en el directorio de instalación
+        val installDir = filesDir.resolve("install")
+        val installScript = installDir.resolve("install.sh")
 
-            echo "[*] Creando jerarquía de carpetas dpkg/apt y archivos lock..."
-            mkdir -p "${'$'}PREFIX/var/lib/apt/var/lib/dpkg"
-
-            touch "${'$'}PREFIX/var/lib/dpkg/lock-frontend"
-            touch "${'$'}PREFIX/var/lib/dpkg/lock"
-            touch "${'$'}PREFIX/var/lib/apt/lists/lock"
-            touch "${'$'}PREFIX/var/cache/apt/archives/lock"
-
-            touch "${'$'}PREFIX/var/lib/apt/var/lib/dpkg/lock-frontend"
-            touch "${'$'}PREFIX/var/lib/apt/var/lib/dpkg/lock"
-
-            chmod 644 "${'$'}PREFIX/var/lib/dpkg/lock-frontend"
-            chmod 644 "${'$'}PREFIX/var/lib/dpkg/lock"
-            chmod 644 "${'$'}PREFIX/var/lib/apt/lists/lock"
-            chmod 644 "${'$'}PREFIX/var/cache/apt/archives/lock"
-
-            chmod 644 "${'$'}PREFIX/var/lib/apt/var/lib/dpkg/lock-frontend" 2>/dev/null
-            chmod 644 "${'$'}PREFIX/var/lib/apt/var/lib/dpkg/lock" 2>/dev/null
-
-            echo "[*] Entorno preparado. Iniciando descarga e instalación..."
-            curl -sL myopenclawhub.com/install | bash
-        """.trimIndent()
-
-        session.write(script + "\n")
+        if (installScript.exists()) {
+            // Usar TerminalManager para ejecutar con el entorno correcto
+            terminalManager.runInstallScript(session, "install")
+        } else {
+            // install.sh no está disponible localmente — descargar via curl
+            // con el entorno correcto ya configurado
+            terminalManager.runCommandInSession(
+                session,
+                "curl -sL myopenclawhub.com/install | bash",
+                injectEnv = true,
+            )
+        }
     }
 }
