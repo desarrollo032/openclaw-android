@@ -20,11 +20,15 @@ function formatBytes(bytes: number): string {
 export function SettingsStorage() {
   const { navigate } = useRoute()
   const [info, setInfo] = useState<StorageInfo | null>(null)
+  const [source, setSource] = useState<string>('bootstrap')
   const [clearing, setClearing] = useState(false)
 
   function loadInfo() {
     const data = bridge.callJson<StorageInfo>('getStorageInfo')
     if (data) setInfo(data)
+    
+    const bs = bridge.callJson<{source?: string}>('getBootstrapStatus')
+    if (bs?.source) setSource(bs.source)
   }
 
   useEffect(() => { loadInfo() }, [])
@@ -77,7 +81,7 @@ export function SettingsStorage() {
             <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, background: '#58a6ff' }} />
-                <span style={{ color: 'var(--text-secondary)' }}>Bootstrap</span>
+                <span style={{ color: 'var(--text-secondary)' }}>{source === 'payload' ? 'Payload' : 'Bootstrap'}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, background: '#3fb950' }} />
@@ -86,11 +90,11 @@ export function SettingsStorage() {
             </div>
           </div>
 
-          {/* Bootstrap */}
+          {/* Bootstrap / Payload */}
           <div className="card">
             <div className="card-row" style={{ cursor: 'default' }}>
               <div className="card-content">
-                <div className="card-label">{t('storage_bootstrap')}</div>
+                <div className="card-label">{source === 'payload' ? 'Payload (usr/)' : t('storage_bootstrap')}</div>
                 <div className="card-desc">{formatBytes(info.bootstrapBytes)}</div>
               </div>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>

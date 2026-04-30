@@ -153,7 +153,7 @@ class JsBridge(
     fun getSetupStatus(): String {
         val installer = InstallerManager(activity)
         val rootfsManager = RootfsManager(activity)
-        
+
         // 1. Check if the new universal InstallerManager says we're fully installed
         if (installer.isReady()) {
             return gson.toJson(mapOf(
@@ -164,7 +164,7 @@ class JsBridge(
                 "source" to if (installer.hasPayloadAsset()) "payload" else "bootstrap"
             ))
         }
-        
+
         // 2. Fallback to old rootfs/bootstrap logic just in case
         return if (rootfsManager.isInstalled()) {
             val status = rootfsManager.getStatus()
@@ -184,11 +184,11 @@ class JsBridge(
     fun getBootstrapStatus(): String {
         val installer = InstallerManager(activity)
         val rootfsManager = RootfsManager(activity)
-        
+
         val installed = installer.isInstalled() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
         val openclawInstalled = installer.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
         val (prefix, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
-        
+
         return gson.toJson(
             mapOf(
                 "installed" to installed,
@@ -543,7 +543,7 @@ class JsBridge(
         val ocRaw = runV("openclaw --version 2>/dev/null")
 
         // Resolve which prefix is active
-        val (activePrefix, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        // (already resolved above)
 
         return gson.toJson(mapOf(
             "node" to mapOf(
