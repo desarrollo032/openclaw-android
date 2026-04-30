@@ -248,6 +248,20 @@ class MainActivity : AppCompatActivity() {
                         session.write("Check logs and try reinstalling.\r\n")
                     }
                 }
+            }
+            else -> {
+                // Network bootstrap — run post-setup.sh which downloads everything
+                AppLogger.i(TAG, "Auto-install: bootstrap + post-setup.sh path")
+                val postSetup = bootstrapManager.postSetupScript
+                if (postSetup.exists()) {
+                    session.write("sh \"${postSetup.absolutePath}\"\n")
+                } else {
+                    // Bootstrap not yet extracted — trigger full bootstrap setup
+                    jsBridge.startSetup()
+                }
+            }
+        }
+    }
 
     // --- Storage permissions ---
 

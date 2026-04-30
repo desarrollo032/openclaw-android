@@ -126,26 +126,49 @@ log_ok "apt.conf written: $APT_CONF"
 # ── Install OpenClaw via pkg/apt ──────────────────────────────────────────────
 log "Installing OpenClaw dependencies..."
 
-# Update package lists
+# Update package lists and handle mirrors if failed
 if [ -x "$PREFIX/bin/pkg" ]; then
     log "Running: pkg update"
-    pkg update -y 2>&1 | tee -a "$LOG_FILE" || log_warn "pkg update had errors (continuing)"
+    if ! pkg update -y 2>&1 | tee -a "$LOG_FILE"; then
+        log_warn "pkg update failed, attempting to change mirror to Tsinghua..."
+        if [ -f "$PREFIX/etc/apt/sources.list" ]; then
+            sed -i 's@^\(deb.*\)https://packages.termux.dev/apt/termux-main@\1https://mirrors.tuna.tsinghua.edu.cn/termux/termux-main@' "$PREFIX/etc/apt/sources.list" || true
+            pkg update -y 2>&1 | tee -a "$LOG_FILE" || log_warn "pkg update still had errors (continuing)"
+        fi
+    fi
 elif [ -x "$APT_BIN" ]; then
     log "Running: apt-get update"
     DEBIAN_FRONTEND=noninteractive "$APT_BIN" update 2>&1 | tee -a "$LOG_FILE" || \
         log_warn "apt-get update had errors (continuing)"
 fi
 
-# Install Node.js if not already present
+# Install Node.js and Git if not already present
 NODE_BIN="$HOME/.openclaw-android/bin/node"
-if [ ! -x "$NODE_BIN" ]; then
-    log "Node.js not found at $NODE_BIN"
-    log "Installing nodejs via pkg..."
+if [ ! -x "$NODE_BIN" ] || ! command -v git >/dev/null 2>&1; then
+    log "Node.js or Git not found."
+    log "Installing nodejs and git via pkg..."
     if [ -x "$PREFIX/bin/pkg" ]; then
-        pkg install -y nodejs 2>&1 | tee -a "$LOG_FILE" || \
-            log_warn "nodejs install had errors — npm may be unavailable"
+        pkg install -y nodejs git 2>&1 | tee -a "$LOG_FILE" || \
+            log_warn "nodejs/git install had errors — dependencies may be unavailable"
     fi
 fi
+
+# Create openclaw-update CLI script
+UPDATE_SCRIPT="$PREFIX/bin/openclaw-update"
+cat > "$UPDATE_SCRIPT" << 'EOF'
+#!/bin/bash
+echo "=== OpenClaw Updater ==="
+echo "Actualizando OpenClaw a la última versión..."
+if command -v npm >/dev/null 2>&1; then
+    npm install -g openclaw
+    echo "¡Actualización completada!"
+else
+    echo "Error: npm no encontrado."
+    exit 1
+fi
+EOF
+chmod +x "$UPDATE_SCRIPT"
+log_ok "openclaw-update CLI command created"
 
 # ── Install OpenClaw via npm ──────────────────────────────────────────────────
 NPM_BIN="$HOME/.openclaw-android/bin/npm"
