@@ -81,11 +81,11 @@ object InstallValidator {
             warnings.add("etc/ directory missing (may affect DNS/SSL)")
         }
 
-        // ── Important: shell availability ───────────────────────────────────
+        // ── Critical: shell availability ────────────────────────────────────
         val bashExists = File(binDir, "bash").exists()
         val shExists = File(binDir, "sh").exists()
         if (!bashExists && !shExists) {
-            warnings.add("No shell (bash/sh) found in bin/ — will use /system/bin/sh")
+            errors.add("No shell (bash/sh) found in bin/ — payload is incomplete or corrupt")
         }
 
         // ── Important: SSL certs ────────────────────────────────────────────
@@ -113,6 +113,7 @@ object InstallValidator {
      */
     fun isStructurallyComplete(prefix: File): Boolean {
         return File(prefix, "bin").isDirectory &&
+               (File(prefix, "bin/bash").exists() || File(prefix, "bin/sh").exists()) &&
                File(prefix, "lib").isDirectory &&
                File(prefix, "glibc/lib/ld-linux-aarch64.so.1").exists()
     }

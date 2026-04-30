@@ -529,13 +529,12 @@ class JsBridge(
      */
     @JavascriptInterface
     fun getEnvironmentInfo(): String {
-        val env = CommandRunner.buildTermuxEnv()
-        val home = java.io.File(CommandRunner.TERMUX_HOME).let {
-            if (it.exists()) it else activity.filesDir.resolve("home")
-        }
+        val env = CommandRunner.buildTermuxEnv(activity)
+        val (activePrefix, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        val homeDir = java.io.File(activeHome)
 
         fun runV(cmd: String): String {
-            val r = CommandRunner.runSync(cmd, env, home, timeoutMs = 5_000)
+            val r = CommandRunner.runSync(cmd, env, homeDir, timeoutMs = 5_000)
             return r.stdout.trim().ifEmpty { r.stderr.trim() }
         }
 

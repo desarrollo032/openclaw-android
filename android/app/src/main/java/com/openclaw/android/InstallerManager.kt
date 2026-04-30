@@ -191,6 +191,7 @@ class InstallerManager(private val context: Context) {
         // ── Step 4: Apply permissions + create wrappers ─────────────────
         listener.onProgress(87, "Configurando permisos...")
         applyPermissions()
+        applyScriptUpdate() // Ensure run-openclaw.sh and post-setup.sh are copied from assets
 
         // ── Step 5: Validate ────────────────────────────────────────────
         listener.onProgress(92, "Validando instalación...")
