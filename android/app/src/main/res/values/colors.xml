@@ -35,4 +35,12 @@
 
     <!-- Launcher -->
     <color name="ic_launcher_background">#060208</color>
+
+    <!-- Install progress overlay -->
+    <color name="installOverlayBackground">#E60d1117</color>
+    <color name="installProgressTrack">#30363d</color>
+    <color name="installProgressIndicator">#58a6ff</color>
+    <color name="installProgressText">#e6edf3</color>
+    <color name="installProgressSubtext">#8b949e</color>
+    <color name="installErrorText">#f85149</color>
 </resources>

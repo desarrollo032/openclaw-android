@@ -94,28 +94,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Evaluates the current install state and takes the appropriate action:
+     * Evaluates the current install state and takes the appropriate action.
      *
-     *  • Nothing installed at all  → auto-start the best available installer
-     *    (payload > rootfs > bootstrap) so the user never has to tap a button.
-     *  • Bootstrap installed, post-setup pending → run post-setup.sh in terminal.
-     *  • Fully installed, OpenClaw missing      → run auto-install via TermuxIntegrationHelper.
-     *  • Fully installed and ready              → show terminal / auto-start gateway.
+     * Flow:
+     *   1. Nothing installed → show install overlay, run InstallerManager
+     *   2. Bootstrap installed, post-setup pending → run post-setup.sh in terminal
+     *   3. Env installed but OpenClaw missing → run auto-install via TermuxIntegrationHelper
+     *   4. Boot intent → auto-start gateway
+     *   5. Fully installed → show dashboard
      *
-     * Called from onStoragePermissionsGranted() so storage is always available
-     * before any file-system or shell operation runs.
+     * KEY CHANGE: Installation progress is shown in a dedicated UI overlay
+     * (ProgressBar + TextViews), NOT via session.write() to the terminal.
+     * This eliminates the freeze at 70% caused by writing to a dead shell.
+     *
+     * Called from onStoragePermissionsGranted() so storage is always available.
      */
     private fun checkAndStartInstallation() {
         val rootfsManager = RootfsManager(this)
-        val payloadManager = PayloadManager(this)
+        val installerManager = InstallerManager(this)
 
-        val isInstalled = payloadManager.isReady() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
-        val isOpenClawInstalled = payloadManager.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
+        val isInstalled = installerManager.isReady() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
+        val isOpenClawInstalled = installerManager.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
 
         AppLogger.i(
             TAG,
             "checkAndStartInstallation: installed=$isInstalled " +
-                "(payload=${payloadManager.isReady()}, rootfs=${rootfsManager.isInstalled()}, " +
+                "(installer=${installerManager.isReady()}, rootfs=${rootfsManager.isInstalled()}, " +
                 "bootstrap=${bootstrapManager.isInstalled()}), openclaw=$isOpenClawInstalled",
         )
 
@@ -123,13 +127,14 @@ class MainActivity : AppCompatActivity() {
         if (isInstalled) {
             val prefs = getSharedPreferences("openclaw", 0)
             val savedVersionCode = prefs.getInt("versionCode", 0)
+            @Suppress("DEPRECATION")
             val currentVersionCode = packageManager.getPackageInfo(packageName, 0).versionCode
             when {
-                payloadManager.isReady() -> {
-                    payloadManager.syncWwwFromAssets()
+                installerManager.isReady() -> {
+                    installerManager.syncWwwFromAssets()
                     if (currentVersionCode > savedVersionCode) {
                         AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode (payload)")
-                        payloadManager.applyScriptUpdate()
+                        installerManager.applyScriptUpdate()
                         prefs.edit().putInt("versionCode", currentVersionCode).apply()
                     }
                 }
@@ -155,14 +160,11 @@ class MainActivity : AppCompatActivity() {
 
         // ── Decide what to do based on install state ──────────────────────────
         when {
-            // ── Case 1: Nothing installed → auto-start the best installer ────
+            // ── Case 1: Nothing installed → show overlay, run InstallerManager ───
             !isInstalled -> {
                 AppLogger.i(TAG, "Nothing installed — starting automatic installation")
-                showTerminal()
-                val session = sessionManager.createSession()
-                binding.terminalView.post {
-                    autoStartInstallation(session, payloadManager, rootfsManager)
-                }
+                showInstallOverlay()
+                autoStartInstallation(installerManager)
             }
 
             // ── Case 2: Bootstrap installed, post-setup.sh still pending ─────
@@ -189,7 +191,7 @@ class MainActivity : AppCompatActivity() {
             // ── Case 4: Boot intent → auto-start gateway ──────────────────────
             intent?.getBooleanExtra("from_boot", false) == true -> {
                 val startScript = when {
-                    payloadManager.isReady() -> File(filesDir, "payload/run-openclaw.sh")
+                    installerManager.isReady() -> File(filesDir, "payload/run-openclaw.sh")
                     else -> File(filesDir, "home/openclaw-start.sh")
                 }
                 AppLogger.i(TAG, "Boot launch — auto-starting gateway: ${startScript.absolutePath}")
@@ -208,81 +210,86 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Install overlay UI — completely decoupled from terminal shell
+    // ═══════════════════════════════════════════════════════════════════════
+
     /**
-     * Selects and launches the best available installer automatically.
-     *
-     * Priority: payload (offline, bundled) > rootfs (pre-built tar) > bootstrap (network).
-     * The user sees the terminal with live output — no button tap required.
-     *
-     * IMPORTANT: This runs while the terminal is visible. We do NOT delegate to
-     * jsBridge.startPayloadInstall() / startRootfsInstall() here because those
-     * methods emit progress events to the WebView (which is hidden at this point)
-     * and show no output in the terminal. Instead we run the installation directly
-     * in a coroutine and write progress lines to the terminal session, then switch
-     * to the dashboard when done.
+     * Show the install progress overlay.
+     * Hides both the terminal and WebView so the user sees a clean progress UI.
      */
-    private fun autoStartInstallation(
-        session: com.termux.terminal.TerminalSession,
-        payloadManager: PayloadManager,
-        rootfsManager: RootfsManager,
-    ) {
-        when {
-            // ── Path 1: Payload (fully offline, bundled in APK) ───────────────
-            payloadManager.hasPayloadAsset() -> {
-                session.write("echo '[DEBUG] Payload modular detectado. Iniciando instalacion...'\n")
-                AppLogger.i(TAG, "Auto-install: modular payload detected")
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    payloadManager.install(object : PayloadManager.InstallListener {
-                        override fun onProgress(step: String, percent: Int) {
-                            session.write("echo '[$percent%] $step'\n")
-                            AppLogger.i(TAG, "[install] $percent% - $step")
-                        }
+    private fun showInstallOverlay() {
+        runOnUiThread {
+            binding.webView.visibility = View.GONE
+            binding.terminalContainer.visibility = View.GONE
+            binding.installOverlay.visibility = View.VISIBLE
+            binding.installProgressBar.progress = 0
+            binding.installProgressPercent.text = "0%"
+            binding.installProgressMessage.text = "Preparando..."
+            binding.installErrorText.visibility = View.GONE
+        }
+    }
 
-                        override fun onSuccess() {
-                            session.write("echo ''\n")
-                            session.write("echo 'Instalacion completa!'\n")
-                            payloadManager.syncWwwFromAssets()
-                            runOnUiThread { showWebView() }
-                        }
+    /** Hide the install overlay. */
+    private fun hideInstallOverlay() {
+        runOnUiThread {
+            binding.installOverlay.visibility = View.GONE
+        }
+    }
 
-                        override fun onError(message: String) {
-                            session.write("echo ''\n")
-                            session.write("echo 'Error en instalacion: $message'\n")
-                            AppLogger.e(TAG, "Installation error: $message")
-                        }
-                    })
+    /** Update progress in the install overlay (thread-safe). */
+    private fun updateInstallProgress(percent: Int, message: String) {
+        runOnUiThread {
+            binding.installProgressBar.progress = percent
+            binding.installProgressPercent.text = "$percent%"
+            binding.installProgressMessage.text = message
+        }
+    }
+
+    /** Show an error in the install overlay (thread-safe). */
+    private fun showInstallOverlayError(message: String) {
+        runOnUiThread {
+            binding.installErrorText.text = message
+            binding.installErrorText.visibility = View.VISIBLE
+            binding.installProgressMessage.text = "Instalación fallida"
+        }
+    }
+
+    /**
+     * Runs the installation via InstallerManager with UI overlay progress.
+     *
+     * Key design: NO session.write() calls. All progress is shown in the
+     * install overlay UI. The terminal is only used AFTER installation
+     * completes to run post-install scripts (if needed).
+     *
+     * InstallerManager decides offline vs online automatically.
+     */
+    private fun autoStartInstallation(installerManager: InstallerManager) {
+        CoroutineScope(Dispatchers.IO).launch {
+            installerManager.install(object : InstallerManager.ProgressListener {
+                override fun onProgress(percent: Int, message: String) {
+                    updateInstallProgress(percent, message)
+                    AppLogger.i(TAG, "[install] $percent% - $message")
                 }
-            }
-            else -> {
-                // Network/bootstrap path — download Termux bootstrap, then run install.sh
-                session.write("echo '[DEBUG] Payload NO detectado. Iniciando instalacion ONLINE...'\n")
-                AppLogger.i(TAG, "Auto-install: online bootstrap download path")
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        session.write("echo 'OpenClaw: descargando bootstrap de Termux...'\n")
-                        bootstrapManager.startSetup { progress, message ->
-                            val pct = (progress * 100).toInt()
-                            val safe = message.replace("'", "\\'")
-                            session.write("echo '[$pct%] $safe'\n")
-                            AppLogger.i(TAG, "[bootstrap] $message")
-                        }
-                        session.write("echo ''\n")
-                        session.write("echo 'Bootstrap instalado. Iniciando instalacion de OpenClaw...'\n")
-                        session.write("echo ''\n")
-                        delay(800)
-                        val terminalManager = TerminalManager(this@MainActivity, filesDir)
-                        runOnUiThread {
-                            terminalManager.runInstallScript(session)
-                        }
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "Bootstrap install failed: ${e.message}", e)
-                        val safeMsg = (e.message ?: "error desconocido").replace("'", "\\'")
-                        session.write("echo ''\n")
-                        session.write("echo 'Error instalando bootstrap: $safeMsg'\n")
-                        session.write("echo 'Verifica tu conexion a internet e intenta de nuevo.'\n")
+
+                override fun onSuccess() {
+                    AppLogger.i(TAG, "Installation completed successfully")
+                    installerManager.syncWwwFromAssets()
+                    runOnUiThread {
+                        hideInstallOverlay()
+                        showWebView()
                     }
                 }
-            }
+
+                override fun onError(message: String, cause: Throwable?) {
+                    AppLogger.e(
+                        TAG,
+                        "Installation error: $message",
+                        cause ?: Exception(message),
+                    )
+                    showInstallOverlayError(message)
+                }
+            })
         }
     }
 
@@ -488,6 +495,7 @@ class MainActivity : AppCompatActivity() {
 
     fun showTerminal() {
         runOnUiThread {
+            binding.installOverlay.visibility = View.GONE
             binding.webView.visibility = View.GONE
             binding.terminalContainer.visibility = View.VISIBLE
             binding.terminalView.requestFocus()
@@ -495,6 +503,7 @@ class MainActivity : AppCompatActivity() {
             // Delay keyboard show — view must be focused and laid out first
             binding.terminalView.postDelayed({
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                @Suppress("DEPRECATION")
                 imm.showSoftInput(binding.terminalView, InputMethodManager.SHOW_IMPLICIT)
             }, KEYBOARD_SHOW_DELAY_MS)
         }
@@ -502,6 +511,7 @@ class MainActivity : AppCompatActivity() {
 
     fun showWebView() {
         runOnUiThread {
+            binding.installOverlay.visibility = View.GONE
             binding.terminalContainer.visibility = View.GONE
             binding.webView.visibility = View.VISIBLE
         }

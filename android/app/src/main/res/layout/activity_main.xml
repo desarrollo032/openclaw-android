@@ -113,4 +113,85 @@
 
     </LinearLayout>
 
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- Install progress overlay — shown during payload/bootstrap install -->
+    <!-- Completely independent of terminal shell lifecycle.              -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/installOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@color/installOverlayBackground"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <!-- App branding -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OpenClaw"
+            android:textColor="@color/installProgressText"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Instalando entorno..."
+            android:textColor="@color/installProgressSubtext"
+            android:textSize="14sp"
+            android:layout_marginBottom="48dp" />
+
+        <!-- Progress bar -->
+        <ProgressBar
+            android:id="@+id/installProgressBar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:max="100"
+            android:progress="0"
+            android:progressDrawable="@drawable/install_progress_drawable"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Percentage -->
+        <TextView
+            android:id="@+id/installProgressPercent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0%"
+            android:textColor="@color/installProgressText"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Current step description -->
+        <TextView
+            android:id="@+id/installProgressMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Preparando..."
+            android:textColor="@color/installProgressSubtext"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:maxLines="3"
+            android:ellipsize="end" />
+
+        <!-- Error display (hidden by default) -->
+        <TextView
+            android:id="@+id/installErrorText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/installErrorText"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:layout_marginTop="24dp"
+            android:maxLines="5"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
 </FrameLayout>
