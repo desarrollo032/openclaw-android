@@ -126,6 +126,53 @@ setup_dirs() {
     log_ok "Directories created: $PAYLOAD_DIR"
 }
 
+# ── glibc archive verification ───────────────────────────────────────────────
+# Three-layer check: (1) non-empty file, (2) xz integrity, (3) linker present.
+# Captures tar output into a variable to avoid SIGPIPE false positives with
+# pipefail. Safe on Linux, Termux, and CI/CD environments.
+_verify_glibc_archive() {
+    local archive="$1"
+
+    # Layer 1: file exists and is non-empty
+    if [ ! -s "$archive" ]; then
+        log_err "glibc archive is empty or missing: $archive"
+        return 1
+    fi
+
+    # Layer 2: xz structural integrity (fast — does not decompress)
+    if command -v xz >/dev/null 2>&1; then
+        if ! xz -t "$archive" 2>/dev/null; then
+            log_err "glibc archive failed xz integrity check (file is corrupt)"
+            return 1
+        fi
+    fi
+
+    # Layer 3: linker present inside the archive
+    # Capture output first — avoids SIGPIPE when grep -q exits early,
+    # which with set -o pipefail would produce a false pipeline failure.
+    local _content
+    _content=$(tar -tJf "$archive" 2>/dev/null || true)
+
+    if [ -z "$_content" ]; then
+        log_err "glibc archive could not be listed (tar returned no output)"
+        return 1
+    fi
+
+    if ! echo "$_content" | grep -q "ld-linux"; then
+        log_err "glibc archive verification failed — ld-linux linker not found"
+        log_err "Archive contents (first 10 entries):"
+        echo "$_content" | head -10 | while IFS= read -r _line; do
+            log_err "  $_line"
+        done
+        return 1
+    fi
+
+    local _lib_count
+    _lib_count=$(echo "$_content" | grep -c '\.so' || true)
+    log_ok "glibc archive verified: ${_lib_count} shared libs, linker present"
+    return 0
+}
+
 # ── Step 1: Bundle glibc ──────────────────────────────────────────────────────
 bundle_glibc() {
     log_step "[1/6] Bundling glibc runtime..."
@@ -225,6 +272,15 @@ EOF
     fi
     chmod +x "$GLIBC_STAGE/lib/ld-linux-aarch64.so.1"
 
+    # ── FIX: 16KB alignment & Bash link error ──
+    # Prune Koffi binaries that cause 16KB alignment issues
+    find "$GLIBC_STAGE/lib" -name "*koffi*" -delete 2>/dev/null || true
+
+    # Bundle essential Bionic support libs that Termux binaries (like bash) need
+    log "  Bundling Bionic support libs for bash..."
+    [ -f "$TERMUX_PREFIX/lib/libandroid-support.so" ] && cp "$TERMUX_PREFIX/lib/libandroid-support.so" "$GLIBC_STAGE/lib/"
+    [ -f "$TERMUX_PREFIX/lib/libiconv.so" ] && cp "$TERMUX_PREFIX/lib/libiconv.so" "$GLIBC_STAGE/lib/"
+
     # Pack into tar.xz with placeholder-friendly structure
     # Structure inside archive: glibc/lib/*, glibc/etc/*
     local GLIBC_WRAP="$WORK_DIR/glibc-wrap"
@@ -233,14 +289,17 @@ EOF
     cp -a "$GLIBC_STAGE/etc" "$GLIBC_WRAP/glibc/"
 
     log "  Compressing glibc (~$(du -sh "$GLIBC_WRAP" | cut -f1))..."
+    # Note: --owner/--group removed — require root; Termux runs as unprivileged user
     tar -cJf "$PAYLOAD_DIR/glibc-aarch64.tar.xz" \
         -C "$GLIBC_WRAP" \
-        --owner=0 --group=0 \
         glibc/
 
     # Verify archive
-    if ! tar -tJf "$PAYLOAD_DIR/glibc-aarch64.tar.xz" | grep -q "glibc/lib/ld-linux"; then
-        log_err "glibc archive verification failed"
+    # IMPORTANT: do NOT pipe tar directly into grep when set -o pipefail is active.
+    # grep -q exits on first match, causing tar to receive SIGPIPE (exit 141),
+    # which pipefail interprets as a pipeline failure — a false positive.
+    # Fix: capture the full listing first, then grep the variable.
+    if ! _verify_glibc_archive "$PAYLOAD_DIR/glibc-aarch64.tar.xz"; then
         exit 1
     fi
 
@@ -474,16 +533,29 @@ COMPAT_EOF
 generate_scripts() {
     log_step "[6/6] Generating runtime scripts..."
 
-    # The canonical scripts live in android/app/src/main/assets/
-    # build-payload.sh is in android/scripts/ — so assets are one level up
+    # SCRIPT_DIR: directory where build-payload.sh physically lives.
+    # When run as ~/build-payload.sh this will be ~/
+    # When run from inside the repo it will be android/scripts/
     local SCRIPT_DIR
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    local ASSETS_DIR="${SCRIPT_DIR}/../app/src/main/assets"
+
+    # Candidate locations for the assets directory, in priority order:
+    #  1. OA_ASSETS_DIR env var — explicit override for any layout
+    #  2. Repo layout:  <SCRIPT_DIR>/../app/src/main/assets  (run from android/scripts/)
+    #  3. Same dir as the script (scp workflow: all files copied to ~/)
+    #  4. Standard openclaw-android home dir (post-setup may have placed them there)
+    local ASSETS_CANDIDATES=(
+        "${OA_ASSETS_DIR:-}"
+        "${SCRIPT_DIR}/../app/src/main/assets"
+        "${SCRIPT_DIR}"
+        "${TERMUX_HOME}/.openclaw-android/assets"
+    )
 
     for script in post-setup.sh run-openclaw.sh; do
-        # Try assets dir first, then same dir as build-payload.sh
         local src=""
-        for candidate in "${ASSETS_DIR}/${script}" "${SCRIPT_DIR}/${script}"; do
+        for assets_dir in "${ASSETS_CANDIDATES[@]}"; do
+            [ -z "$assets_dir" ] && continue
+            local candidate="${assets_dir}/${script}"
             if [ -f "$candidate" ]; then
                 src="$candidate"
                 break
@@ -495,26 +567,101 @@ generate_scripts() {
             chmod +x "$PAYLOAD_DIR/$script"
             log_ok "Copied $script from $src"
         else
-            log_warn "$script not found — skipping (must be added manually to payload/)"
+            log_warn "$script not found — skipping"
+            log_warn "  Copy it next to build-payload.sh, or set OA_ASSETS_DIR:"
+            log_warn "  scp -P 8022 android/app/src/main/assets/$script user@phone:~/"
         fi
     done
 }
 
+# ── Metadata Generation ───────────────────────────────────────────────────────
+# Creates a VERSION.json file inside the payload for app-side detection.
+generate_metadata() {
+    log_step "Generating version metadata..."
+    cat > "$PAYLOAD_DIR/VERSION.json" << EOF
+{
+  "node": "$NODE_VERSION",
+  "glibc": "$GLIBC_VERSION",
+  "gcc_libs": "$GCC_LIBS_VERSION",
+  "build_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "target": "aarch64-android",
+  "version": "1.0.0"
+}
+EOF
+    log_ok "Metadata generated: VERSION.json"
+}
+
+# ── Optimization ──────────────────────────────────────────────────────────────
+# Reduces payload size by removing development dependencies and logs.
+cleanup_payload() {
+    log_step "Optimizing payload size..."
+    
+    # Prune node_modules in OpenClaw if it exists
+    local oc_dir="$PAYLOAD_DIR/lib/openclaw"
+    if [ -d "$oc_dir" ] && [ -f "$oc_dir/package.json" ]; then
+        log "  Pruning OpenClaw node_modules..."
+        (cd "$oc_dir" && npm prune --production &>/dev/null) || true
+    fi
+    
+    # Remove large/unnecessary files
+    find "$PAYLOAD_DIR" -name "*.log" -delete
+    find "$PAYLOAD_DIR" -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
+    
+    log_ok "Payload optimized"
+}
+
+# ── 16KB Alignment & Compatibility Fix ────────────────────────────────────────
+# Removes native libraries for other OSs/Archs that trigger Android 15 errors.
+prune_native_libs() {
+    log_step "Fixing 16KB alignment (removing incompatible libs)..."
+    
+    local node_modules="$PAYLOAD_DIR/lib/openclaw/node_modules"
+    if [ -d "$node_modules/koffi/build/koffi" ]; then
+        # Keep ONLY linux_arm64, remove everything else (x64, riscv, freebsd, etc.)
+        log "  Cleaning koffi binaries..."
+        find "$node_modules/koffi/build/koffi" -mindepth 1 -maxdepth 1 ! -name "linux_arm64" -exec rm -rf {} +
+    fi
+    
+    log_ok "Incompatible native libraries pruned"
+}
+
+
 # ── Checksum generation ───────────────────────────────────────────────────────
+# Optimized: generates checksums for all files using a single process stream
+# instead of a slow bash 'while read' loop.
 generate_checksums() {
     log_step "Generating checksums..."
 
     local CHECKSUM_FILE="$PAYLOAD_DIR/PAYLOAD_CHECKSUM.sha256"
-    > "$CHECKSUM_FILE"
-
-    find "$PAYLOAD_DIR" -type f ! -name "PAYLOAD_CHECKSUM.sha256" | sort | while read -r f; do
-        local rel="${f#$PAYLOAD_DIR/}"
-        sha256sum "$f" | awk -v rel="$rel" '{print $1 "  " rel}'
-    done >> "$CHECKSUM_FILE"
-
+    cd "$PAYLOAD_DIR"
+    
+    # Use find + sha256sum directly to avoid bash loop overhead
+    # We filter out the checksum file itself and any existing .tar.gz
+    find . -type f ! -name "PAYLOAD_CHECKSUM.sha256" ! -name "*.tar.gz" -print0 | \
+        xargs -0 sha256sum | sort -k2 > "PAYLOAD_CHECKSUM.sha256"
+    
     local file_count
-    file_count=$(wc -l < "$CHECKSUM_FILE")
+    file_count=$(wc -l < "PAYLOAD_CHECKSUM.sha256")
     log_ok "Checksums generated: $file_count files"
+    cd - >/dev/null
+}
+
+# ── Automatic Compression ─────────────────────────────────────────────────────
+# Packs the entire payload into a single archive for high-speed transfer.
+# Uses gzip -1 (fastest) to minimize CPU bottleneck on the phone.
+pack_payload() {
+    log_step "Packing payload for transfer..."
+    
+    local ARCHIVE="payload.tar.gz"
+    local DEST="$TERMUX_HOME/$ARCHIVE"
+    
+    # Pack payload/ directory into a single file
+    # We use 'tar cf -' piped to 'gzip -1' for maximum throughput on mobile CPU
+    tar cf - "payload" | gzip -1 > "$DEST"
+    
+    log_ok "Payload packed: $DEST ($(du -sh "$DEST" | cut -f1))"
+    log "  You can now transfer this single file using:"
+    log "  ${BLUE}scp -P 8022 $USER@$(ip addr show wlan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -1):~/payload.tar.gz .${NC}"
 }
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -536,8 +683,9 @@ print_summary() {
     done
     echo ""
     echo "  Next steps:"
-    echo "    1. Copy payload/ into android/app/src/main/assets/payload/"
-    echo "    2. Build the APK: ./gradlew assembleRelease"
+    echo "    1. Copy payload.tar.gz to your PC"
+    echo "    2. Extract it into android/app/src/main/assets/"
+    echo "    3. Build the APK: ./gradlew assembleRelease"
     echo ""
     echo "  Log: $LOG_FILE"
 }
@@ -561,7 +709,11 @@ main() {
     bundle_openclaw
     bundle_patches
     generate_scripts
+    generate_metadata
+    cleanup_payload
+    prune_native_libs
     generate_checksums
+    pack_payload
     print_summary
 }
 

@@ -44,16 +44,19 @@ class PayloadManager(
     companion object {
         private const val TAG = "PayloadManager"
         private const val PAYLOAD_ASSET_DIR = "payload"
+        private const val PAYLOAD_TAR_GZ = "payload.tar.gz"
         private const val BUFFER_SIZE = 256 * 1024
+        private const val DEFAULT_VERSION = "1.0.0"
 
         // Markers
         private const val MARKER_EXTRACTED = ".payload-extracted"
         private const val MARKER_SETUP_DONE = ".post-setup-done"
+        private const val MARKER_INSTALLED_VER = ".installed"
 
         // Progress milestones
         private const val PROGRESS_START = 0.0f
-        private const val PROGRESS_LISTING = 0.02f
-        private const val PROGRESS_EXTRACTING = 0.05f
+        private const val PROGRESS_COPY_ARCHIVE = 0.05f
+        private const val PROGRESS_EXTRACTING = 0.10f
         private const val PROGRESS_EXTRACTED = 0.50f
         private const val PROGRESS_SETUP_START = 0.55f
         private const val PROGRESS_SETUP_DONE = 0.95f
@@ -69,7 +72,8 @@ class PayloadManager(
     private val ocaDir: File get() = File(homeDir, ".openclaw-android")
     private val markerExtracted: File get() = File(context.filesDir, MARKER_EXTRACTED)
     private val markerSetupDone: File get() = File(ocaDir, MARKER_SETUP_DONE)
-    private val markerInstalled: File get() = File(ocaDir, "installed.json")
+    private val markerInstalled: File get() = File(context.filesDir, MARKER_INSTALLED_VER)
+    private val markerLegacyInstalled: File get() = File(ocaDir, "installed.json")
 
     // ── State queries ─────────────────────────────────────────────────────────
 
@@ -106,7 +110,7 @@ class PayloadManager(
             setupDone = isSetupDone(),
             glibcReady = prefixDir.resolve("glibc/lib/ld-linux-aarch64.so.1").exists(),
             nodeReady = ocaDir.resolve("node/bin/node.real").exists(),
-            openclawReady = isOpenClawInstalled(),
+            openclawReady = markerLegacyInstalled.exists() || markerInstalled.exists(),
             certsReady = prefixDir.resolve("etc/tls/cert.pem").let { it.exists() && it.length() > 0 },
             prefixPath = prefixDir.absolutePath,
             homePath = homeDir.absolutePath,
@@ -114,13 +118,25 @@ class PayloadManager(
 
     // ── Payload asset check ───────────────────────────────────────────────────
 
-    /** Returns true if assets/payload/ exists and contains the glibc archive */
+    /** Returns true if assets/payload/ OR assets/payload.tar.gz exists */
     fun hasPayloadAsset(): Boolean =
         try {
+            val assets = context.assets.list("") ?: emptyArray()
+            assets.contains(PAYLOAD_TAR_GZ) || 
             context.assets.list(PAYLOAD_ASSET_DIR)?.contains("glibc-aarch64.tar.xz") == true
         } catch (_: Exception) {
             false
         }
+
+    /** Returns true if the current payload version is already installed */
+    fun isPayloadUpToDate(version: String = DEFAULT_VERSION): Boolean {
+        if (!markerInstalled.exists()) return false
+        return try {
+            markerInstalled.readText().trim() == version
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     // ── Full installation ─────────────────────────────────────────────────────
 
@@ -134,29 +150,28 @@ class PayloadManager(
         withContext(Dispatchers.IO) {
             onProgress(PROGRESS_START, "Checking payload...")
 
-            if (!hasPayloadAsset()) {
-                throw IllegalStateException(
-                    "Payload asset not found in APK. " +
-                        "Run build-payload.sh and rebuild the APK.",
-                )
-            }
+            // Priority: payload.tar.gz (PRO mode)
+            val hasTarGz = try { context.assets.list("")?.contains(PAYLOAD_TAR_GZ) == true } catch (_: Exception) { false }
 
-            // Step 1: Extract payload
-            if (!isPayloadExtracted()) {
-                onProgress(PROGRESS_LISTING, "Listing payload assets...")
-                val assets = listPayloadAssets()
-                AppLogger.i(TAG, "Payload assets: ${assets.size} files")
-
-                onProgress(PROGRESS_EXTRACTING, "Extracting payload (${assets.size} files)...")
-                extractPayloadAssets(assets, onProgress)
-                markerExtracted.writeText("extracted")
-                AppLogger.i(TAG, "Payload extracted to ${payloadDir.absolutePath}")
+            if (hasTarGz) {
+                if (!isPayloadUpToDate()) {
+                    installCompressed(onProgress)
+                } else {
+                    AppLogger.i(TAG, "Compressed payload up to date — skipping")
+                }
             } else {
-                AppLogger.i(TAG, "Payload already extracted — skipping")
-            }
+                // Fallback: Legacy directory extraction
+                if (!hasPayloadAsset()) {
+                    throw IllegalStateException("Payload asset not found in APK.")
+                }
 
-            onProgress(PROGRESS_EXTRACTED, "Verifying payload integrity...")
-            verifyChecksums()
+                if (!isPayloadExtracted()) {
+                    onProgress(PROGRESS_COPY_ARCHIVE, "Extracting payload directory...")
+                    val assets = listPayloadAssets()
+                    extractPayloadAssets(assets, onProgress)
+                    markerExtracted.writeText("extracted")
+                }
+            }
 
             // Step 2: Run post-setup.sh
             if (!isSetupDone()) {
@@ -168,6 +183,55 @@ class PayloadManager(
 
             onProgress(PROGRESS_DONE, "Installation complete")
         }
+
+    /** PRO Flow: Copies payload.tar.gz to filesDir and extracts it using system tar */
+    private suspend fun installCompressed(onProgress: (Float, String) -> Unit) {
+        onProgress(PROGRESS_COPY_ARCHIVE, "Copying compressed payload...")
+        val archiveFile = File(context.filesDir, PAYLOAD_TAR_GZ)
+        
+        context.assets.open(PAYLOAD_TAR_GZ).use { input ->
+            archiveFile.outputStream().use { output -> input.copyTo(output) }
+        }
+
+        onProgress(PROGRESS_EXTRACTING, "Extracting payload.tar.gz...")
+        
+        // Use runStreaming instead of runSync to avoid the 5s timeout
+        // tar xzf on 130MB+ can take 30-60 seconds on Android
+        val result = CommandRunner.runStreaming(
+            command = "tar xzf ${archiveFile.absolutePath}",
+            workDir = context.filesDir,
+            onOutput = { line ->
+                // Basic activity indicator in logs
+                if (line.isNotEmpty()) AppLogger.d(TAG, "[tar] $line")
+            }
+        )
+
+        if (result.exitCode != 0) {
+            AppLogger.e(TAG, "Extraction failed (exit ${result.exitCode}): ${result.stderr}")
+            throw RuntimeException("Failed to extract payload.tar.gz. Check logs for details.")
+        }
+
+        // Write version marker from VERSION.json if it exists, otherwise use default
+        val version = try {
+            val versionFile = File(context.filesDir, "payload/VERSION.json")
+            if (versionFile.exists()) {
+                // Simplistic JSON parse for 'version' field
+                versionFile.readText().let { text ->
+                    val match = "\"version\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(text)
+                    match?.groupValues?.get(1) ?: DEFAULT_VERSION
+                }
+            } else DEFAULT_VERSION
+        } catch (_: Exception) {
+            DEFAULT_VERSION
+        }
+
+        markerInstalled.writeText(version)
+        markerExtracted.writeText("extracted")
+        
+        // Clean up to save space
+        archiveFile.delete()
+        AppLogger.i(TAG, "Compressed payload (v$version) installed and cleaned up")
+    }
 
     // ── Asset extraction ──────────────────────────────────────────────────────
 

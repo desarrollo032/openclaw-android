@@ -148,19 +148,24 @@ PKG_DIR="$TMPDIR/pkgs"
 EXTRACT_DIR="$TMPDIR/pkg-extract"
 
 # ─── Helper: install_deb ──────────────────────
-# Downloads a .deb from Termux repo and extracts into $PREFIX
+# Prioritizes local payload debs for 100% offline install.
 install_deb() {
     local filename="$1"
     local name
     name=$(basename "$filename" | sed 's/_[0-9].*//')
-    local url="${TERMUX_DEB_REPO}/${filename}"
     local deb_file="${DEB_DIR}/$(basename "$filename")"
-
-    if [ -f "$deb_file" ]; then
+    
+    # 1. Try local payload first (Offline-First)
+    local payload_deb="$PAYLOAD_DIR/debs/$(basename "$filename")"
+    if [ -f "$payload_deb" ]; then
+        deb_file="$payload_deb"
+        echo "    (payload) $name"
+    elif [ -f "$deb_file" ]; then
         echo "    (cached) $name"
     else
         echo "    downloading $name..."
-        curl -fsSL --max-time 120 -o "$deb_file" "$url"
+        local url="${TERMUX_DEB_REPO}/${filename}"
+        curl -fsSL --max-time 120 -o "$deb_file" "$url" || return 1
     fi
 
     rm -rf "$EXTRACT_DIR"
@@ -187,29 +192,36 @@ install_pacman_pkg() {
     if [ -f "$pkg_file" ]; then
         echo "    (cached) $name"
     else
-        echo "    downloading $name..."
-        local downloaded=false
-        for mirror in "${PACMAN_PKG_MIRRORS[@]}"; do
-            local url="${mirror}/${filename}"
-            if curl -fsSL --connect-timeout 10 --max-time 300 -o "$pkg_file" "$url" 2>/dev/null; then
-                # Verify the file is a valid xz archive (not an error page)
-                if file "$pkg_file" 2>/dev/null | grep -q "XZ\|xz\|tar"; then
-                    downloaded=true
-                    break
-                elif tar -tJf "$pkg_file" >/dev/null 2>&1; then
-                    downloaded=true
-                    break
+        # 1. Try local payload first
+        local payload_pkg="$PAYLOAD_DIR/pkgs/$(basename "$filename")"
+        if [ -f "$payload_pkg" ]; then
+            pkg_file="$payload_pkg"
+            echo "    (payload) $name"
+        else
+            echo "    downloading $name..."
+            local downloaded=false
+            for mirror in "${PACMAN_PKG_MIRRORS[@]}"; do
+                local url="${mirror}/${filename}"
+                if curl -fsSL --connect-timeout 10 --max-time 300 -o "$pkg_file" "$url" 2>/dev/null; then
+                    # Verify the file is a valid xz archive (not an error page)
+                    if file "$pkg_file" 2>/dev/null | grep -q "XZ\|xz\|tar"; then
+                        downloaded=true
+                        break
+                    elif tar -tJf "$pkg_file" >/dev/null 2>&1; then
+                        downloaded=true
+                        break
+                    else
+                        rm -f "$pkg_file"
+                    fi
                 else
                     rm -f "$pkg_file"
                 fi
-            else
-                rm -f "$pkg_file"
+                echo "    [mirror failed] $mirror"
+            done
+            if [ "$downloaded" = "false" ]; then
+                echo -e "  ${RED}✗${NC} Failed to download $name from all mirrors"
+                return 1
             fi
-            echo "    [mirror failed] $mirror"
-        done
-        if [ "$downloaded" = "false" ]; then
-            echo -e "  ${RED}✗${NC} Failed to download $name from all mirrors"
-            return 1
         fi
     fi
 
