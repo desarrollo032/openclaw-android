@@ -49,15 +49,26 @@ class TerminalSessionManager(
             .also { it.mkdirs() }
         env["TMPDIR"]?.let { java.io.File(it).mkdirs() }
 
-        // Strip LD_PRELOAD if the library doesn't exist in our prefix.
-        // Prevents "library not found" crash on first run before bootstrap is installed.
+        val prefix = env["PREFIX"] ?: activity.filesDir.resolve("usr").absolutePath
+        val payloadManager = PayloadManager(activity)
+
+        // Safety check: if the environment is not "ready", strip aggressive linker vars
+        // to prevent native crashes when falling back to /system/bin/sh
+        if (!payloadManager.isReady()) {
+            AppLogger.w(TAG, "Incomplete environment detected. Entering Safe Mode (stripping linker vars).")
+            env.remove("LD_PRELOAD")
+            // Only keep glibc in library path if it's actually there
+            val glibcLib = java.io.File(prefix, "glibc/lib")
+            if (!glibcLib.exists()) {
+                env.remove("LD_LIBRARY_PATH")
+            }
+        }
+
+        // Final check for LD_PRELOAD existence
         val ldPreload = env["LD_PRELOAD"]
         if (ldPreload != null && !java.io.File(ldPreload).exists()) {
             env.remove("LD_PRELOAD")
-            AppLogger.w(TAG, "LD_PRELOAD removed: $ldPreload not found")
         }
-
-        val prefix = env["PREFIX"] ?: activity.filesDir.resolve("usr").absolutePath
 
         // Resolve shell from OUR prefix only — never from Termux or system paths
         // (except /system/bin/sh as absolute last resort).

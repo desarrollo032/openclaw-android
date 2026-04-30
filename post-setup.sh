@@ -244,12 +244,16 @@ install_pacman_pkg() {
 echo -e "▸ ${YELLOW}[1/7]${NC} Installing essential packages..."
 mkdir -p "$DEB_DIR" "$PKG_DIR"
 
-# Download Packages index to resolve .deb filenames
-echo "  Fetching package index..."
-PACKAGES_FILE="$TMPDIR/Packages"
-curl -fsSL --max-time 60 \
-    "${TERMUX_DEB_REPO}/dists/stable/main/binary-aarch64/Packages" \
-    -o "$PACKAGES_FILE"
+# Download Packages index to resolve .deb filenames (SKIP IF OFFLINE)
+if [ ! -f "$OCA_DIR/.glibc-arch" ]; then
+    echo "  Fetching package index..."
+    PACKAGES_FILE="$TMPDIR/Packages"
+    curl -fsSL --max-time 60 \
+        "${TERMUX_DEB_REPO}/dists/stable/main/binary-aarch64/Packages" \
+        -o "$PACKAGES_FILE"
+else
+    echo "  Offline mode: skipping package index fetch."
+fi
 
 # Resolve package filename from Packages index
 get_deb_filename() {

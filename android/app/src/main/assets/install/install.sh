@@ -128,12 +128,17 @@ log "Installing OpenClaw dependencies..."
 
 # Update package lists and handle mirrors if failed
 if [ -x "$PREFIX/bin/pkg" ]; then
-    log "Running: pkg update"
-    if ! pkg update -y 2>&1 | tee -a "$LOG_FILE"; then
-        log_warn "pkg update failed, attempting to change mirror to Tsinghua..."
-        if [ -f "$PREFIX/etc/apt/sources.list" ]; then
-            sed -i 's@^\(deb.*\)https://packages.termux.dev/apt/termux-main@\1https://mirrors.tuna.tsinghua.edu.cn/termux/termux-main@' "$PREFIX/etc/apt/sources.list" || true
-            pkg update -y 2>&1 | tee -a "$LOG_FILE" || log_warn "pkg update still had errors (continuing)"
+    # Skip online package updates if we are in a glibc-based offline environment
+    if [ -f "$HOME/.openclaw-android/.glibc-arch" ] || [ -f "$PREFIX/glibc/lib/ld-linux-aarch64.so.1" ]; then
+        log "Offline glibc environment detected — skipping pkg update"
+    else
+        log "Running: pkg update"
+        if ! pkg update -y 2>&1 | tee -a "$LOG_FILE"; then
+            log_warn "pkg update failed, attempting to change mirror to Tsinghua..."
+            if [ -f "$PREFIX/etc/apt/sources.list" ]; then
+                sed -i 's@^\(deb.*\)https://packages.termux.dev/apt/termux-main@\1https://mirrors.tuna.tsinghua.edu.cn/termux/termux-main@' "$PREFIX/etc/apt/sources.list" || true
+                pkg update -y 2>&1 | tee -a "$LOG_FILE" || log_warn "pkg update still had errors (continuing)"
+            fi
         fi
     fi
 elif [ -x "$APT_BIN" ]; then

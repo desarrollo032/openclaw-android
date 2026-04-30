@@ -229,32 +229,33 @@ class MainActivity : AppCompatActivity() {
         when {
             // ── Path 1: Payload (fully offline, bundled in APK) ───────────────
             payloadManager.hasPayloadAsset() -> {
-                AppLogger.i(TAG, "Auto-install: payload path (offline)")
+                session.write("echo '[DEBUG] Payload modular detectado. Iniciando instalacion...'\n")
+                AppLogger.i(TAG, "Auto-install: modular payload detected")
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    try {
-                        payloadManager.install { progress, message ->
-                            val pct = (progress * 100).toInt()
-                            val safe = message.replace("'", "\\'")
-                            session.write("echo '[$pct%] $safe'\n")
-                            AppLogger.i(TAG, "[payload-install] $message")
+                    payloadManager.install(object : PayloadManager.InstallListener {
+                        override fun onProgress(step: String, percent: Int) {
+                            session.write("echo '[$percent%] $step'\n")
+                            AppLogger.i(TAG, "[install] $percent% - $step")
                         }
-                        payloadManager.syncWwwFromAssets()
-                        session.write("echo ''\n")
-                        session.write("echo 'Instalacion completa!'\n")
-                        // Small delay so the user can read the final message
-                        kotlinx.coroutines.delay(1200)
-                        runOnUiThread { showWebView() }
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "Payload install failed: ${e.message}", e)
-                        val safeMsg = (e.message ?: "error desconocido").replace("'", "\\'")
-                        session.write("echo ''\n")
-                        session.write("echo 'Error en instalacion: $safeMsg'\n")
-                        session.write("echo 'Revisa los logs e intenta reinstalar.'\n")
-                    }
+
+                        override fun onSuccess() {
+                            session.write("echo ''\n")
+                            session.write("echo 'Instalacion completa!'\n")
+                            payloadManager.syncWwwFromAssets()
+                            runOnUiThread { showWebView() }
+                        }
+
+                        override fun onError(message: String) {
+                            session.write("echo ''\n")
+                            session.write("echo 'Error en instalacion: $message'\n")
+                            AppLogger.e(TAG, "Installation error: $message")
+                        }
+                    })
                 }
             }
             else -> {
                 // Network/bootstrap path — download Termux bootstrap, then run install.sh
+                session.write("echo '[DEBUG] Payload NO detectado. Iniciando instalacion ONLINE...'\n")
                 AppLogger.i(TAG, "Auto-install: online bootstrap download path")
                 CoroutineScope(Dispatchers.IO).launch {
                     try {

@@ -2,7 +2,10 @@ package com.termux.terminal;
 
 import android.annotation.SuppressLint;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
+import android.os.ParcelFileDescriptor;
+import androidx.annotation.NonNull;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -13,7 +16,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -68,7 +70,7 @@ public final class TerminalSession extends TerminalOutput {
     /** Set by the application for user identification of session, not by terminal. */
     public String mSessionName;
 
-    final Handler mMainThreadHandler = new MainThreadHandler();
+    final Handler mMainThreadHandler = new MainThreadHandler(Looper.getMainLooper());
 
     private final String mShellPath;
     private final String mCwd;
@@ -128,7 +130,7 @@ public final class TerminalSession extends TerminalOutput {
         mShellPid = processId[0];
         mClient.setTerminalShellPid(this, mShellPid);
 
-        final FileDescriptor terminalFileDescriptorWrapped = wrapFileDescriptor(mTerminalFileDescriptor, mClient);
+        final FileDescriptor terminalFileDescriptorWrapped = wrapFileDescriptor(mTerminalFileDescriptor);
 
         new Thread("TermSessionInputReader[pid=" + mShellPid + "]") {
             @Override
@@ -314,23 +316,8 @@ public final class TerminalSession extends TerminalOutput {
         return null;
     }
 
-    private static FileDescriptor wrapFileDescriptor(int fileDescriptor, TerminalSessionClient client) {
-        FileDescriptor result = new FileDescriptor();
-        try {
-            Field descriptorField;
-            try {
-                descriptorField = FileDescriptor.class.getDeclaredField("descriptor");
-            } catch (NoSuchFieldException e) {
-                // For desktop java:
-                descriptorField = FileDescriptor.class.getDeclaredField("fd");
-            }
-            descriptorField.setAccessible(true);
-            descriptorField.set(result, fileDescriptor);
-        } catch (NoSuchFieldException | IllegalAccessException | IllegalArgumentException e) {
-            Logger.logStackTraceWithMessage(client, LOG_TAG, "Error accessing FileDescriptor#descriptor private field", e);
-            System.exit(1);
-        }
-        return result;
+    private static FileDescriptor wrapFileDescriptor(int fileDescriptor) {
+        return ParcelFileDescriptor.adoptFd(fileDescriptor).getFileDescriptor();
     }
 
     @SuppressLint("HandlerLeak")
@@ -338,8 +325,12 @@ public final class TerminalSession extends TerminalOutput {
 
         final byte[] mReceiveBuffer = new byte[64 * 1024];
 
+        MainThreadHandler(Looper looper) {
+            super(looper);
+        }
+
         @Override
-        public void handleMessage(Message msg) {
+        public void handleMessage(@NonNull Message msg) {
             int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
             if (bytesRead > 0) {
                 mEmulator.append(mReceiveBuffer, bytesRead);

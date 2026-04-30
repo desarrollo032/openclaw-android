@@ -262,21 +262,33 @@ class JsBridge(
             errorEventType = "setup_progress",
             errorContext = mapOf("progress" to PROGRESS_START),
         ) {
-            payloadManager.install { progress, message ->
-                eventBridge.emit(
-                    "setup_progress",
-                    mapOf("progress" to progress, "message" to message),
-                )
-            }
-            // Sync www assets after install
-            payloadManager.syncWwwFromAssets()
-            // Launch gateway in terminal
-            activity.runOnUiThread { activity.showTerminal() }
-            val session = sessionManager.createSession()
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                val runScript = "${activity.filesDir.absolutePath}/payload/run-openclaw.sh"
-                session.write("$runScript\n")
-            }, SHELL_INIT_DELAY_MS)
+            payloadManager.install(object : PayloadManager.InstallListener {
+                override fun onProgress(step: String, percent: Int) {
+                    eventBridge.emit(
+                        "setup_progress",
+                        mapOf("progress" to (percent / 100f), "message" to step),
+                    )
+                }
+
+                override fun onSuccess() {
+                    // Sync www assets after install
+                    payloadManager.syncWwwFromAssets()
+                    // Launch gateway in terminal
+                    activity.runOnUiThread { activity.showTerminal() }
+                    val session = sessionManager.createSession()
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        val runScript = "${activity.filesDir.absolutePath}/payload/run-openclaw.sh"
+                        session.write("$runScript\n")
+                    }, SHELL_INIT_DELAY_MS)
+                }
+
+                override fun onError(message: String) {
+                    eventBridge.emit(
+                        "setup_progress",
+                        mapOf("progress" to PROGRESS_START, "message" to "Error: $message"),
+                    )
+                }
+            })
         }
     }
 

@@ -26,6 +26,7 @@ junit5-platform-launcher = { module = "org.junit.platform:junit-platform-launche
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+commons-compress = { module = "org.apache.commons:commons-compress", version = "1.28.0" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

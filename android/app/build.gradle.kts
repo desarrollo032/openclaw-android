@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.openclaw.android"
-    compileSdk = 36
+    compileSdk = 37
     ndkVersion = "27.0.12077973"
 
     dependenciesInfo {
@@ -19,12 +19,14 @@ android {
     defaultConfig {
         applicationId = "com.openclaw.android"
         minSdk = 24
-        //noinspection ExpiredTargetSdkVersion
-        targetSdk = 28
+        targetSdk = 35
         versionCode = 9
         versionName = "0.4.0"
 
-        ndk { abiFilters += listOf("arm64-v8a") }
+        ndk { 
+            // Support arm64-v8a (Android phones) and x86_64 (ChromeOS/Emulators)
+            abiFilters += listOf("arm64-v8a", "x86_64") 
+        }
 
         // Initial download URLs (§2.9) — BuildConfig hardcoded fallbacks
         buildConfigField(
@@ -64,7 +66,6 @@ android {
         release {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
-            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -97,6 +98,11 @@ android {
         jniLibs { useLegacyPackaging = true }
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
+
+    androidResources {
+        // Modern replacement for aaptOptions.noCompress
+        noCompress += listOf("tar.gz", "tar.xz", "part_aa", "part_ab", "part_ac", "part_ad", "part_ae", "part_af")
+    }
 }
 
 dependencies {
@@ -109,6 +115,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.gson)
+    
+    // For robust tar.gz extraction in PayloadInstaller
+    implementation(libs.commons.compress)
     // WebView + @JavascriptInterface — Android SDK built-in, no extra dependency
 
     // Test dependencies
