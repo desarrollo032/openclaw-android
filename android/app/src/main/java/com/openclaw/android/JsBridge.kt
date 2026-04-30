@@ -201,15 +201,28 @@ class JsBridge(
 
     @JavascriptInterface
     fun startSetup() {
-        launchWithErrorHandling(
-            errorEventType = "setup_progress",
-            errorContext = mapOf("progress" to PROGRESS_START),
-        ) {
-            bootstrapManager.startSetup { progress, message ->
-                eventBridge.emit(
-                    "setup_progress",
-                    mapOf("progress" to progress, "message" to message),
-                )
+        // Delegate to the centralized install path.
+        // InstallerManager will detect no payload assets and use the online bootstrap.
+        activity.runOnUiThread {
+            activity.startInstallFromUi { success ->
+                if (success) {
+                    eventBridge.emit(
+                        "setup_progress",
+                        mapOf("progress" to 1.0f, "message" to "Bootstrap instalado"),
+                    )
+                    // After bootstrap, run install.sh in terminal
+                    activity.showTerminal()
+                    val session = sessionManager.createSession()
+                    val terminalManager = TerminalManager(activity, activity.filesDir)
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        terminalManager.runInstallScript(session)
+                    }, SHELL_INIT_DELAY_MS)
+                } else {
+                    eventBridge.emit(
+                        "setup_progress",
+                        mapOf("progress" to 0f, "message" to "Error en la instalación"),
+                    )
+                }
             }
         }
     }
@@ -253,42 +266,48 @@ class JsBridge(
     /**
      * Install from self-contained payload (assets/payload/).
      * Fully offline — no network, no Termux dependency.
-     * Emits setup_progress events identical to startSetup() / startRootfsInstall().
+     *
+     * Delegates to MainActivity.startInstallFromUi() which:
+     *   1. Shows the install progress overlay (not shell-based)
+     *   2. Runs InstallerManager (decides offline vs online)
+     *   3. Validates before writing .installed marker
+     *   4. Calls back on completion
+     *
+     * This prevents the old bug where this method ran a SEPARATE install
+     * that called prefix.deleteRecursively(), wiping files from a previous
+     * terminal-based installation.
      */
     @JavascriptInterface
     fun startPayloadInstall() {
-        val payloadManager = PayloadManager(activity)
-        launchWithErrorHandling(
-            errorEventType = "setup_progress",
-            errorContext = mapOf("progress" to PROGRESS_START),
-        ) {
-            payloadManager.install(object : PayloadManager.InstallListener {
-                override fun onProgress(step: String, percent: Int) {
+        activity.runOnUiThread {
+            activity.startInstallFromUi { success ->
+                if (success) {
+                    // Emit success event to WebView (in case it's listening)
                     eventBridge.emit(
                         "setup_progress",
-                        mapOf("progress" to (percent / 100f), "message" to step),
+                        mapOf("progress" to 1.0f, "message" to "Instalación completada"),
                     )
-                }
-
-                override fun onSuccess() {
-                    // Sync www assets after install
-                    payloadManager.syncWwwFromAssets()
-                    // Launch gateway in terminal
-                    activity.runOnUiThread { activity.showTerminal() }
+                    // Show terminal and run gateway
+                    activity.showTerminal()
                     val session = sessionManager.createSession()
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                         val runScript = "${activity.filesDir.absolutePath}/payload/run-openclaw.sh"
-                        session.write("$runScript\n")
+                        val runFile = java.io.File(runScript)
+                        if (runFile.exists()) {
+                            runFile.setExecutable(true)
+                            session.write("$runScript\n")
+                        } else {
+                            session.write("echo 'Instalación completada. Escribe openclaw para iniciar.'\n")
+                        }
                     }, SHELL_INIT_DELAY_MS)
-                }
-
-                override fun onError(message: String) {
+                } else {
+                    // Error is already shown in the overlay
                     eventBridge.emit(
                         "setup_progress",
-                        mapOf("progress" to PROGRESS_START, "message" to "Error: $message"),
+                        mapOf("progress" to 0f, "message" to "Error en la instalación"),
                     )
                 }
-            })
+            }
         }
     }
 

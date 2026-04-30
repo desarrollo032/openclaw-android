@@ -160,11 +160,14 @@ class MainActivity : AppCompatActivity() {
 
         // ── Decide what to do based on install state ──────────────────────────
         when {
-            // ── Case 1: Nothing installed → show overlay, run InstallerManager ───
+            // ── Case 1: Nothing installed → show setup wizard (React UI) ────────
+            // The wizard lets the user choose platform, tools, etc.
+            // Installation is triggered later from the wizard via JsBridge.
+            // This prevents the old bug where auto-install extracted 700MB,
+            // then the WebView loaded and triggered ANOTHER install that wiped everything.
             !isInstalled -> {
-                AppLogger.i(TAG, "Nothing installed — starting automatic installation")
-                showInstallOverlay()
-                autoStartInstallation(installerManager)
+                AppLogger.i(TAG, "Nothing installed — showing setup wizard (WebView)")
+                showWebView()
             }
 
             // ── Case 2: Bootstrap installed, post-setup.sh still pending ─────
@@ -256,6 +259,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Public entry point for JsBridge to trigger installation from the WebView.
+     *
+     * Called when the user clicks "Install" in the React UI setup wizard.
+     * Shows the install overlay and runs InstallerManager.
+     *
+     * @param onComplete callback invoked on the main thread when install finishes
+     *                   (success or error). JsBridge uses this to decide next step.
+     */
+    fun startInstallFromUi(onComplete: ((success: Boolean) -> Unit)? = null) {
+        showInstallOverlay()
+        val installerManager = InstallerManager(this)
+        autoStartInstallation(installerManager, onComplete)
+    }
+
+    /**
      * Runs the installation via InstallerManager with UI overlay progress.
      *
      * Key design: NO session.write() calls. All progress is shown in the
@@ -263,8 +281,13 @@ class MainActivity : AppCompatActivity() {
      * completes to run post-install scripts (if needed).
      *
      * InstallerManager decides offline vs online automatically.
+     *
+     * @param onComplete optional callback for JsBridge integration
      */
-    private fun autoStartInstallation(installerManager: InstallerManager) {
+    private fun autoStartInstallation(
+        installerManager: InstallerManager,
+        onComplete: ((success: Boolean) -> Unit)? = null,
+    ) {
         CoroutineScope(Dispatchers.IO).launch {
             installerManager.install(object : InstallerManager.ProgressListener {
                 override fun onProgress(percent: Int, message: String) {
@@ -277,7 +300,7 @@ class MainActivity : AppCompatActivity() {
                     installerManager.syncWwwFromAssets()
                     runOnUiThread {
                         hideInstallOverlay()
-                        showWebView()
+                        onComplete?.invoke(true)
                     }
                 }
 
@@ -288,6 +311,7 @@ class MainActivity : AppCompatActivity() {
                         cause ?: Exception(message),
                     )
                     showInstallOverlayError(message)
+                    runOnUiThread { onComplete?.invoke(false) }
                 }
             })
         }
