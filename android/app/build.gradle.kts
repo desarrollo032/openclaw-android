@@ -6,7 +6,7 @@ plugins {
     alias(libs.plugins.ktlint)
 }
 
-// ── Auto-increment versionCode on assemble/release ────────────
+// ── Auto-increment versionCode and versionName on each build ────────────
 val versionPropsFile = file("version.properties")
 fun getVersionCode(): Int {
     val props = Properties().apply {
@@ -17,6 +17,12 @@ fun getVersionCode(): Int {
     return props.getProperty("VERSION_CODE", "18").toInt()
 }
 
+fun getVersionName(): String {
+    val versionCode = getVersionCode()
+    // Keep minor version at 4 (0.4.x branch), use versionCode as patch
+    return "0.4.$versionCode"
+}
+
 fun incrementVersionCode() {
     val current = getVersionCode()
     val next = current + 1
@@ -24,7 +30,7 @@ fun incrementVersionCode() {
         setProperty("VERSION_CODE", next.toString())
         versionPropsFile.outputStream().use { store(it, null) }
     }
-    println("[version] versionCode: $current → $next")
+    println("[version] ${getVersionName()} (code: $current → $next)")
 }
 
 gradle.taskGraph.whenReady {
@@ -43,12 +49,12 @@ android {
         includeInBundle = false
     }
 
-    defaultConfig {
+defaultConfig {
         applicationId = "com.openclaw.android"
         minSdk = 24
         targetSdk = 28
         versionCode = getVersionCode()
-        versionName = "0.4.9"
+        versionName = getVersionName()
 
         ndk {
             // Support arm64-v8a (Android phones) and x86_64 (ChromeOS/Emulators)
