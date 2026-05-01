@@ -34,13 +34,13 @@ class OpenClawManager(
      * Install or update OpenClaw.
      * @return Pair of (success, lastError). On success, lastError is null.
      */
-suspend fun installOrUpdate(onProgress: (Int, String) -> Unit): Pair<Boolean, String?> =
+    suspend fun installOrUpdate(onProgress: (Int, String) -> Unit): Pair<Boolean, String?> =
         withContext(Dispatchers.IO) {
             homeDir.mkdirs()
             ocaDir.mkdirs()
 
             onProgress(0, "Preparing minimal OpenClaw runtime...")
-            val env = CommandRunner.buildTermuxEnv(context)
+            val env = CommandRunner.buildTermuxEnv(context).toMutableMap()
 
             if (!hasUsableNpm(env)) {
                 onProgress(10, "Installing Node.js $NODE_MAJOR runtime...")
@@ -61,15 +61,12 @@ suspend fun installOrUpdate(onProgress: (Int, String) -> Unit): Pair<Boolean, St
             val registryOk = verifyNpmRegistry(onProgress, env)
             if (!registryOk) {
                 onProgress(35, "Registry unreachable — trying mirror...")
-                // Try npmmirror as fallback
-                val modifiedEnv = env.toMutableMap()
-                modifiedEnv["NPM_CONFIG_REGISTRY"] = "https://registry.npmmirror.com/"
-                val mirrorOk = verifyNpmRegistry(onProgress, modifiedEnv)
+                // Use mirror for subsequent installs
+                env["NPM_CONFIG_REGISTRY"] = "https://registry.npmmirror.com/"
+                val mirrorOk = verifyNpmRegistry(onProgress, env)
                 if (!mirrorOk) {
                     return@withContext false to "npm registry unreachable — check internet/DNS"
                 }
-                // Use mirror for subsequent installs
-                env["NPM_CONFIG_REGISTRY"] = "https://registry.npmmirror.com/"
             }
 
             // Install with retry logic
@@ -175,7 +172,7 @@ suspend fun installOrUpdate(onProgress: (Int, String) -> Unit): Pair<Boolean, St
         }
     }
 
-private suspend fun runStreaming(
+    private suspend fun runStreaming(
         command: String,
         env: Map<String, String>,
         workDir: File,

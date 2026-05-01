@@ -89,7 +89,7 @@ done
 
 log_ok "dpkg/apt directories verified"
 
-# ── Configure apt.conf ────────────────────────────────────────────────────────
+# ── Configure apt.conf ──────────────────────────────────────────────────────
 # Write apt.conf with absolute paths to prevent the duplicated-path bug.
 # Bug: if Dir::State::status is relative, apt resolves it as:
 #   Dir + Dir::State + Dir::State::status
@@ -175,13 +175,13 @@ EOF
 chmod +x "$UPDATE_SCRIPT"
 log_ok "openclaw-update CLI command created"
 
-# ── Install OpenClaw via npm with retry logic ──────────────────────────────────────
+# ── Install OpenClaw via npm with retry logic ────────────────────────────────
 NPM_BIN="$HOME/.openclaw-android/bin/npm"
 if [ ! -x "$NPM_BIN" ]; then
     NPM_BIN="$PREFIX/bin/npm"
 fi
 
-# Pre-install network verification
+# Verify npm registry connectivity before installing
 log "Verifying network connectivity..."
 _NPM_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
 if ! curl -fsSL --connect-timeout 10 "$_NPM_REGISTRY" >/dev/null 2>&1; then
@@ -248,7 +248,7 @@ else
     fi
 fi
 
-# ─��� Write installation marker ─────────────────────────────────────────────────
+# ── Write installation marker ─────────────────────────────────────────────────
 OCA_DIR="$HOME/.openclaw-android"
 mkdir -p "$OCA_DIR"
 cat > "$OCA_DIR/installed.json" << MARKER
