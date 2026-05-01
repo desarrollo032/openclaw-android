@@ -161,7 +161,7 @@ fi
 # Create openclaw-update CLI script
 UPDATE_SCRIPT="$PREFIX/bin/openclaw-update"
 cat > "$UPDATE_SCRIPT" << 'EOF'
-#!/bin/bash
+#!/system/bin/sh
 echo "=== OpenClaw Updater ==="
 echo "Actualizando OpenClaw a la última versión..."
 if command -v npm >/dev/null 2>&1; then

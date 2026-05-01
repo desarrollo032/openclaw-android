@@ -61,13 +61,12 @@ class BootstrapManager(
     fun isTermuxInstalled(): Boolean = termuxPrefix.resolve("bin/sh").exists()
 
     /**
-     * OpenClaw is fully installed when installed.json marker exists in the app sandbox.
-     * Only checks app-local paths — never Termux paths.
+     * OpenClaw is fully installed only when the actual package/wrapper exists.
+     * Bootstrap markers alone must not make the UI skip platform installation.
      */
-    fun isOpenClawInstalled(): Boolean {
-        val localMarker = File(homeDir, ".openclaw-android/installed.json")
-        return localMarker.exists()
-    }
+    fun isOpenClawInstalled(): Boolean =
+        File(prefixDir, "bin/openclaw").exists() ||
+            File(prefixDir, "lib/node_modules/openclaw/openclaw.mjs").exists()
 
     fun needsPostSetup(): Boolean {
         // Verificar marker en rutas locales de la app (sandbox real)
@@ -93,7 +92,7 @@ class BootstrapManager(
     }
 
     /**
-     * Writes the post-setup-done and installed.json markers for the bootstrap path.
+     * Writes the bootstrap completion marker for the bootstrap path.
      * Called when the bootstrap is installed but no payload is available to run
      * post-setup.sh. This unblocks the app without running a script that would fail.
      */
@@ -101,15 +100,10 @@ class BootstrapManager(
         val ocaDir = File(homeDir, ".openclaw-android")
         ocaDir.mkdirs()
         val markerDone = File(ocaDir, ".post-setup-done")
-        val markerInstalled = File(ocaDir, "installed.json")
         try {
             if (!markerDone.exists()) {
                 markerDone.createNewFile()
                 AppLogger.i(TAG, "Bootstrap completion marker written: ${markerDone.absolutePath}")
-            }
-            if (!markerInstalled.exists()) {
-                markerInstalled.writeText("""{"installed":true,"source":"bootstrap","initialized":true}""")
-                AppLogger.i(TAG, "Bootstrap installed.json written: ${markerInstalled.absolutePath}")
             }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Could not write bootstrap completion markers: ${e.message}")
@@ -135,14 +129,11 @@ class BootstrapManager(
 
     fun getStatus(): SetupStatus {
         val nodeExists = prefixDir.resolve("bin/node").exists()
-        val postSetupDone =
-            File(homeDir, ".openclaw-android/.post-setup-done").exists() ||
-                isOpenClawInstalled()
         return SetupStatus(
             bootstrapInstalled = isInstalled(),
             runtimeInstalled = nodeExists,
             wwwInstalled = wwwDir.resolve("index.html").exists(),
-            platformInstalled = postSetupDone,
+            platformInstalled = isOpenClawInstalled(),
         )
     }
 
@@ -187,12 +178,13 @@ class BootstrapManager(
             copyAssetScripts()
             syncWwwFromAssets()
             setupTermuxExec()
+            installLinkerWrappers()
             applyPostExtractionPermissions()
             createExecutableDirectory()
 
-            // Step 5: Create wrapper script and write installed marker
+            // Step 5: Create gateway wrapper. OpenClaw's installed marker is
+            // written only after the npm platform install succeeds.
             CommandRunner.createWrapperScript(context.filesDir)
-            CommandRunner.writeInstalledMarker(context.filesDir)
 
             onProgress(1f, "Setup complete")
         }
@@ -564,7 +556,7 @@ class BootstrapManager(
             if (!dpkgReal.exists()) dpkgBin.renameTo(dpkgReal)
             val d = "$" // dollar sign for shell script
             val realPath = dpkgReal.absolutePath
-            val wrapperContent = """#!/bin/bash
+            val wrapperContent = """#!/system/bin/sh
 # dpkg wrapper: set PATH so dpkg can find sh, tar, rm, dpkg-deb etc.
 # Filters confdir errors from hardcoded com.termux paths without
 # suppressing real dpkg fatal errors (exit code 2).
@@ -580,6 +572,58 @@ exit ${d}_rc
 """
             dpkgBin.writeText(wrapperContent)
             dpkgBin.setExecutable(true)
+        }
+    }
+
+    /**
+     * Wrap Termux/Bionic executables so they always see app-local libraries.
+     *
+     * Users commonly type `curl ... | bash` in a fresh terminal before any
+     * profile has been sourced. Without LD_LIBRARY_PATH, Android's linker
+     * cannot find libraries such as libandroid-support.so or libz.so.1.
+     */
+    private fun installLinkerWrappers() {
+        val binDir = File(prefixDir, "bin")
+        val libDir = File(prefixDir, "lib")
+        val glibcLibDir = File(prefixDir, "glibc/lib")
+        val names = listOf("bash", "curl", "wget", "pkg", "apt", "apt-get", "dpkg")
+
+        for (name in names) {
+            val bin = File(binDir, name)
+            val real = File(binDir, "$name.real")
+            try {
+                if (!bin.isFile) continue
+
+                if (real.isFile && !isElfBinary(bin)) {
+                    bin.setExecutable(true)
+                    continue
+                }
+
+                if (!real.exists()) {
+                    if (!isElfBinary(bin)) continue
+                    if (!bin.renameTo(real)) {
+                        AppLogger.w(TAG, "Could not move $name to ${real.name}")
+                        continue
+                    }
+                }
+
+                val d = "$"
+                bin.writeText(
+                    """
+                    |#!/system/bin/sh
+                    |PREFIX="${prefixDir.absolutePath}"
+                    |export LD_LIBRARY_PATH="$libDir:$glibcLibDir:${d}{LD_LIBRARY_PATH:-}"
+                    |unset LD_PRELOAD
+                    |exec "${real.absolutePath}" "${d}@"
+                    |
+                    """.trimMargin(),
+                )
+                bin.setExecutable(true, false)
+                bin.setReadable(true, false)
+                AppLogger.i(TAG, "Installed linker wrapper for $name")
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to install linker wrapper for $name: ${e.message}")
+            }
         }
     }
 
@@ -771,6 +815,7 @@ exit ${d}_rc
         if (!isInstalled()) return
         copyAssetScripts()
         syncWwwFromAssets()
+        installLinkerWrappers()
         installOaCli()
         // Regenerate the wrapper script with current paths
         CommandRunner.createWrapperScript(context.filesDir)

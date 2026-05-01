@@ -42,17 +42,14 @@ export function Dashboard() {
   const [platform, setPlatform] = useState<PlatformInfo | null>(null)
   const [envInfo, setEnvInfo] = useState<EnvInfo>({})
   const [installedTools, setInstalledTools] = useState<InstalledTool[]>([])
-  // loading=true until bridge responds at least once
   const [loading, setLoading] = useState(true)
   const [activeSessionId, setActiveSessionId] = useState<string>('')
   const [refreshing, setRefreshing] = useState(false)
-  // Track if bridge was ever available (prevents flicker on slow WebView init)
   const bridgeReadyRef = useRef(false)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refreshStatus = useCallback((showSpinner = false) => {
     if (!bridge.isAvailable()) {
-      // Bridge not ready yet — retry in 300ms (up to ~3s total)
       return false
     }
 
@@ -82,10 +79,9 @@ export function Dashboard() {
     return true
   }, [])
 
-  // Poll until bridge is available, then load once
   useEffect(() => {
     let attempts = 0
-    const MAX_ATTEMPTS = 20 // 20 × 200ms = 4s max wait
+    const MAX_ATTEMPTS = 20
 
     const tryLoad = () => {
       attempts++
@@ -93,7 +89,6 @@ export function Dashboard() {
       if (!ok && attempts < MAX_ATTEMPTS) {
         retryTimerRef.current = setTimeout(tryLoad, 200)
       } else if (!ok) {
-        // Bridge never became available — stop loading, show error state
         setLoading(false)
       }
     }
@@ -112,7 +107,6 @@ export function Dashboard() {
   }, [])
   useNativeEvent('session_changed', onSessionChanged)
 
-  // Re-check status when setup completes
   const onSetupProgress = useCallback((data: unknown) => {
     const d = data as { progress?: number }
     if (d.progress === 1) {
@@ -128,7 +122,6 @@ export function Dashboard() {
     }, 150)
   }
 
-  // ── Loading state ──────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="page">
@@ -139,20 +132,18 @@ export function Dashboard() {
     )
   }
 
-  // ── Bridge unavailable (running in browser/dev mode) ──────────────────────
   if (!bridge.isAvailable() && !bridgeReadyRef.current) {
     return (
       <div className="page">
         <div className="empty-state" style={{ minHeight: 'calc(100dvh - 80px)' }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>🔌</div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Bridge not available</div>
-          <div className="empty-state-text">Running outside Android WebView</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>{t('about_bridge_unavailable')}</div>
+          <div className="empty-state-text">{t('about_running_outside')}</div>
         </div>
       </div>
     )
   }
 
-  // ── Not installed ──────────────────────────────────────────────────────────
   const isInstalled = bootstrapStatus?.installed && bootstrapStatus?.openclawInstalled
 
   if (!isInstalled) {
@@ -163,7 +154,6 @@ export function Dashboard() {
             style={{ width: 72, height: 72, opacity: 0.4, marginBottom: 8 }} />
           <div style={{ fontSize: 18, fontWeight: 700 }}>{t('dash_setup_required')}</div>
           <div className="empty-state-text">{t('dash_setup_desc')}</div>
-          {/* Debug info — remove in production */}
           {bootstrapStatus && (
             <div style={{
               marginTop: 16, fontSize: 11, color: 'var(--text-muted)',
@@ -185,10 +175,8 @@ export function Dashboard() {
     )
   }
 
-  // ── Main dashboard ─────────────────────────────────────────────────────────
   return (
     <div className="page">
-      {/* Platform header */}
       <div className="dash-header">
         <div className="dash-platform-icon">
           <img src="./openclaw.svg" alt="OpenClaw" style={{ width: 28, height: 28 }} />
@@ -209,7 +197,6 @@ export function Dashboard() {
         </button>
       </div>
 
-      {/* Runtime environment */}
       <div className="section-title">{t('dash_runtime')}</div>
       <div className="card dash-env-grid">
         {([
@@ -235,7 +222,6 @@ export function Dashboard() {
         })}
       </div>
 
-      {/* Installed tools badges */}
       {installedTools.length > 0 && (
         <>
           <div className="section-title">{t('tools_title')}</div>
@@ -251,7 +237,6 @@ export function Dashboard() {
         </>
       )}
 
-      {/* Commands */}
       <div className="section-title">{t('dash_commands')}</div>
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {getCommands().map((item, i) => (
@@ -267,7 +252,6 @@ export function Dashboard() {
         ))}
       </div>
 
-      {/* Management */}
       <div className="section-title">{t('dash_management')}</div>
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {getManagement().map((item, i) => (
@@ -283,10 +267,9 @@ export function Dashboard() {
         ))}
       </div>
 
-      {/* Quick actions */}
-      <div className="section-title">Quick Actions</div>
+      <div className="section-title">{t('dash_quick_actions')}</div>
       <div className="dash-quick-grid">
-        <QuickAction icon="📋" label="Sessions" onClick={() => {
+        <QuickAction icon="📋" label={t('dash_sessions')} onClick={() => {
           const sessions = bridge.callJson<SessionInfo[]>('getTerminalSessions')
           if (sessions && sessions.length > 0) {
             bridge.call('showTerminal')
@@ -295,12 +278,12 @@ export function Dashboard() {
             bridge.call('showTerminal')
           }
         }} />
-        <QuickAction icon="📋" label="New Session" onClick={() => {
+        <QuickAction icon="📋" label={t('dash_new_session')} onClick={() => {
           bridge.call('createSession')
           bridge.call('showTerminal')
         }} />
-        <QuickAction icon="🔄" label="Reload UI" onClick={() => window.location.reload()} />
-        <QuickAction icon="⚙" label="Settings" onClick={() => {
+        <QuickAction icon="🔄" label={t('dash_reload_ui')} onClick={() => window.location.reload()} />
+        <QuickAction icon="⚙" label={t('settings_title')} onClick={() => {
           bridge.call('showWebView')
           window.location.hash = '/settings'
         }} />

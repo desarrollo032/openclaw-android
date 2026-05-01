@@ -15,7 +15,6 @@ NC='\033[0m'
 
 PROJECT_DIR="$HOME/.openclaw-android"
 PLATFORM_MARKER="$PROJECT_DIR/.platform"
-OA_VERSION="1.0.27"
 REPO_TARBALL="https://github.com/AidanPark/openclaw-android/archive/refs/heads/main.tar.gz"
 
 echo ""
@@ -38,6 +37,7 @@ fi
 if [ -f "$PROJECT_DIR/scripts/lib.sh" ]; then
     source "$PROJECT_DIR/scripts/lib.sh"
 fi
+resolve_repo_base || true
 command -v resolve_npm_registry >/dev/null 2>&1 && resolve_npm_registry || true
 
 if ! declare -f ask_yn &>/dev/null; then

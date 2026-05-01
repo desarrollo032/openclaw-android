@@ -18,6 +18,11 @@ else
     BOLD='\033[1m'
     NC='\033[0m'
     REPO_BASE_ORIGIN="https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
+    REPO_BASE_MIRRORS=(
+        "https://ghfast.top/https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
+        "https://ghproxy.net/https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
+        "https://mirror.ghproxy.com/https://raw.githubusercontent.com/AidanPark/openclaw-android/main"
+    )
     REPO_BASE="$REPO_BASE_ORIGIN"
     PLATFORM_MARKER="$PROJECT_DIR/.platform"
 
@@ -29,21 +34,18 @@ else
         return 1
     }
 
+    # Fallback resolve_repo_base — mirrors kept in sync with lib.sh
     resolve_repo_base() {
         if curl -sI --connect-timeout 3 "$REPO_BASE_ORIGIN/oa.sh" >/dev/null 2>&1; then
             REPO_BASE="$REPO_BASE_ORIGIN"; return 0
         fi
-        local mirrors=(
-            "https://ghfast.top/$REPO_BASE_ORIGIN"
-            "https://ghproxy.net/$REPO_BASE_ORIGIN"
-            "https://mirror.ghproxy.com/$REPO_BASE_ORIGIN"
-        )
-        for m in "${mirrors[@]}"; do
-            if curl -sI --connect-timeout 3 "$m/oa.sh" >/dev/null 2>&1; then
-                echo -e "  ${YELLOW}[MIRROR]${NC} Using mirror for GitHub downloads"
-                REPO_BASE="$m"; return 0
+        for mirror in "${REPO_BASE_MIRRORS[@]}"; do
+            if curl -sI --connect-timeout 3 "$mirror/oa.sh" >/dev/null 2>&1; then
+                echo -e "  ${YELLOW}[MIRROR]${NC} Using mirror: ${mirror%%/oa.sh*}"
+                REPO_BASE="$mirror"; return 0
             fi
         done
+        REPO_BASE="$REPO_BASE_ORIGIN"
         return 1
     }
 fi

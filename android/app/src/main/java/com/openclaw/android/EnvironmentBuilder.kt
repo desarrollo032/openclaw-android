@@ -113,10 +113,13 @@ object EnvironmentBuilder {
             // OCA_BIN contains the glibc-wrapped node launcher.
             // /system/bin and /bin are Android system utilities only.
             put("PATH", "$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin")
+            put("NPM_CONFIG_PREFIX", prefix)
+            put("npm_config_prefix", prefix)
 
             // ── Dynamic linker ────────────────────────────────────────────────
-            // glibc libs must be on LD_LIBRARY_PATH for any glibc binary.
-            put("LD_LIBRARY_PATH", "$glibcLib:$prefix/lib")
+            // Termux/Bionic commands (curl, bash, apt) need $PREFIX/lib first.
+            // glibc launchers add their own loader/library path when needed.
+            put("LD_LIBRARY_PATH", "$prefix/lib:$glibcLib")
 
             // LD_PRELOAD: only set if libtermux-exec.so exists in OUR prefix.
             // This intercepts execve() to rewrite hardcoded com.termux paths.

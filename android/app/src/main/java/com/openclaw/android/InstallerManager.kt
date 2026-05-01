@@ -249,13 +249,24 @@ class InstallerManager(private val context: Context) {
             return
         }
 
-        // Write installed marker (bootstrap writes its own markers too)
+        listener.onProgress(55, "Instalando OpenClaw...")
+        val openClawManager = OpenClawManager(context)
+        val (openClawOk, openClawError) = openClawManager.installOrUpdate { percent, message ->
+            val mapped = 55 + (percent * 0.42f).toInt()
+            listener.onProgress(mapped.coerceIn(55, 97), message)
+        }
+        if (!openClawOk) {
+            listener.onError(openClawError ?: "OpenClaw installation failed")
+            return
+        }
+
+        // Write environment marker only after OpenClaw is actually installed.
         listener.onProgress(97, "Finalizando...")
         writeMarker()
 
-        listener.onProgress(100, "Bootstrap instalado correctamente")
+        listener.onProgress(100, "OpenClaw instalado correctamente")
         listener.onSuccess()
-        AppLogger.i(TAG, "Online bootstrap installation completed successfully")
+        AppLogger.i(TAG, "Online OpenClaw installation completed successfully")
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -349,7 +360,7 @@ class InstallerManager(private val context: Context) {
         // Offline payload path: wrapper is created by applyPermissions()
         if (File(prefix, "bin/openclaw").exists()) return true
         // Online bootstrap path
-        return File(filesDir, "home/.openclaw-android/lib/openclaw/openclaw").exists()
+        return File(prefix, "lib/node_modules/openclaw/openclaw.mjs").exists()
     }
 
     /** Sync www assets from APK to the share directory. */

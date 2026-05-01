@@ -31,6 +31,15 @@ export const en = {
   // Setup - installing
   setup_setting_up: 'Setting up...',
   setup_preparing: 'Preparing setup...',
+  setup_retry: 'Retry installation',
+  setup_check_connection: 'Check connection',
+  setup_checking_connection: 'Checking...',
+  setup_connection_ok: 'Connection OK — try retrying',
+  setup_connection_failed: 'No internet connection',
+  setup_install_failed: 'Installation failed',
+  setup_failed_hint: 'Check your connection and try again. You can also open the terminal to see the full error log.',
+  setup_open_log: 'View terminal log',
+  setup_back_to_tools: 'Back to tools',
 
   // Setup - done
   setup_done_title: "You're all set!",
@@ -70,12 +79,22 @@ export const en = {
   cmd_update: 'Update OpenClaw and all components',
   cmd_install_tools: 'Add or remove optional tools',
 
+  // Dashboard - quick actions
+  dash_quick_actions: 'Quick Actions',
+  dash_sessions: 'Sessions',
+  dash_new_session: 'New Session',
+  dash_reload_ui: 'Reload UI',
+
   // Settings
   settings_title: 'Settings',
+  settings_language: 'Language',
   settings_platforms: 'Platforms',
   settings_platforms_desc: 'Manage installed platforms',
+  settings_tools: 'Additional Tools',
+  settings_tools_desc: 'Terminal tools',
   settings_updates: 'Updates',
   settings_updates_desc: 'Check for updates',
+  settings_updates_badge: 'Updates available',
   settings_keep_alive: 'Keep Alive',
   settings_keep_alive_desc: 'Prevent background killing',
   settings_storage: 'Storage',
@@ -121,6 +140,16 @@ export const en = {
   about_license: 'License',
   about_app_info: 'App Info',
   about_made_for: 'Made for Android',
+  about_checking_apk: 'Checking...',
+  about_check_apk: '↑ Check for APK update',
+  about_installation: 'Installation',
+  about_bootstrap_installed: 'Bootstrap installed',
+  about_openclaw_installed: 'OpenClaw installed',
+  about_yes: '✓ Yes',
+  about_no: '✗ No',
+  about_github: 'GitHub ↗',
+  about_bridge_unavailable: 'Bridge not available',
+  about_running_outside: 'Running outside Android WebView',
 
   // Settings - Updates
   updates_title: 'Updates',

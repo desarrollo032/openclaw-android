@@ -6,6 +6,33 @@ plugins {
     alias(libs.plugins.ktlint)
 }
 
+// ── Auto-increment versionCode on assemble/release ────────────
+val versionPropsFile = file("version.properties")
+fun getVersionCode(): Int {
+    val props = Properties().apply {
+        if (versionPropsFile.exists()) {
+            versionPropsFile.inputStream().use { load(it) }
+        }
+    }
+    return props.getProperty("VERSION_CODE", "18").toInt()
+}
+
+fun incrementVersionCode() {
+    val current = getVersionCode()
+    val next = current + 1
+    Properties().apply {
+        setProperty("VERSION_CODE", next.toString())
+        versionPropsFile.outputStream().use { store(it, null) }
+    }
+    println("[version] versionCode: $current → $next")
+}
+
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.name.startsWith("assemble") || it.name.startsWith("bundle") }) {
+        incrementVersionCode()
+    }
+}
+
 android {
     namespace = "com.openclaw.android"
     compileSdk = 37
@@ -19,8 +46,8 @@ android {
     defaultConfig {
         applicationId = "com.openclaw.android"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 18
+        targetSdk = 28
+        versionCode = getVersionCode()
         versionName = "0.4.9"
 
         ndk {

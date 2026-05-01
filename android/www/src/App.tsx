@@ -90,7 +90,7 @@ export function App() {
           aria-label={t('tab_terminal')}
         >
           <span className="tab-icon">⌨</span>
-          <span className="tab-label">Terminal</span>
+          <span className="tab-label">{t('tab_terminal')}</span>
         </button>
         <button
           className={`tab-bar-item${activeTab === 'dashboard' ? ' active' : ''}`}
@@ -99,7 +99,7 @@ export function App() {
           aria-current={activeTab === 'dashboard' ? 'page' : undefined}
         >
           <span className="tab-icon">◈</span>
-          <span className="tab-label">Dashboard</span>
+          <span className="tab-label">{t('tab_dashboard')}</span>
         </button>
         <button
           className={`tab-bar-item${activeTab === 'settings' ? ' active' : ''}`}
@@ -108,8 +108,8 @@ export function App() {
           aria-current={activeTab === 'settings' ? 'page' : undefined}
         >
           <span className="tab-icon">⚙</span>
-          <span className="tab-label">Settings</span>
-          {hasUpdates && <span className="badge" aria-label="Updates available" />}
+          <span className="tab-label">{t('tab_settings')}</span>
+          {hasUpdates && <span className="badge" aria-label={t('settings_updates_badge')} />}
         </button>
       </nav>
 

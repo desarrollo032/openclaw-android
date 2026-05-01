@@ -89,7 +89,9 @@ class TerminalManager(
             appendLine("export TERMUX_PREFIX=\"$prefix\"")
             appendLine("export TERMUX__ROOTFS=\"${File(prefix).parent}\"")
             appendLine("export PATH=\"$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin\"")
-            appendLine("export LD_LIBRARY_PATH=\"$glibcLib:$prefix/lib\"")
+            appendLine("export NPM_CONFIG_PREFIX=\"$prefix\"")
+            appendLine("export npm_config_prefix=\"$prefix\"")
+            appendLine("export LD_LIBRARY_PATH=\"$prefix/lib:$glibcLib\"")
             // dpkg/apt explicit overrides — prevent fallback to compiled-in Termux paths
             appendLine("export DPKG_ADMINDIR=\"$prefix/var/lib/dpkg\"")
             appendLine("export DPKG_ROOT=\"$prefix\"")

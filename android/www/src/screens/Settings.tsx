@@ -12,7 +12,7 @@ interface MenuItem {
 function getMenu(): MenuItem[] {
   return [
     { icon: '📱', label: t('settings_platforms'), desc: t('settings_platforms_desc'), route: '/settings/platforms' },
-    { icon: '🔧', label: t('tools_title'), desc: t('tools_cat_terminal'), route: '/settings/tools' },
+    { icon: '🔧', label: t('tools_title'), desc: t('settings_tools_desc'), route: '/settings/tools' },
     { icon: '🔄', label: t('settings_updates'), desc: t('settings_updates_desc'), route: '/settings/updates' },
     { icon: '⚡', label: t('settings_keep_alive'), desc: t('settings_keep_alive_desc'), route: '/settings/keep-alive' },
     { icon: '💾', label: t('settings_storage'), desc: t('settings_storage_desc'), route: '/settings/storage' },
@@ -28,13 +28,13 @@ export function Settings() {
     <div className="page">
       <div className="page-title" style={{ marginBottom: 20 }}>{t('settings_title')}</div>
 
-      {/* Selector de idioma */}
-      <div className="section-title">Idioma / Language</div>
+      {/* Language selector */}
+      <div className="section-title">{t('settings_language')}</div>
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 48 }}>
           <span className="card-icon">🌐</span>
           <div className="card-content">
-            <div className="card-label">Idioma</div>
+            <div className="card-label">{t('settings_language')}</div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {availableLocales.map(loc => (
@@ -50,7 +50,7 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Menú de ajustes */}
+      {/* Settings menu */}
       <div className="section-title">{t('settings_title')}</div>
       {getMenu().map(item => (
         <div

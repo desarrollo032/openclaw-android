@@ -7,7 +7,7 @@ interface Props {
   onComplete: () => void
 }
 
-type SetupPhase = 'welcome' | 'tool-select' | 'installing' | 'done'
+type SetupPhase = 'welcome' | 'tool-select' | 'installing' | 'done' | 'failed'
 
 function getOptionalTools() {
   return [
@@ -32,8 +32,9 @@ export function Setup({ onComplete }: Props) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [tipIndex, setTipIndex] = useState(0)
+  const [checkingConn, setCheckingConn] = useState(false)
+  const [connResult, setConnResult] = useState<'ok' | 'fail' | null>(null)
 
-  // Rotate tips during install
   useEffect(() => {
     if (phase !== 'installing') return
     const id = setInterval(() => setTipIndex(i => (i + 1) % getTips().length), 4000)
@@ -44,7 +45,10 @@ export function Setup({ onComplete }: Props) {
     const d = data as { progress?: number; message?: string; error?: string }
     if (d.progress !== undefined) setProgress(d.progress)
     if (d.message) setMessage(d.message)
-    if (d.error) setError(d.error)
+    if (d.error) {
+      setError(d.error)
+      setPhase('failed')
+    }
     if (d.progress !== undefined && d.progress >= 1 && !d.error) {
       setPhase('done')
     }
@@ -62,7 +66,6 @@ export function Setup({ onComplete }: Props) {
   }
 
   function handleStartSetup() {
-    // Save tool selections
     const selections: Record<string, boolean> = {}
     getOptionalTools().forEach(tool => {
       selections[tool.id] = selectedTools.has(tool.id)
@@ -74,14 +77,38 @@ export function Setup({ onComplete }: Props) {
     setProgress(0)
     setMessage(t('setup_preparing'))
     setError('')
+    setConnResult(null)
 
-    // startSetup() uses BootstrapManager — same as MainActivity checks
     bridge.call('startSetup')
   }
 
-  // Stepper
+  function handleCheckConnection() {
+    setCheckingConn(true)
+    setConnResult(null)
+
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent).detail as { callbackId?: string; result?: string }
+      if (d?.callbackId === 'conn_test') {
+        setCheckingConn(false)
+        setConnResult(d.result?.includes('OK') ? 'ok' : 'fail')
+        window.removeEventListener('native:command_result', handler)
+      }
+    }
+    window.addEventListener('native:command_result', handler)
+
+    bridge.call('runCommandAsync', 'conn_test', 'curl -sfI --connect-timeout 5 https://registry.npmjs.org/ >/dev/null 2>&1 && echo OK || echo FAIL')
+
+    setTimeout(() => {
+      if (checkingConn) {
+        setCheckingConn(false)
+        setConnResult('fail')
+        window.removeEventListener('native:command_result', handler)
+      }
+    }, 12000)
+  }
+
   const steps = [t('step_platform'), t('step_tools'), t('step_setup')]
-  const currentStep = phase === 'welcome' ? 0 : phase === 'tool-select' ? 1 : 2
+  const currentStep = phase === 'welcome' ? 0 : phase === 'tool-select' ? 1 : phase === 'failed' ? 2 : 2
 
   function renderStepper() {
     return (
@@ -99,7 +126,6 @@ export function Setup({ onComplete }: Props) {
     )
   }
 
-  // ── Welcome ──────────────────────────────────────────────────────────────
   if (phase === 'welcome') {
     return (
       <div className="setup-container">
@@ -132,7 +158,6 @@ export function Setup({ onComplete }: Props) {
     )
   }
 
-  // ── Tool Select ──────────────────────────────────────────────────────────
   if (phase === 'tool-select') {
     return (
       <div className="setup-container setup-container--scroll">
@@ -178,7 +203,6 @@ export function Setup({ onComplete }: Props) {
     )
   }
 
-  // ── Installing ───────────────────────────────────────────────────────────
   if (phase === 'installing') {
     const pct = Math.round(progress * 100)
     return (
@@ -187,7 +211,6 @@ export function Setup({ onComplete }: Props) {
         <div className="setup-title">{t('setup_setting_up')}</div>
 
         <div className="setup-progress-wrap">
-          {/* Circular progress ring */}
           <div className="setup-progress-ring">
             <svg viewBox="0 0 80 80" width="80" height="80">
               <circle cx="40" cy="40" r="34" fill="none"
@@ -206,18 +229,6 @@ export function Setup({ onComplete }: Props) {
           </div>
 
           <div className="setup-progress-msg">{message}</div>
-
-          {error && (
-            <div className="setup-error">
-              <span>⚠ {error}</span>
-              <button className="btn btn-sm btn-ghost" onClick={() => {
-                setError('')
-                setPhase('tool-select')
-              }}>
-                Retry
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="tip-card">💡 {getTips()[tipIndex]}</div>
@@ -225,11 +236,71 @@ export function Setup({ onComplete }: Props) {
     )
   }
 
-  // ── Done ─────────────────────────────────────────────────────────────────
+  // ── Failed state ────────────────────────────────────────────────────
+  if (phase === 'failed') {
+    return (
+      <div className="setup-container setup-container--scroll">
+        {renderStepper()}
+        <div className="setup-failed-icon">✗</div>
+        <div className="setup-title" style={{ color: 'var(--error)' }}>{t('setup_install_failed')}</div>
+        <div className="setup-subtitle">{t('setup_failed_hint')}</div>
+
+        {error && (
+          <div className="setup-error-detail">
+            <div className="setup-error-label">Error</div>
+            <div className="setup-error-text">{error}</div>
+          </div>
+        )}
+
+        {message && (
+          <div className="setup-last-action">
+            Last step: {message}
+          </div>
+        )}
+
+        {/* Connection check */}
+        <div className="setup-conn-check">
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleCheckConnection}
+            disabled={checkingConn}
+          >
+            {checkingConn ? (
+              <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />{t('setup_checking_connection')}</>
+            ) : (
+              t('setup_check_connection')
+            )}
+          </button>
+          {connResult === 'ok' && (
+            <span className="pill pill-success" style={{ marginLeft: 8 }}>{t('setup_connection_ok')}</span>
+          )}
+          {connResult === 'fail' && (
+            <span className="pill pill-error" style={{ marginLeft: 8 }}>{t('setup_connection_failed')}</span>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="setup-failed-actions">
+          <button className="btn btn-secondary" onClick={() => bridge.call('showTerminal')}>
+            {t('setup_open_log')}
+          </button>
+          <button className="btn btn-primary" onClick={handleStartSetup}>
+            {t('setup_retry')}
+          </button>
+        </div>
+
+        <button className="btn btn-ghost btn-sm" onClick={() => setPhase('tool-select')}>
+          {t('setup_back_to_tools')}
+        </button>
+      </div>
+    )
+  }
+
+  // ── Done ──────────────────────────────────────────────────────────────
   return (
     <div className="setup-container">
       {renderStepper()}
-      <div className="setup-logo" style={{ fontSize: 72 }}>✅</div>
+      <div className="setup-logo setup-done-icon">✓</div>
       <div className="setup-title">{t('setup_done_title')}</div>
       <div className="setup-subtitle">{t('setup_done_desc')}</div>
 

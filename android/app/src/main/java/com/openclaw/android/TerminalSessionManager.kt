@@ -85,9 +85,11 @@ class TerminalSessionManager(
 
         if (mustUseSafeMode) {
             AppLogger.w(TAG, "Safe Mode required: envReady=$isEnvironmentReady, glibc=$hasGlibcLinker, termuxExec=$hasTermuxExec, bashWrapper=$isBashWrapper, shWrapper=$isShWrapper")
-            // Strip ALL Termux/glibc linker variables for system shell
+            // Strip LD_PRELOAD for the system shell, but keep LD_LIBRARY_PATH.
+            // The session may start with /system/bin/sh while PATH still points
+            // to Termux binaries such as curl/bash; those binaries need
+            // $PREFIX/lib for libandroid-support.so, libz.so.1, etc.
             env.remove("LD_PRELOAD")
-            env.remove("LD_LIBRARY_PATH")
         } else {
             // Full Termux environment is available and ready
             AppLogger.i(TAG, "Full Termux environment available")
@@ -120,18 +122,17 @@ class TerminalSessionManager(
                     AppLogger.w(TAG, "Emergency bash wrapper detected post-selection. Switching to Safe Mode.")
                     shellBin = "/system/bin/sh"
                     env.remove("LD_PRELOAD")
-                    env.remove("LD_LIBRARY_PATH")
                 }
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Error checking bash wrapper post-selection: ${e.message}")
             }
         }
 
-        // Final safeguard: if using /system/bin/sh, ensure no incompatible linker vars
+        // Final safeguard: if using /system/bin/sh, remove only LD_PRELOAD.
+        // LD_LIBRARY_PATH must remain so app-local Termux commands can link.
         if (shellBin == "/system/bin/sh") {
             env.remove("LD_PRELOAD")
-            env.remove("LD_LIBRARY_PATH")
-            AppLogger.w(TAG, "Using /system/bin/sh with clean environment")
+            AppLogger.w(TAG, "Using /system/bin/sh with app-local library path")
         }
 
         // Pass --norc --noprofile to bash so it does NOT source:

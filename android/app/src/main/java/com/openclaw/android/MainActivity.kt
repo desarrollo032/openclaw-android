@@ -183,11 +183,20 @@ class MainActivity : AppCompatActivity() {
 
             // ── Case 3: Env installed but OpenClaw package missing ────────────
             isInstalled && !isOpenClawInstalled -> {
-                AppLogger.i(TAG, "Environment ready — OpenClaw not installed, running auto-install")
-                showTerminal()
-                val session = sessionManager.createSession()
-                binding.terminalView.post {
-                    TermuxIntegrationHelper(this, bootstrapManager).installOpenClaw(session)
+                AppLogger.i(TAG, "Environment ready — OpenClaw not installed, installing minimal package")
+                showInstallOverlay()
+                CoroutineScope(Dispatchers.IO).launch {
+                    val (ok, error) = OpenClawManager(this@MainActivity).installOrUpdate { percent, message ->
+                        updateInstallProgress(percent, message)
+                    }
+                    runOnUiThread {
+                        if (ok) {
+                            hideInstallOverlay()
+                            showWebView()
+                        } else {
+                            showInstallOverlayError(error ?: "OpenClaw installation failed")
+                        }
+                    }
                 }
             }
 

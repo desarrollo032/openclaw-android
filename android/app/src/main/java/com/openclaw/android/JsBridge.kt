@@ -224,14 +224,8 @@ class JsBridge(
                 if (success) {
                     eventBridge.emit(
                         "setup_progress",
-                        mapOf("progress" to 1.0f, "message" to "Bootstrap instalado"),
+                        mapOf("progress" to 1.0f, "message" to "OpenClaw instalado"),
                     )
-                    // After bootstrap, run the OpenClaw installer script
-                    activity.showTerminal()
-                    val session = sessionManager.createSession()
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        TermuxIntegrationHelper(activity, bootstrapManager).installOpenClaw(session)
-                    }, SHELL_INIT_DELAY_MS)
                 } else {
                     eventBridge.emit(
                         "setup_progress",
@@ -388,7 +382,7 @@ class JsBridge(
     @JavascriptInterface
     fun getInstalledPlatforms(): String {
         // Check which platforms are installed via npm/filesystem
-        val env = CommandRunner.buildTermuxEnv()
+        val env = CommandRunner.buildTermuxEnv(activity)
         val result =
             CommandRunner.runSync(
                 "npm list -g --depth=0 --json 2>/dev/null",
@@ -401,28 +395,61 @@ class JsBridge(
 
     @JavascriptInterface
     fun installPlatform(id: String) {
+        val safeId = id.replace(Regex("[^a-zA-Z0-9@/_.-]"), "")
         launchWithErrorHandling(
             errorEventType = "install_progress",
-            errorContext = mapOf("target" to id),
+            errorContext = mapOf("target" to safeId),
         ) {
+            if (safeId == "openclaw") {
+                val (ok, error) = OpenClawManager(activity).installOrUpdate { percent, message ->
+                    eventBridge.emit(
+                        "install_progress",
+                        mapOf("target" to safeId, "progress" to percent / 100f, "message" to message),
+                    )
+                }
+                if (!ok) {
+                    eventBridge.emit(
+                        "install_progress",
+                        mapOf(
+                            "target" to safeId,
+                            "progress" to PROGRESS_START,
+                            "message" to (error ?: "OpenClaw install failed"),
+                        ),
+                    )
+                }
+                return@launchWithErrorHandling
+            }
+
+            val env = CommandRunner.buildTermuxEnv(activity)
+            val (_, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+            val workDir = java.io.File(activeHome).also { it.mkdirs() }
+            val packageName = "$safeId@latest"
+
             eventBridge.emit(
                 "install_progress",
-                mapOf("target" to id, "progress" to PROGRESS_START, "message" to "Installing $id..."),
+                mapOf("target" to safeId, "progress" to PROGRESS_START, "message" to "Installing $safeId..."),
             )
-            val env = CommandRunner.buildTermuxEnv()
-            CommandRunner.runStreaming(
-                "npm install -g $id@latest --ignore-scripts",
+            val result = CommandRunner.runStreaming(
+                "npm install -g $packageName --ignore-scripts --no-fund --no-audit",
                 env,
-                bootstrapManager.homeDir,
+                workDir,
             ) { output: String ->
                 eventBridge.emit(
                     "install_progress",
-                    mapOf("target" to id, "progress" to PROGRESS_HALF, "message" to output),
+                    mapOf("target" to safeId, "progress" to PROGRESS_HALF, "message" to output),
                 )
             }
+            if (result.exitCode != 0) {
+                eventBridge.emit(
+                    "install_progress",
+                    mapOf("target" to safeId, "progress" to PROGRESS_START, "message" to result.stderr),
+                )
+                return@launchWithErrorHandling
+            }
+
             eventBridge.emit(
                 "install_progress",
-                mapOf("target" to id, "progress" to PROGRESS_DONE, "message" to "$id installed"),
+                mapOf("target" to safeId, "progress" to PROGRESS_DONE, "message" to "$safeId installed"),
             )
         }
     }
@@ -433,8 +460,9 @@ class JsBridge(
             errorEventType = "install_progress",
             errorContext = mapOf("target" to id),
         ) {
-            val env = CommandRunner.buildTermuxEnv()
-            CommandRunner.runSync("npm uninstall -g $id", env, bootstrapManager.homeDir)
+            val env = CommandRunner.buildTermuxEnv(activity)
+            val (_, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+            CommandRunner.runSync("npm uninstall -g $id", env, java.io.File(activeHome))
         }
     }
 
@@ -572,8 +600,8 @@ class JsBridge(
             errorEventType = "install_progress",
             errorContext = mapOf("target" to id),
         ) {
-            val env = CommandRunner.buildTermuxEnv()
-            val prefix = CommandRunner.TERMUX_PREFIX
+            val env = CommandRunner.buildTermuxEnv(activity)
+            val (prefix, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
             val aptGet =
                 "DEBIAN_FRONTEND=noninteractive $prefix/bin/apt-get" +
                     " -y -o Acquire::AllowInsecureRepositories=true" +
@@ -606,7 +634,7 @@ class JsBridge(
                 "install_progress",
                 mapOf("target" to id, "progress" to PROGRESS_START, "message" to "Installing $id..."),
             )
-            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output: String ->
+            CommandRunner.runStreaming(cmd, env, java.io.File(activeHome)) { output: String ->
                 eventBridge.emit(
                     "install_progress",
                     mapOf("target" to id, "progress" to PROGRESS_HALF, "message" to output),
@@ -625,12 +653,13 @@ class JsBridge(
             errorEventType = "install_progress",
             errorContext = mapOf("target" to id),
         ) {
-            val env = CommandRunner.buildTermuxEnv()
+            val env = CommandRunner.buildTermuxEnv(activity)
+            val (prefix, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
             val cmd =
                 when (id) {
                     "tmux", "ttyd", "dufs", "openssh-server", "android-tools", "chromium" -> {
                         val pkg = if (id == "openssh-server") "openssh" else id
-                        "${CommandRunner.TERMUX_PREFIX}/bin/apt-get remove -y $pkg"
+                        "$prefix/bin/apt-get remove -y $pkg"
                     }
                     "code-server" ->
                         "npm uninstall -g code-server"
@@ -647,14 +676,14 @@ class JsBridge(
                             " && rm -rf \$HOME/.config/opencode"
                     else -> "echo 'Unknown tool: $id'"
                 }
-            CommandRunner.runSync(cmd, env, java.io.File(CommandRunner.TERMUX_HOME))
+            CommandRunner.runSync(cmd, env, java.io.File(activeHome))
         }
     }
 
     @JavascriptInterface
     fun isToolInstalled(id: String): String {
-        val prefix = CommandRunner.TERMUX_PREFIX
-        val env = CommandRunner.buildTermuxEnv()
+        val (prefix, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        val env = CommandRunner.buildTermuxEnv(activity)
         val exists =
             when (id) {
                 "openssh-server" -> java.io.File("$prefix/bin/sshd").exists()
@@ -675,7 +704,7 @@ class JsBridge(
                         CommandRunner.runSync(
                             "command -v $safeId 2>/dev/null",
                             env,
-                            java.io.File(CommandRunner.TERMUX_HOME),
+                            java.io.File(activeHome),
                             timeoutMs = COMMAND_TIMEOUT_MS,
                         )
                     result.stdout.trim().isNotEmpty()
@@ -690,8 +719,9 @@ class JsBridge(
 
     @JavascriptInterface
     fun runCommand(cmd: String): String {
-        val env = CommandRunner.buildTermuxEnv()
-        val result = CommandRunner.runSync(cmd, env, java.io.File(CommandRunner.TERMUX_HOME))
+        val env = CommandRunner.buildTermuxEnv(activity)
+        val (_, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        val result = CommandRunner.runSync(cmd, env, java.io.File(activeHome))
         return gson.toJson(result)
     }
 
@@ -701,11 +731,11 @@ class JsBridge(
      */
     @JavascriptInterface
     fun testGrunNode(): String {
-        val env = CommandRunner.buildTermuxEnv()
+        val env = CommandRunner.buildTermuxEnv(activity)
         val result = CommandRunner.runSync(
             "grun node -v",
             env,
-            java.io.File(CommandRunner.TERMUX_HOME),
+            java.io.File(EnvironmentBuilder.resolveActivePaths(activity.filesDir).second),
             timeoutMs = 10_000,
         )
         return gson.toJson(result)
@@ -740,8 +770,9 @@ class JsBridge(
             errorEventType = "command_output",
             errorContext = mapOf("callbackId" to callbackId, "done" to true),
         ) {
-            val env = CommandRunner.buildTermuxEnv()
-            CommandRunner.runStreaming(cmd, env, java.io.File(CommandRunner.TERMUX_HOME)) { output: String ->
+            val env = CommandRunner.buildTermuxEnv(activity)
+            val (_, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+            CommandRunner.runStreaming(cmd, env, java.io.File(activeHome)) { output: String ->
                 eventBridge.emit(
                     "command_output",
                     mapOf("callbackId" to callbackId, "data" to output, "done" to false),
@@ -763,6 +794,33 @@ class JsBridge(
         // Compare local versions with config.json remote versions
         val updates = mutableListOf<Map<String, String>>()
         try {
+            val (activePrefix, activeHome) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+            val openClawPkg = java.io.File(activePrefix, "lib/node_modules/openclaw/package.json")
+            if (openClawPkg.exists()) {
+                val currentOpenClaw =
+                    Regex(""""version"\s*:\s*"([^"]+)"""")
+                        .find(openClawPkg.readText())
+                        ?.groupValues
+                        ?.getOrNull(1)
+                        ?: "installed"
+                val latestOpenClaw =
+                    CommandRunner.runSync(
+                        "npm view openclaw version 2>/dev/null",
+                        CommandRunner.buildTermuxEnv(activity),
+                        java.io.File(activeHome),
+                        timeoutMs = 10_000,
+                    ).stdout.trim()
+                if (latestOpenClaw.isNotBlank() && latestOpenClaw != currentOpenClaw) {
+                    updates.add(
+                        mapOf(
+                            "component" to "openclaw",
+                            "currentVersion" to currentOpenClaw,
+                            "newVersion" to latestOpenClaw,
+                        ),
+                    )
+                }
+            }
+
             val configFile =
                 java.io.File(
                     activity.filesDir,
@@ -831,6 +889,7 @@ class JsBridge(
         ) {
             emitProgress(component, PROGRESS_START, "Updating $component...")
             when (component) {
+                "openclaw" -> updateOpenClaw()
                 "www" -> updateWww()
                 "bootstrap" -> updateBootstrap()
                 "scripts" -> emitProgress("scripts", PROGRESS_HALF, "Scripts are updated with bootstrap")
@@ -934,6 +993,15 @@ class JsBridge(
             stagingWww.deleteRecursively()
 
             emitProgress("www", PROGRESS_START, "Update failed: ${e.message}")
+        }
+    }
+
+    private suspend fun updateOpenClaw() {
+        val (ok, error) = OpenClawManager(activity).installOrUpdate { percent, message ->
+            emitProgress("openclaw", percent / 100f, message)
+        }
+        if (!ok) {
+            emitProgress("openclaw", PROGRESS_START, error ?: "OpenClaw update failed")
         }
     }
 

@@ -46,7 +46,6 @@ export function SettingsAbout() {
         <div className="page-title">{t('about_title')}</div>
       </div>
 
-      {/* Logo */}
       <div style={{ textAlign: 'center', padding: '20px 0 28px' }}>
         <div style={{
           width: 80, height: 80, borderRadius: 20,
@@ -62,7 +61,6 @@ export function SettingsAbout() {
         </div>
       </div>
 
-      {/* App version */}
       <div className="section-title">{t('about_version')}</div>
       <div className="card">
         <div className="info-row">
@@ -95,13 +93,12 @@ export function SettingsAbout() {
             disabled={checkingApk}
           >
             {checkingApk
-              ? <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />Checking...</>
-              : '↑ Check for APK update'}
+              ? <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />{t('about_checking_apk')}</>
+              : t('about_check_apk')}
           </button>
         </div>
       </div>
 
-      {/* Environment — version only, no paths */}
       <div className="section-title">{t('about_runtime')}</div>
       <div className="card">
         {([
@@ -132,26 +129,24 @@ export function SettingsAbout() {
         })}
       </div>
 
-      {/* Installation status */}
-      <div className="section-title">Installation</div>
+      <div className="section-title">{t('about_installation')}</div>
       <div className="card">
         {([
-          { key: 'installed' as keyof BootstrapStatus, label: 'Bootstrap installed' },
-          { key: 'openclawInstalled' as keyof BootstrapStatus, label: 'OpenClaw installed' },
+          { key: 'installed' as keyof BootstrapStatus, label: t('about_bootstrap_installed') },
+          { key: 'openclawInstalled' as keyof BootstrapStatus, label: t('about_openclaw_installed') },
         ]).map(({ key, label }) => {
           const ok = bootstrapStatus?.[key] ?? false
           return (
             <div className="info-row" key={key}>
               <span className="label">{label}</span>
               <span className={`pill ${ok ? 'pill-success' : 'pill-error'}`}>
-                {ok ? '✓ Yes' : '✗ No'}
+                {ok ? t('about_yes') : t('about_no')}
               </span>
             </div>
           )
         })}
       </div>
 
-      {/* License */}
       <div className="section-title">{t('about_license')}</div>
       <div className="card">
         <div className="info-row">
@@ -160,7 +155,6 @@ export function SettingsAbout() {
         </div>
       </div>
 
-      {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         <button
           className="btn btn-secondary"
@@ -174,7 +168,7 @@ export function SettingsAbout() {
           style={{ flex: 1 }}
           onClick={() => bridge.call('openUrl', 'https://github.com/AidanPark/openclaw-android')}
         >
-          GitHub ↗
+          {t('about_github')}
         </button>
       </div>
     </div>

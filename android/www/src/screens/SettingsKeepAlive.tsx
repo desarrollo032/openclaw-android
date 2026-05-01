@@ -25,7 +25,6 @@ export function SettingsKeepAlive() {
   function handleRequestExclusion() {
     setRequesting(true)
     bridge.call('requestBatteryOptimizationExclusion')
-    // Re-verificar cuando el usuario vuelve
     setTimeout(() => {
       const status = bridge.callJson<{ isIgnoring: boolean }>('getBatteryOptimizationStatus')
       if (status) setBatteryExcluded(status.isIgnoring)
@@ -44,7 +43,6 @@ export function SettingsKeepAlive() {
         {t('ka_desc')}
       </div>
 
-      {/* 1. Optimización de batería */}
       <div className="section-title">{t('ka_battery')}</div>
       <div className="card">
         <div className="card-row" style={{ cursor: 'default' }}>
@@ -65,7 +63,6 @@ export function SettingsKeepAlive() {
         </div>
       </div>
 
-      {/* 2. Opciones de desarrollador */}
       <div className="section-title">{t('ka_developer')}</div>
       <div className="card">
         <div style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 14, color: 'var(--text-secondary)' }}>
@@ -81,7 +78,6 @@ export function SettingsKeepAlive() {
         </button>
       </div>
 
-      {/* 3. Phantom Process Killer */}
       <div className="section-title">{t('ka_phantom')}</div>
       <div className="card">
         <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 12, color: 'var(--text-secondary)' }}>
@@ -95,7 +91,6 @@ export function SettingsKeepAlive() {
         </div>
       </div>
 
-      {/* 4. Límite de carga */}
       <div className="section-title">{t('ka_charge')}</div>
       <div className="card">
         <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>

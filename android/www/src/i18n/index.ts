@@ -1,13 +1,11 @@
 import { createContext, useContext } from 'react'
 import { en } from './en'
-import { ko } from './ko'
-import { zh } from './zh'
 import { es } from './es'
 
 export type TranslationKey = keyof typeof en
 type Translations = Record<TranslationKey, string>
 
-const locales: Record<string, Translations> = { en, ko, zh, es }
+const locales: Record<string, Translations> = { en, es }
 
 function detectLocale(): string {
   try {
@@ -16,8 +14,6 @@ function detectLocale(): string {
   } catch { /* ignore */ }
 
   const lang = navigator.language || ''
-  if (lang.startsWith('ko')) return 'ko'
-  if (lang.startsWith('zh')) return 'zh'
   if (lang.startsWith('es')) return 'es'
   return 'en'
 }
@@ -49,8 +45,6 @@ export const LocaleContext = createContext<string>(currentLocale)
 export const useLocale = () => useContext(LocaleContext)
 
 export const availableLocales = [
-  { code: 'es', label: 'Español' },
   { code: 'en', label: 'English' },
-  { code: 'ko', label: '한국어' },
-  { code: 'zh', label: '中文' },
+  { code: 'es', label: 'Español' },
 ]
