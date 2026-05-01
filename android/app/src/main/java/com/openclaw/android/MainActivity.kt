@@ -291,6 +291,7 @@ private fun showInstallOverlay() {
             session?.write("echo '  node --version    # Verificar Node.js'\n")
             session?.write("echo '  which node     # Verificar ruta de node'\n")
             session?.write("echo '  npm install -g openclaw@latest --ignore-scripts  # Reintentar instalación'\n")
+            session?.write("echo '  rm -rf ~/.npm/_cacache  # Limpiar caché de npm para liberar espacio'\n")
             session?.write("echo ''\n")
             // Ejecutar callback de recuperación si está definido
             installErrorCallback?.invoke()
@@ -479,7 +480,7 @@ private fun showInstallOverlay() {
      */
     private fun onStoragePermissionsGranted() {
         Thread {
-            CommandRunner.runTermuxSetupStorage { line ->
+            CommandRunner.setupAppStorage(this) { line ->
                 AppLogger.i(TAG, "setup-storage: $line")
             }
         }.start()
