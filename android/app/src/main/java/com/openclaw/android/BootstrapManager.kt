@@ -188,6 +188,7 @@ class BootstrapManager(
             syncWwwFromAssets()
             setupTermuxExec()
             applyPostExtractionPermissions()
+            createExecutableDirectory()
 
             // Step 5: Create wrapper script and write installed marker
             CommandRunner.createWrapperScript(context.filesDir)
@@ -635,6 +636,58 @@ exit ${d}_rc
                 }
             }
         }
+    }
+
+    /**
+     * Create executable directory outside app sandbox for W^X bypass (targetSdk 29+).
+     * Android 10+ prevents execution in app data directories, but allows execution
+     * in external storage or temp directories.
+     */
+    private fun createExecutableDirectory() {
+        // Try external storage first (requires MANAGE_EXTERNAL_STORAGE)
+        val externalDir = File(context.getExternalFilesDir(null), "bin")
+        if (externalDir.exists() || externalDir.mkdirs()) {
+            AppLogger.i(TAG, "Created executable directory: ${externalDir.absolutePath}")
+            // Copy critical binaries to external directory
+            copyCriticalBinariesToExternal(externalDir)
+        } else {
+            // Fallback: use app's cache directory with executable files
+            val cacheBinDir = File(context.cacheDir, "bin")
+            cacheBinDir.mkdirs()
+            AppLogger.i(TAG, "Using cache directory for executables: ${cacheBinDir.absolutePath}")
+            copyCriticalBinariesToExternal(cacheBinDir)
+        }
+    }
+
+    /**
+     * Copy critical binaries to external executable directory.
+     */
+    private fun copyCriticalBinariesToExternal(targetDir: File) {
+        val binDir = File(prefixDir, "bin")
+        if (!binDir.isDirectory) return
+
+        val criticalBinaries = listOf("bash", "sh", "curl", "wget", "git", "npm", "node")
+        
+        criticalBinaries.forEach { binName ->
+            val source = File(binDir, binName)
+            if (source.exists() && source.isFile) {
+                val target = File(targetDir, binName)
+                try {
+                    source.copyTo(target, overwrite = true)
+                    target.setExecutable(true, false)
+                    target.setExecutable(true, true)
+                    Runtime.getRuntime().exec(arrayOf("chmod", "755", target.absolutePath)).waitFor()
+                    AppLogger.i(TAG, "✓ Copied $binName to executable directory")
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Failed to copy $binName to external directory", e)
+                }
+            }
+        }
+        
+        // Update PATH to include external executable directory
+        val newPath = "${targetDir.absolutePath}:$prefixDir/bin:/system/bin:/bin"
+        System.setProperty("java.library.path", newPath)
+        AppLogger.i(TAG, "Updated PATH to include external executables")
     }
 
     /**

@@ -20,12 +20,12 @@ android {
         applicationId = "com.openclaw.android"
         minSdk = 24
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.4.7"
+        versionCode = 18
+        versionName = "0.4.9"
 
-        ndk { 
+        ndk {
             // Support arm64-v8a (Android phones) and x86_64 (ChromeOS/Emulators)
-            abiFilters += listOf("arm64-v8a", "x86_64") 
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
 
         // Initial download URLs (§2.9) — BuildConfig hardcoded fallbacks
@@ -115,7 +115,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.gson)
-    
+
     // For robust tar.gz extraction in PayloadInstaller
     implementation(libs.commons.compress)
     implementation(libs.xz)
