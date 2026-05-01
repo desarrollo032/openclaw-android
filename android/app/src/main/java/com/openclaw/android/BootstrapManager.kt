@@ -187,6 +187,7 @@ class BootstrapManager(
             copyAssetScripts()
             syncWwwFromAssets()
             setupTermuxExec()
+            applyPostExtractionPermissions()
 
             // Step 5: Create wrapper script and write installed marker
             CommandRunner.createWrapperScript(context.filesDir)
