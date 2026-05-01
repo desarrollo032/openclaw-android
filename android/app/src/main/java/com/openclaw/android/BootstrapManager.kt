@@ -251,10 +251,42 @@ class BootstrapManager(
                 name.startsWith("lib/bash/") ||
                 name.endsWith(".so") ||
                 name.contains(".so.")
+        
+        // Apply executable permissions to all known executables and ELF binaries
         if (knownExecutable) {
-            file.setExecutable(true)
+            file.setExecutable(true, false)
+            file.setExecutable(true, true) // owner+group+others
+            // Fallback: use native chmod for robustness
+            try {
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", file.absolutePath))
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "chmod fallback failed for $name: ${e.message}")
+            }
         } else if (file.length() > ELF_MAGIC_SIZE && isElfBinary(file)) {
-            file.setExecutable(true)
+            file.setExecutable(true, false)
+            file.setExecutable(true, true) // owner+group+others
+            try {
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", file.absolutePath))
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "chmod fallback failed for ELF binary $name: ${e.message}")
+            }
+        }
+        
+        // Special handling for critical binaries that must be executable
+        val criticalBinaries = listOf("bash", "sh", "curl", "wget", "apt", "pkg", "dpkg")
+        if (criticalBinaries.any { name.contains(it) }) {
+            AppLogger.i(TAG, "Setting executable permissions on critical binary: $name")
+            file.setExecutable(true, false)
+            file.setExecutable(true, true)
+            file.setReadable(true, false)
+            file.setReadable(true, true)
+            // Multiple chmod attempts for robustness
+            try {
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", file.absolutePath)).waitFor()
+                Runtime.getRuntime().exec(arrayOf("chmod", "+x", file.absolutePath)).waitFor()
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to set executable permissions on critical binary $name", e)
+            }
         }
     }
 

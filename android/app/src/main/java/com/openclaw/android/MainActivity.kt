@@ -398,8 +398,9 @@ class MainActivity : AppCompatActivity() {
                     AppLogger.i(TAG, "Storage permissions granted")
                     onStoragePermissionsGranted()
                 } else {
-                    AppLogger.w(TAG, "Storage permissions denied — termux-setup-storage may fail")
-                    // Continue anyway; some features may be limited
+                    AppLogger.w(TAG, "Storage permissions denied — showing notification")
+                    showPermissionDeniedNotification("Storage permissions required for installation")
+                    // Continue anyway but show warning
                     onStoragePermissionsGranted()
                 }
             }
@@ -425,7 +426,8 @@ class MainActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
                 AppLogger.i(TAG, "MANAGE_EXTERNAL_STORAGE granted")
             } else {
-                AppLogger.w(TAG, "MANAGE_EXTERNAL_STORAGE denied")
+                AppLogger.w(TAG, "MANAGE_EXTERNAL_STORAGE denied — showing notification")
+                showPermissionDeniedNotification("Storage access required for installation")
             }
             onStoragePermissionsGranted()
         }
@@ -445,6 +447,37 @@ class MainActivity : AppCompatActivity() {
         // Always evaluate install state after permissions are settled.
         // This is the single entry point for the install/launch decision.
         checkAndStartInstallation()
+    }
+
+    /**
+     * Show a notification when permissions are denied.
+     * Provides a way for the user to retry granting permissions.
+     */
+    private fun showPermissionDeniedNotification(message: String) {
+        runOnUiThread {
+            // Create a simple toast notification
+            android.widget.Toast.makeText(
+                this,
+                "$message\nTap to retry",
+                android.widget.Toast.LENGTH_LONG
+            ).apply {
+                setGravity(android.view.Gravity.TOP, 0, 100)
+                show()
+            }
+
+            // Also show a dialog for better visibility
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Permission Required")
+                .setMessage("$message\n\nSome features may not work correctly without storage access.")
+                .setPositiveButton("Retry") { _, _ ->
+                    requestStoragePermissions()
+                }
+                .setNegativeButton("Continue Anyway") { _, _ ->
+                    // User chooses to continue without permissions
+                }
+                .setCancelable(false)
+                .show()
+        }
     }
 
     // --- Terminal setup ---
