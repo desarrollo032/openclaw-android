@@ -175,19 +175,63 @@ EOF
 chmod +x "$UPDATE_SCRIPT"
 log_ok "openclaw-update CLI command created"
 
-# ── Install OpenClaw via npm ──────────────────────────────────────────────────
+# ── Install OpenClaw via npm with retry logic ──────────────────────────────────────
 NPM_BIN="$HOME/.openclaw-android/bin/npm"
 if [ ! -x "$NPM_BIN" ]; then
     NPM_BIN="$PREFIX/bin/npm"
 fi
 
+# Pre-install network verification
+log "Verifying network connectivity..."
+_NPM_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
+if ! curl -fsSL --connect-timeout 10 "$_NPM_REGISTRY" >/dev/null 2>&1; then
+    log_warn "Primary registry unreachable, trying mirrors..."
+    if curl -fsSL --connect-timeout 10 "https://registry.npmmirror.com/" >/dev/null 2>&1; then
+        export NPM_CONFIG_REGISTRY="https://registry.npmmirror.com/"
+        log "Using npmmirror registry"
+    else
+        log_warn "No registry reachable. Will attempt npm anyway."
+    fi
+fi
+unset _NPM_REGISTRY
+
 if [ -x "$NPM_BIN" ]; then
-    log "Installing OpenClaw via npm..."
-    "$NPM_BIN" install -g openclaw 2>&1 | tee -a "$LOG_FILE"
+    log "Installing OpenClaw via npm (with retry)..."
+    
+    _NPM_RETRIES=3
+    _NPM_RETRY_DELAY=5
+    _NPM_SUCCESS=false
+    
+    for _try in $(seq 1 $_NPM_RETRIES); do
+        log "  Attempt $_try/$_NPM_RETRIES..."
+        if "$NPM_BIN" install -g openclaw --ignore-scripts 2>&1 | tee -a "$LOG_FILE"; then
+            _NPM_SUCCESS=true
+            break
+        else
+            if [ "$_try" -lt "$_NPM_RETRIES" ]; then
+                log_warn "Install failed, retrying in ${_NPM_RETRY_DELAY}s..."
+                sleep $_NPM_RETRY_DELAY
+                _NPM_RETRY_DELAY=$((_NPM_RETRY_DELAY * 2))
+                # Clean npm cache before retry
+                rm -rf "$HOME/.npm/_cacache/tmp" 2>/dev/null || true
+            fi
+        fi
+    done
+    
+    if [ "$_NPM_SUCCESS" != "true" ]; then
+        log_err "npm install failed after $_NPM_RETRIES attempts"
+        log_err "Last npm output (last 20 lines):"
+        "$NPM_BIN" install -g openclaw --ignore-scripts 2>&1 | tail -20 | tee -a "$LOG_FILE" || true
+        log_err "Diagnostic info:"
+        log_err "  - Node: $("$NPM_BIN" --version 2>&1 || echo 'NOT FOUND')"
+        log_err "  - Registry: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
+        log_err "  - SSL certs: $([ -s "$PREFIX/etc/tls/cert.pem" ] && echo 'OK' || echo 'MISSING')"
+    fi
+    
     # Verify installation succeeded
     OC_MJS="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
     if [ ! -f "$OC_MJS" ]; then
-        log_err "npm install -g openclaw completed but openclaw.mjs not found at $OC_MJS"
+        log_err "npm install completed but openclaw.mjs not found at $OC_MJS"
         log_err "Check npm output above for errors."
         exit 1
     fi
@@ -204,7 +248,7 @@ else
     fi
 fi
 
-# ── Write installation marker ─────────────────────────────────────────────────
+# ─��� Write installation marker ─────────────────────────────────────────────────
 OCA_DIR="$HOME/.openclaw-android"
 mkdir -p "$OCA_DIR"
 cat > "$OCA_DIR/installed.json" << MARKER

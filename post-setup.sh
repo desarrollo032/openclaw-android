@@ -662,15 +662,63 @@ else
     fi
 fi
 
+# ── Pre-install network verification ──
+echo "  Verifying network connectivity..."
+_NPM_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
+if ! curl -fsSL --connect-timeout 10 "$_NPM_REGISTRY" >/dev/null 2>&1; then
+    echo -e "    ${YELLOW}[WARN]${NC} Primary registry unreachable, trying mirrors..."
+    # Try npmmirror as fallback
+    if curl -fsSL --connect-timeout 10 "https://registry.npmmirror.com/" >/dev/null 2>&1; then
+        export NPM_CONFIG_REGISTRY="https://registry.npmmirror.com/"
+        echo -e "    ${GREEN}[OK]${NC}   Using npmmirror registry"
+    else
+        echo -e "    ${RED}[FAIL]${NC} No registry reachable. Check network/DNS."
+        # Continue anyway - let npm handle the error
+    fi
+fi
+unset _NPM_REGISTRY
+
+# ── Install OpenClaw with retry logic ──
 if command -v openclaw &>/dev/null 2>&1; then
     OC_VER=$(openclaw --version 2>/dev/null || echo "unknown")
     echo -e "  ${GREEN}[SKIP]${NC} OpenClaw already installed ($OC_VER)"
 else
-    # Clean npm cache tmp dir (leftover from previous failed installs)
-    rm -rf "$HOME/.npm/_cacache/tmp" 2>/dev/null || true
-    npm install -g openclaw@latest --ignore-scripts 2>&1
-    OC_VER=$(openclaw --version 2>/dev/null || echo "installed")
-    echo -e "  ${GREEN}✓${NC} OpenClaw $OC_VER"
+    echo "  Installing OpenClaw (with retry)..."
+    _NPM_RETRIES=3
+    _NPM_RETRY_DELAY=5
+    _NPM_SUCCESS=false
+    
+    for _try in $(seq 1 $_NPM_RETRIES); do
+        echo "    Attempt $_try/$_NPM_RETRIES..."
+        # Clean npm cache tmp dir before each attempt
+        rm -rf "$HOME/.npm/_cacache/tmp" 2>/dev/null || true
+        if npm install -g openclaw@latest --ignore-scripts 2>&1; then
+            _NPM_SUCCESS=true
+            break
+        else
+            if [ "$_try" -lt "$_NPM_RETRIES" ]; then
+                echo -e "    ${YELLOW}[WARN]${NC} Install failed, retrying in ${_NPM_RETRY_DELAY}s..."
+                sleep $_NPM_RETRY_DELAY
+                _NPM_RETRY_DELAY=$((_NPM_RETRY_DELAY * 2))
+            fi
+        fi
+    done
+    
+    if [ "$_NPM_SUCCESS" != "true" ]; then
+        echo -e "  ${RED}[FAIL]${NC} OpenClaw installation failed after $_NPM_RETRIES attempts"
+        echo "  Diagnostic info:"
+        echo "    - Node: $($BIN_DIR/node --version 2>&1 || echo 'NOT FOUND')"
+        echo "    - NPM: $($BIN_DIR/npm --version 2>&1 || echo 'NOT FOUND')"
+        echo "    - Registry: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
+        echo "    - SSL: $([ -s "$PREFIX/etc/tls/cert.pem" ] && echo 'OK' || echo 'MISSING')"
+        # Try one more time with verbose output to capture error
+        echo ""
+        echo "  Last attempt output:"
+        npm install -g openclaw@latest --ignore-scripts 2>&1 | tail -10 || true
+    else
+        OC_VER=$(openclaw --version 2>/dev/null || echo "installed")
+        echo -e "  ${GREEN}✓${NC} OpenClaw $OC_VER"
+    fi
 fi
 
 # ─── Repair openclaw wrapper ─────────────────

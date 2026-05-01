@@ -34,7 +34,7 @@ class OpenClawManager(
      * Install or update OpenClaw.
      * @return Pair of (success, lastError). On success, lastError is null.
      */
-    suspend fun installOrUpdate(onProgress: (Int, String) -> Unit): Pair<Boolean, String?> =
+suspend fun installOrUpdate(onProgress: (Int, String) -> Unit): Pair<Boolean, String?> =
         withContext(Dispatchers.IO) {
             homeDir.mkdirs()
             ocaDir.mkdirs()
@@ -56,14 +56,32 @@ class OpenClawManager(
                 if (!runtimeOk) return@withContext false to "Node.js runtime installation failed"
             }
 
-            onProgress(40, "Installing OpenClaw latest...")
-            val installOk = runStreaming(
+            // Verify npm registry connectivity BEFORE installing
+            onProgress(35, "Verifying network connectivity...")
+            val registryOk = verifyNpmRegistry(onProgress, env)
+            if (!registryOk) {
+                onProgress(35, "Registry unreachable — trying mirror...")
+                // Try npmmirror as fallback
+                val modifiedEnv = env.toMutableMap()
+                modifiedEnv["NPM_CONFIG_REGISTRY"] = "https://registry.npmmirror.com/"
+                val mirrorOk = verifyNpmRegistry(onProgress, modifiedEnv)
+                if (!mirrorOk) {
+                    return@withContext false to "npm registry unreachable — check internet/DNS"
+                }
+                // Use mirror for subsequent installs
+                env["NPM_CONFIG_REGISTRY"] = "https://registry.npmmirror.com/"
+            }
+
+            // Install with retry logic
+            onProgress(40, "Installing OpenClaw latest (attempt 1/3)...")
+            var installOk = runStreamingWithRetry(
                 "npm install -g openclaw@latest --ignore-scripts --no-fund --no-audit",
                 env,
                 homeDir,
                 onProgress,
                 40,
                 82,
+                maxRetries = 3,
             )
             if (!installOk) return@withContext false to "npm install openclaw failed — check network or disk space"
 
@@ -157,7 +175,7 @@ class OpenClawManager(
         }
     }
 
-    private suspend fun runStreaming(
+private suspend fun runStreaming(
         command: String,
         env: Map<String, String>,
         workDir: File,
@@ -178,6 +196,52 @@ class OpenClawManager(
             return false
         }
         return true
+    }
+
+    /** Run command with retry logic and exponential backoff. */
+    private suspend fun runStreamingWithRetry(
+        command: String,
+        env: Map<String, String>,
+        workDir: File,
+        onProgress: (Int, String) -> Unit,
+        start: Int,
+        end: Int,
+        maxRetries: Int = 3,
+    ): Boolean {
+        var delaySec = 5
+        for (attempt in 1..maxRetries) {
+            onProgress(start, "Installing OpenClaw latest (attempt $attempt/$maxRetries)...")
+            if (runStreaming(command, env, workDir, onProgress, start, end)) {
+                return true
+            }
+            if (attempt < maxRetries) {
+                onProgress(start, "Install failed, retrying in ${delaySec}s...")
+                Thread.sleep(delaySec * 1000L)
+                delaySec *= 2  // exponential backoff
+                // Clean npm cache before retry
+                val cacheDir = ocaDir.resolve(".npm/_cacache/tmp")
+                cacheDir.deleteRecursively()
+            }
+        }
+        return false
+    }
+
+    /** Verify npm registry connectivity. Returns true if reachable. */
+    private fun verifyNpmRegistry(onProgress: (Int, String) -> Unit, env: Map<String, String>): Boolean {
+        val registry = env["NPM_CONFIG_REGISTRY"] ?: "https://registry.npmjs.org/"
+        return try {
+            onProgress(36, "Checking $registry...")
+            val result = CommandRunner.runSync(
+                "curl -fsSL --connect-timeout 10 $registry",
+                env,
+                homeDir,
+                timeoutMs = 15_000,
+            )
+            result.exitCode == 0
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Registry check failed: ${e.message}")
+            false
+        }
     }
 
     private suspend fun restoreBundledPluginDependencies(
