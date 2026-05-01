@@ -3,6 +3,7 @@ package com.openclaw.android
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.content.Context
+import android.os.Environment
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -388,6 +389,66 @@ object CommandRunner {
         } catch (e: Exception) {
             AppLogger.e(TAG, "termux-setup-storage failed: ${e.message}", e)
             onOutput("Error: ${e.message}")
+        }
+    }
+
+    /**
+     * Sets up storage symlinks in the app sandbox, similar to termux-setup-storage.
+     * Creates a ~/storage directory with symlinks to standard Android external storage directories.
+     */
+    fun setupAppStorage(context: Context, onOutput: (String) -> Unit = {}) {
+        val env = buildTermuxEnv(context)
+        val home = env["HOME"] ?: return
+        val storageDir = File(home, "storage")
+
+        if (storageDir.exists() && storageDir.isDirectory && storageDir.list()?.isNotEmpty() == true) {
+            AppLogger.i(TAG, "setupAppStorage already done")
+            onOutput("Storage already configured.")
+            return
+        }
+
+        AppLogger.i(TAG, "Running setupAppStorage...")
+        onOutput("Configuring storage symlinks...")
+
+        try {
+            storageDir.mkdirs()
+
+            val extStorage = Environment.getExternalStorageDirectory()
+
+            val symlinks = mapOf(
+                "shared" to extStorage,
+                "downloads" to Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                "dcim" to Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
+                "pictures" to Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                "music" to Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                "movies" to Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+            )
+
+            for ((name, target) in symlinks) {
+                val linkFile = File(storageDir, name)
+                if (!linkFile.exists()) {
+                    try {
+                        android.system.Os.symlink(target.absolutePath, linkFile.absolutePath)
+                        AppLogger.d(TAG, "Symlink created: ${linkFile.absolutePath} -> ${target.absolutePath}")
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Os.symlink failed for $name, trying fallback: ${e.message}")
+                        // Fallback using ln -s
+                        val result = runSync("ln -s \"${target.absolutePath}\" \"${linkFile.absolutePath}\"", env, storageDir)
+                        if (result.exitCode != 0) {
+                            AppLogger.e(TAG, "ln -s fallback failed for $name: ${result.stderr}")
+                        }
+                    }
+                }
+            }
+
+            // Write a marker file so isStorageSetupDone() or similar checks pass if needed
+            File(home, "storage-setup-done").writeText(System.currentTimeMillis().toString())
+
+            AppLogger.i(TAG, "setupAppStorage completed")
+            onOutput("Storage configuration complete.")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "setupAppStorage failed: ${e.message}", e)
+            onOutput("Error configuring storage: ${e.message}")
         }
     }
 }
