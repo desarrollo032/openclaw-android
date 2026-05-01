@@ -90,6 +90,32 @@ cmd_update() {
         exit 1
     fi
 
+    # ── Version check before update ──
+    echo "Checking OpenClaw versions..."
+
+    # Get current installed version
+    local CURRENT_VER
+    CURRENT_VER=$(npm list -g openclaw --depth=0 2>/dev/null | grep 'openclaw@' | sed 's/.*openclaw@//' | tr -d '[:space:]') || true
+
+    # Get latest available version
+    local LATEST_VER
+    LATEST_VER=$(npm view openclaw version 2>/dev/null || echo "") || true
+
+    if [ -z "$CURRENT_VER" ]; then
+        echo -e "${YELLOW}[WARN]${NC} OpenClaw not installed locally"
+        echo "Run 'oa --install' first or use the full installer"
+    elif [ -z "$LATEST_VER" ]; then
+        echo -e "${YELLOW}[WARN]${NC} Could not fetch latest version from npm"
+        echo "Check your network connection"
+    elif [ "$CURRENT_VER" = "$LATEST_VER" ]; then
+        echo -e "${GREEN}[OK]${NC} OpenClaw $CURRENT_VER is already the latest"
+        echo "No update needed"
+        exit 0
+    else
+        echo "OpenClaw: $CURRENT_VER → $LATEST_VER (updating)"
+    fi
+
+    # Proceed with update only if versions differ or current not installed
     mkdir -p "$PROJECT_DIR"
     local LOGFILE="$PROJECT_DIR/update.log"
 
