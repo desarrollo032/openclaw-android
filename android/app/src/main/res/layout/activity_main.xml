@@ -180,7 +180,7 @@
             android:maxLines="3"
             android:ellipsize="end" />
 
-        <!-- Error display (hidden by default) -->
+<!-- Error display (hidden by default) -->
         <TextView
             android:id="@+id/installErrorText"
             android:layout_width="match_parent"
@@ -190,6 +190,22 @@
             android:gravity="center"
             android:layout_marginTop="24dp"
             android:maxLines="5"
+            android:visibility="gone" />
+
+        <!-- Botón para abrir terminal cuando la instalación falla -->
+        <Button
+            android:id="@+id/btnOpenTerminalOnError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Abrir Terminal"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:backgroundTint="@color/installErrorText"
+            android:layout_marginTop="16dp"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
             android:visibility="gone" />
 
     </LinearLayout>

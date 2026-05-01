@@ -50,7 +50,7 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_POST_NOTIFICATIONS = 102
     }
 
-    private lateinit var binding: ActivityMainBinding
+private lateinit var binding: ActivityMainBinding
 
     lateinit var sessionManager: TerminalSessionManager
     lateinit var bootstrapManager: BootstrapManager
@@ -62,6 +62,9 @@ class MainActivity : AppCompatActivity() {
     private var altDown = false
     private val terminalSessionClient = OpenClawSessionClient()
     private val terminalViewClient = OpenClawViewClient()
+
+// Variable para almacenar el callback de recuperación de instalación
+    private var installErrorCallback: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         setupTerminalView()
         setupWebView()
         setupExtraKeys()
+        setupInstallErrorButton()
         sessionManager.onSessionsChanged = { updateSessionTabs() }
         startService(Intent(this, OpenClawService::class.java))
 
@@ -230,7 +234,7 @@ class MainActivity : AppCompatActivity() {
      * Show the install progress overlay.
      * Hides both the terminal and WebView so the user sees a clean progress UI.
      */
-    private fun showInstallOverlay() {
+private fun showInstallOverlay() {
         runOnUiThread {
             binding.webView.visibility = View.GONE
             binding.terminalContainer.visibility = View.GONE
@@ -239,13 +243,15 @@ class MainActivity : AppCompatActivity() {
             binding.installProgressPercent.text = "0%"
             binding.installProgressMessage.text = "Preparando..."
             binding.installErrorText.visibility = View.GONE
+            binding.btnOpenTerminalOnError.visibility = View.GONE
         }
     }
 
-    /** Hide the install overlay. */
+/** Hide the install overlay. */
     private fun hideInstallOverlay() {
         runOnUiThread {
             binding.installOverlay.visibility = View.GONE
+            binding.btnOpenTerminalOnError.visibility = View.GONE
         }
     }
 
@@ -258,12 +264,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Show an error in the install overlay (thread-safe). */
+/** Show an error in the install overlay (thread-safe). */
     private fun showInstallOverlayError(message: String) {
         runOnUiThread {
             binding.installErrorText.text = message
             binding.installErrorText.visibility = View.VISIBLE
             binding.installProgressMessage.text = "Instalación fallida"
+            // Mostrar botón para abrir terminal cuando hay error
+            binding.btnOpenTerminalOnError.visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * Configura el botón para abrir terminal cuando hay error de instalación.
+     * Este botón permite al usuario ejecutar comandos manuales para corregir errores.
+     */
+    private fun setupInstallErrorButton() {
+        binding.btnOpenTerminalOnError.setOnClickListener {
+            // Abrir terminal para recuperación manual
+            showTerminal()
+            // Crear una sesión nueva y mostrar mensaje de ayuda
+            val session = sessionManager.createSession()
+            session?.write("echo '=== Terminal de recuperación ==='\n")
+            session?.write("echo 'Ejecuta manualmente los comandos para corregir el error.'\n")
+            session?.write("echo 'Ejemplos:'\n")
+            session?.write("echo '  node --version    # Verificar Node.js'\n")
+            session?.write("echo '  which node     # Verificar ruta de node'\n")
+            session?.write("echo '  npm install -g openclaw@latest --ignore-scripts  # Reintentar instalación'\n")
+            session?.write("echo ''\n")
+            // Ejecutar callback de recuperación si está definido
+            installErrorCallback?.invoke()
         }
     }
 
