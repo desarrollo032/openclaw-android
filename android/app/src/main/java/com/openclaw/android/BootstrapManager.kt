@@ -583,6 +583,61 @@ exit ${d}_rc
     }
 
     /**
+     * Apply executable permissions to all binaries after bootstrap extraction.
+     * This is a fallback to ensure critical binaries are executable even if
+     * markExecutableIfNeeded didn't work properly during extraction.
+     */
+    private fun applyPostExtractionPermissions() {
+        AppLogger.i(TAG, "Applying post-extraction executable permissions")
+        
+        val binDir = File(prefixDir, "bin")
+        if (binDir.isDirectory) {
+            val criticalBinaries = listOf("bash", "sh", "curl", "wget", "apt", "pkg", "dpkg", "tar", "gzip", "chmod")
+            binDir.listFiles()?.forEach { file ->
+                if (file.isFile && criticalBinaries.any { file.name.contains(it) }) {
+                    AppLogger.i(TAG, "Post-extraction: fixing permissions for ${file.name}")
+                    try {
+                        // Multiple permission setting attempts
+                        file.setExecutable(true, false)
+                        file.setExecutable(true, true)
+                        file.setReadable(true, false)
+                        file.setReadable(true, true)
+                        
+                        // Native chmod attempts
+                        Runtime.getRuntime().exec(arrayOf("chmod", "755", file.absolutePath)).waitFor()
+                        Runtime.getRuntime().exec(arrayOf("chmod", "+x", file.absolutePath)).waitFor()
+                        
+                        // Verify permissions were applied
+                        if (file.canExecute()) {
+                            AppLogger.i(TAG, "✓ ${file.name} is now executable")
+                        } else {
+                            AppLogger.e(TAG, "✗ ${file.name} still not executable after chmod attempts")
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Failed to set permissions on ${file.name}", e)
+                    }
+                }
+            }
+        }
+        
+        // Also apply to libexec binaries if they exist
+        val libexecDir = File(prefixDir, "libexec/git-core")
+        if (libexecDir.isDirectory) {
+            libexecDir.listFiles()?.forEach { file ->
+                if (file.isFile) {
+                    file.setExecutable(true, false)
+                    file.setExecutable(true, true)
+                    try {
+                        Runtime.getRuntime().exec(arrayOf("chmod", "755", file.absolutePath)).waitFor()
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "chmod failed on libexec ${file.name}: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Copy all bundled scripts to the OCA dir.
      * post-setup.sh: try GitHub first, fall back to bundled asset.
      * All others: always use bundled asset.
