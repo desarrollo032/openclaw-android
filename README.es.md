@@ -33,6 +33,13 @@ graph TB
     D --> E[OpenClaw AI]
 ```
 
+- **Dashboard Nativo**: Interfaz React que actúa como centro de control (Bootstrap UI).
+- **Instalación Híbrida Inteligente**: 
+  - *Offline (Payload)*: Extrae `openclaw-payload.tar.gz` desde assets o almacenamiento externo. Sin red, instantáneo.
+  - *Online (OTA)*: Descarga el último entorno desde el repositorio si el payload no está presente.
+- **CLI Integrado**: Comando `oa` compatible con el terminal de la App y Termux (detección automática de entorno).
+- **Zero Overhead**: Ejecución directa vía glibc ld.so, sin capas de emulación proot.
+
 ## App Claw Standalone
 
 APK único (sin Termux):
@@ -51,7 +58,7 @@ APK único (sin Termux):
 
 <details><summary>📱 APK (Más Fácil)</summary>
 
-1. [APK Releases](https://github.com/AidanPark/openclaw-android/releases)
+1. Descarga el APK desde [Releases](https://github.com/AidanPark/openclaw-android/releases).
 2. Instala.
 3. Abre app → Setup automático.
 
@@ -73,12 +80,14 @@ openclaw gateway
 
 ## Comandos CLI
 
-| Comando | Acción |
-|---------|--------|
-| `oa --update` | Actualizar |
-| `oa --status` | Estado |
-| `oa --backup` | Backup |
-| `openclaw gateway` | AI Live |
+| Comando | Descripción |
+|---------|-------------|
+| `oa --status` | 📊 Estado del entorno (detecta App vs Termux) |
+| `oa --update` | 🔄 Actualizar plataforma y herramientas |
+| `oa --install` | 🛠️ Añadir herramientas (tmux, code-server, etc.) |
+| `oa --backup` | 💾 Respaldo compatible con la App |
+| `oa --restore` | ⬆️ Restaurar datos |
+| `oa --uninstall` | 🗑️ Remover de forma limpia |
 
 ## 🔒 Seguridad
 

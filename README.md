@@ -87,15 +87,12 @@ El enfoque estándar requiere instalar proot-distro con Linux, añadiendo 700MB-
 
 ---
 
-## 📱 App Claw (Instalación Híbrida)
-
-APK independiente con emulador de terminal + UI WebView. No requiere app externa Termux.
-
-- **Diseño Mobile-First**: Interfaz React rediseñada para ser completamente responsiva.
+- **Dashboard Nativo**: Interfaz React que actúa como centro de control (Bootstrap UI).
 - **Instalación Híbrida Inteligente**: 
-  - *Offline (Payload)*: Extrae un payload empaquetado desde los assets. Sin red, súper rápido.
-  - *Online (Fallback)*: Usa scripts para compilar descargar e inicializar en un sandbox.
-- **Dashboard integrado** para control de gateway, runtime y herramientas.
+  - *Offline (Payload)*: Extrae `openclaw-payload.tar.gz` desde assets o almacenamiento externo. Sin red, instantáneo.
+  - *Online (OTA)*: Descarga el último entorno desde el repositorio si el payload no está presente.
+- **CLI Integrado**: Comando `oa` compatible con el terminal de la App y Termux (detección automática de entorno).
+- **Zero Overhead**: Ejecución directa vía glibc ld.so, sin capas de emulación proot.
 
 Descarga el APK desde [Releases](https://github.com/AidanPark/openclaw-android/releases).
 
@@ -191,13 +188,12 @@ oa --help
 
 | Comando | Descripción |
 |---------|-------------|
-| `oa --update` | 🔄 Actualizar todo |
-| `oa --install` | 🛠️ Añadir herramientas |
-| `oa --uninstall` | 🗑️ Remover todo |
-| `oa --backup` | 💾 Respaldo de datos |
-| `oa --restore` | ⬆️ Restaurar |
-| `oa --status` | 📊 Estado |
-| `oa --version` | 📝 Versión |
+| `oa --status` | 📊 Estado del entorno (detecta App vs Termux) |
+| `oa --update` | 🔄 Actualizar plataforma y herramientas |
+| `oa --install` | 🛠️ Añadir herramientas (tmux, code-server, etc.) |
+| `oa --backup` | 💾 Respaldo compatible con la App |
+| `oa --restore` | ⬆️ Restaurar datos |
+| `oa --uninstall` | 🗑️ Remover de forma limpia |
 
 ---
 

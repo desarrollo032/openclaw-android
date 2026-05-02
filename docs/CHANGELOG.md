@@ -6,6 +6,29 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/), y es
 
 ---
 
+## [App v0.5.0 / Script v1.1.0] — 2026-05-02
+
+### ✨ Añadido (Arquitectura Híbrida)
+
+- **InstallerManager**: Nueva lógica centralizada que gestiona instalaciones *Online* (GitHub OTA) y *Offline* (Payload local).
+- **PayloadExtractor**: Motor de descompresión por streaming basado en Apache Commons Compress. Permite extraer entornos pesados (~200MB) sin saturar la RAM ni causar "pantallas negras".
+- **Dashboard v2**: Rediseño completo de la interfaz de inicio. Ahora el Dashboard es la vista principal con banners de estado interactivos.
+- **is_app_mode**: Detección inteligente en `lib.sh` para ajustar el comportamiento de los scripts cuando se ejecutan dentro del APK.
+- **pkg_safe**: Envoltorio para comandos de sistema que evita crashes en la App al intentar usar herramientas exclusivas de Termux.
+
+### 🔄 Cambiado
+
+- **Build System**: Downgrade a **Gradle 8.11.1** y **AGP 8.7.0** para asegurar compatibilidad total con el entorno de construcción local.
+- **Kotlin 2.1.0**: Actualización del runtime de Kotlin.
+- **Estructura**: Movida la documentación secundaria y READMEs multi-idioma a `docs/` para limpiar la raíz del repositorio.
+
+### 🗑️ Eliminado (Limpieza de Repositorio)
+
+- **Scripts Legados**: Eliminados `bootstrap.sh`, `install-minimal.sh`, `install-tools.sh` y scripts de assets obsoletos. La lógica ahora está centralizada en `InstallerManager`.
+- **Clases Obsoletas**: Removidos `OpenClawSetup.kt` y `BootstrapManager.kt`.
+
+---
+
 ## [App v0.4.1 / Script v1.0.27] — 2026-04-28
 
 ### ✨ Añadido

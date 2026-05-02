@@ -30,8 +30,8 @@ flowchart TD
         Kotlin <-->|Bash -l -c| Term
     end
 
-    subgraph Termux["Entorno Termux (Sistema de archivos local)"]
-        Boot[Bootstrap.sh & Install.sh]
+    subgraph Termux["Entorno Sandbox (Archivos de la App)"]
+        Boot[InstallerManager.kt\n(Online/Offline)]
         Core[Scripts / Plataformas / Parches]
         Glibc[glibc-runner\nEnlazador Dinámico ld.so]
         Node[Node.js Linux-arm64]
@@ -63,16 +63,14 @@ openclaw-android/
 ├── .githooks/        # Hooks de Git para automatización pre-commit
 ├── .vscode/          # Configuración recomendada para Visual Studio Code
 ├── android/          # Código fuente de la Aplicación Android Nativa (APK)
-├── docs/             # Documentación complementaria y guías
-├── patches/          # Parches de compatibilidad para ejecución nativa en Termux/glibc
-├── platforms/        # Instaladores y configuración para plataformas específicas (openclaw)
-├── scripts/          # Lógica modular de instalación, utilidades y scripts auxiliares
-├── tests/            # Scripts para verificar la correcta instalación del sistema
-├── bootstrap.sh      # Punto de entrada inicial para la instalación
-├── install.sh        # Orquestador principal de la instalación
-├── oa.sh             # Interfaz de línea de comandos (CLI) principal
-├── post-setup.sh     # Script posterior a la configuración de la App Claw
-├── update.sh         # Script de actualización de alto nivel
+├── docs/             # Documentación, guías y READMEs multi-idioma
+├── patches/          # Parches de compatibilidad para ejecución nativa (glibc)
+├── platforms/        # Instaladores y configuración por plataforma (openclaw)
+├── scripts/          # Lógica modular, respaldos y utilidades de sistema
+├── tests/            # Scripts de verificación de integridad
+├── install.sh        # Orquestador principal (Modo Termux)
+├── oa.sh             # CLI principal (compatible con App y Termux)
+└── update.sh         # Script de actualización de alto nivel
 └── ...               # Otros archivos de configuración (Gradle, Git, Licencias)
 ```
 
@@ -85,15 +83,12 @@ openclaw-android/
 
 - **Estructura Interna:** `app/src/main/java/com/openclaw/android/`
 - **Clases Kotlin principales:**
-  - `MainActivity.kt`: Contenedor principal que maneja los permisos del sistema, aloja el componente WebView (para la UI React) y el TerminalView (PTY).
-  - `OpenClawService.kt`: Servicio en primer plano (Foreground Service) que utiliza `START_STICKY` para asegurar que el proceso del gateway y la terminal permanezcan vivos en background sin ser cerrados por el sistema operativo.
-  - `BootstrapManager.kt`: Encargado de la gestión inicial: descarga, extrae y configura el entorno básico de Termux (bootstrap) necesario en caso de que el entorno no exista previamente.
-  - `JsBridge.kt`: Contiene métodos con la anotación `@JavascriptInterface`, proporcionando una API (con 34 métodos divididos en 8 dominios como Terminal, Setup, Commands, etc.) para que la SPA en React se comunique con las funciones nativas.
-  - `EventBridge.kt`: Mecanismo inverso al JsBridge. Permite a Kotlin enviar eventos asíncronos hacia la WebView mediante `CustomEvent`.
-  - `CommandRunner.kt`: Ejecutor central. Envuelve los comandos para ser ejecutados en el entorno Termux usando `bash -l -c`, asegurando que `grun` (glibc-runner) se use para binarios como Node.js.
-  - `EnvironmentBuilder.kt`: Construye de forma precisa y mapea las variables de entorno para simular el comportamiento de Termux real (por ejemplo, manejando la ruta `/data/data/com.termux/files/usr`).
-  - `UrlResolver.kt`: Determina de dónde cargar la SPA (puede ser desde los `assets` locales o una URL remota si se configura).
-  - `TerminalSessionManager.kt`: Orquesta y mantiene el estado de múltiples sesiones de pseudo-terminal (PTY).
+  - `MainActivity.kt`: Contenedor principal que maneja permisos, aloja la WebView y el TerminalView.
+  - `InstallerManager.kt`: **Cerebro de la instalación.** Gestiona el flujo híbrido (Online vía GitHub o Offline vía Assets), utiliza `PayloadExtractor` para streaming de archivos grandes y crea los wrappers binarios en `/usr/bin`.
+  - `PayloadExtractor.kt`: Motor de descompresión basado en Apache Commons Compress que permite extraer el entorno sin saturar la memoria RAM del dispositivo.
+  - `JsBridge.kt`: API que conecta React con Kotlin. Incluye métodos para iniciar instalaciones, detectar estado del runtime y ejecutar scripts de forma asíncrona.
+  - `EnvironmentBuilder.kt`: Construye las variables de entorno críticas (LD_LIBRARY_PATH, PATH, etc.) para que los binarios glibc funcionen en el sandbox de Android.
+  - `TerminalSessionManager.kt`: Orquesta sesiones de terminal (PTY) y previene conflictos de librerías entre el sistema Android y el sandbox.
 
 - **Interfaz WebView React (`android/www/`):** Una aplicación de una sola página (SPA) construida en React. Utiliza un enrutador basado en Hash (`HashRouter` porque el esquema `file://` no soporta el History API) y proporciona los paneles de configuración y _dashboard_. El empaquetado final (`www.zip`) soporta un sistema de **OTA** (Over-The-Air) para actualizar atómicamente la interfaz sin necesidad de recompilar e instalar una nueva versión del APK.
 - **Terminal PTY (`terminal-emulator/` y `terminal-view/`):** Subsistema basado en C++ (libtermux.so) y Java para emular un entorno de terminal real.
@@ -147,12 +142,11 @@ Contiene `verify-install.sh` y `verify-compat.sh`, scripts que se ejecutan al fi
 
 ## 5. Archivos raíz destacados
 
-- **`bootstrap.sh`:** El punto de entrada público (usado vía `curl | bash`). Descarga un paquete tarball del repositorio, extrae su contenido y ejecuta `install.sh`. También incluye lógica para intentar usar mirrors de GitHub si la conexión está restringida, y carga certificados CA para asegurar descargas SSL exitosas tempranamente.
-- **`install.sh`:** El orquestador principal. Delega la ejecución en los scripts de la carpeta `scripts/`. Solicita interactivamente la instalación de herramientas adicionales y finalmente llama al instalador de la plataforma seleccionada (OpenClaw).
-- **`oa.sh`:** Interfaz de usuario CLI unificada que se copia a `$PREFIX/bin/oa`. Provee comandos amigables como `oa --update`, `oa --install`, `oa --backup`.
-- **`post-setup.sh`:** Invocado principalmente por la App Android tras extraer el sistema base, finalizando la configuración inicial de la aplicación.
-- **`update.sh` / `update-core.sh`:** Descargan la última versión del repositorio, actualizan los scripts modulares y corren las actualizaciones de NPM de OpenClaw.
-- **`uninstall.sh`:** Remueve todas las carpetas, configuraciones y binarios de OpenClaw del entorno de Termux, devolviendo el almacenamiento.
+- **`install.sh`:** Orquestador principal para instalaciones manuales en Termux.
+- **`oa.sh`:** CLI unificada (vía `oa`). Ahora incluye detección inteligente de entorno (`is_app_mode`) para funcionar sin fallos en el terminal de la App.
+- **`update.sh` / `update-core.sh`:** Actualizan el repositorio y la plataforma. Se han reforzado con `pkg_safe` para evitar crashes en la App.
+- **`uninstall.sh`:** Remoción limpia del entorno.
+- **`build.gradle.kts`:** Configurado con AGP 8.7.0 y Gradle 8.11.1 para máxima estabilidad en el build.
 - **`build.gradle.kts` / `settings.gradle.kts`:** Scripts de construcción del entorno Gradle (utilizando Kotlin DSL) necesarios para compilar la aplicación Android.
 - **`CHANGELOG.md`:** Registro detallado de cambios y versiones del proyecto.
 - **`TODO.md`:** Registro de tareas pendientes de la comunidad y del desarrollador.
