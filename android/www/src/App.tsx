@@ -58,11 +58,12 @@ export function App() {
     navigate(tab === 'dashboard' ? '/dashboard' : '/settings')
   }
 
+  // Remove auto-redirect to setup. The user will be prompted in the dashboard.
   useEffect(() => {
-    if (setupDone === false && !path.startsWith('/setup')) {
-      navigate('/setup')
+    if (path === '/') {
+      navigate('/dashboard')
     }
-  }, [setupDone, path, navigate])
+  }, [path, navigate])
 
   if (setupDone === null) {
     return (

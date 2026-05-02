@@ -51,7 +51,7 @@ class PayloadManager(private val context: Context) {
      * Delegates entirely to [InstallerManager.install].
      */
     suspend fun install(listener: InstallListener) = withContext(Dispatchers.IO) {
-        installer.install(object : InstallerManager.ProgressListener {
+        installer.install("auto", null, object : InstallerManager.ProgressListener {
             override fun onProgress(percent: Int, message: String) {
                 listener.onProgress(message, percent)
             }

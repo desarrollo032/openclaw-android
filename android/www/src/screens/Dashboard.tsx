@@ -11,15 +11,27 @@ interface BootstrapStatus {
 }
 interface PlatformInfo { id: string; name: string }
 interface SessionInfo { id: string; active: boolean }
-interface EnvComponent { version?: string; detected: boolean; path?: string }
-interface EnvInfo {
-  node?: EnvComponent
-  git?: EnvComponent
-  openclaw?: EnvComponent
-  prefix?: string
-  home?: string
-}
 interface InstalledTool { id: string; name: string; version?: string }
+
+function RuntimeItem({ icon, label, status, active, onClick }: { 
+  icon: string, 
+  label: string, 
+  status: string, 
+  active: boolean,
+  onClick?: () => void 
+}) {
+  return (
+    <div 
+      className={`dash-env-item ${active ? 'active' : 'not-found'} ${onClick ? 'clickable' : ''}`}
+      onClick={onClick}
+    >
+      <div className="dash-env-icon">{icon}</div>
+      <div className="dash-env-label">{label}</div>
+      <div className="dash-env-status">{status}</div>
+      <div className={`dash-env-dot ${active ? 'ok' : 'err'}`} />
+    </div>
+  )
+}
 
 function getCommands() {
   return [
@@ -40,7 +52,6 @@ function getManagement() {
 export function Dashboard() {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus | null>(null)
   const [platform, setPlatform] = useState<PlatformInfo | null>(null)
-  const [envInfo, setEnvInfo] = useState<EnvInfo>({})
   const [installedTools, setInstalledTools] = useState<InstalledTool[]>([])
   const [loading, setLoading] = useState(true)
   const [activeSessionId, setActiveSessionId] = useState<string>('')
@@ -67,9 +78,6 @@ export function Dashboard() {
       const active = sessions.find(s => s.active)
       if (active) setActiveSessionId(active.id)
     }
-
-    const env = bridge.callJson<EnvInfo>('getEnvironmentInfo')
-    if (env) setEnvInfo(env)
 
     const tools = bridge.callJson<InstalledTool[]>('getInstalledTools')
     if (tools) setInstalledTools(tools)
@@ -146,37 +154,67 @@ export function Dashboard() {
 
   const isInstalled = bootstrapStatus?.installed && bootstrapStatus?.openclawInstalled
 
-  if (!isInstalled) {
-    return (
-      <div className="page">
-        <div className="empty-state" style={{ minHeight: 'calc(100dvh - 80px)' }}>
-          <img src="./openclaw.svg" alt="OpenClaw"
-            style={{ width: 72, height: 72, opacity: 0.4, marginBottom: 8 }} />
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{t('dash_setup_required')}</div>
-          <div className="empty-state-text">{t('dash_setup_desc')}</div>
-          {bootstrapStatus && (
-            <div style={{
-              marginTop: 16, fontSize: 11, color: 'var(--text-muted)',
-              fontFamily: 'monospace', textAlign: 'left', padding: '8px 16px',
-              background: 'var(--bg-tertiary)', borderRadius: 8, maxWidth: 320,
-            }}>
-              <div>installed: {String(bootstrapStatus.installed)}</div>
-              <div>openclaw: {String(bootstrapStatus.openclawInstalled)}</div>
-              <div>source: {bootstrapStatus.source ?? 'none'}</div>
-              {bootstrapStatus.prefixPath && (
-                <div style={{ wordBreak: 'break-all' }}>
-                  prefix: {bootstrapStatus.prefixPath}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="page">
+      {!isInstalled && (
+        <div className="card" style={{ 
+          background: 'var(--bg-tertiary)', 
+          border: '1px solid var(--warning)',
+          marginBottom: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 24 }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight: 700, color: 'var(--warning)' }}>{t('dash_setup_required')}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('dash_setup_desc')}</div>
+            </div>
+          </div>
+          <button 
+            className="btn btn-primary" 
+            style={{ 
+              width: '100%', 
+              padding: '12px', 
+              fontSize: '15px', 
+              fontWeight: 600,
+              boxShadow: '0 4px 12px rgba(var(--primary-rgb), 0.3)'
+            }}
+            onClick={() => window.location.hash = '/setup'}
+          >
+            🚀 {t('setup_start')}
+          </button>
+        </div>
+      )}
+
+      {/* Floating Action Button for Setup */}
+      {!isInstalled && (
+        <div 
+          onClick={() => window.location.hash = '/setup'}
+          style={{
+            position: 'fixed',
+            bottom: 100,
+            right: 24,
+            width: 64,
+            height: 64,
+            borderRadius: '50%',
+            background: 'var(--primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 28,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            zIndex: 1000,
+            cursor: 'pointer',
+            border: '2px solid rgba(255,255,255,0.2)',
+            animation: 'pulse 2s infinite'
+          }}
+        >
+          ⚙️
+        </div>
+      )}
+
       <div className="dash-header">
         <div className="dash-platform-icon">
           <img src="./openclaw.svg" alt="OpenClaw" style={{ width: 28, height: 28 }} />
@@ -198,28 +236,28 @@ export function Dashboard() {
       </div>
 
       <div className="section-title">{t('dash_runtime')}</div>
-      <div className="card dash-env-grid">
-        {([
-          { key: 'node' as keyof EnvInfo, label: 'Node.js', icon: '⬡' },
-          { key: 'git' as keyof EnvInfo, label: 'git', icon: '⎇' },
-          { key: 'openclaw' as keyof EnvInfo, label: 'openclaw', icon: '🦀' },
-        ]).map(({ key, label, icon }) => {
-          const comp = envInfo[key] as EnvComponent | undefined
-          const detected = comp?.detected ?? false
-          const version = comp?.version
-          return (
-            <div className="dash-env-item" key={key}>
-              <div className="dash-env-icon">{icon}</div>
-              <div className="dash-env-label">{label}</div>
-              <div className={`dash-env-version${detected ? '' : ' not-found'}`}>
-                {detected
-                  ? (version || '✓ installed')
-                  : t('env_not_detected')}
-              </div>
-              <div className={`dash-env-dot${detected ? ' ok' : ' err'}`} />
-            </div>
-          )
-        })}
+      <div className="runtime-grid">
+        <RuntimeItem
+          icon="⬢"
+          label="Node.js"
+          status={bootstrapStatus?.installed ? 'detectado' : t('env_not_detected')}
+          active={!!bootstrapStatus?.installed}
+          onClick={() => !bootstrapStatus?.installed && (window.location.hash = '/setup')}
+        />
+        <RuntimeItem
+          icon="⎇"
+          label="git"
+          status={bootstrapStatus?.installed ? 'detectado' : t('env_not_detected')}
+          active={!!bootstrapStatus?.installed}
+          onClick={() => !bootstrapStatus?.installed && (window.location.hash = '/setup')}
+        />
+        <RuntimeItem
+          icon="🦀"
+          label="openclaw"
+          status={bootstrapStatus?.openclawInstalled ? 'detectado' : t('env_not_detected')}
+          active={!!bootstrapStatus?.openclawInstalled}
+          onClick={() => !bootstrapStatus?.openclawInstalled && (window.location.hash = '/setup')}
+        />
       </div>
 
       {installedTools.length > 0 && (
@@ -238,7 +276,7 @@ export function Dashboard() {
       )}
 
       <div className="section-title">{t('dash_commands')}</div>
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="card" style={{ padding: 0, overflow: 'hidden', opacity: isInstalled ? 1 : 0.5 }}>
         {getCommands().map((item, i) => (
           <CommandRow
             key={item.cmd}
@@ -247,7 +285,7 @@ export function Dashboard() {
             cmd={item.cmd}
             color={item.color}
             borderTop={i > 0}
-            onClick={() => runInTerminal(item.cmd)}
+            onClick={() => isInstalled ? runInTerminal(item.cmd) : alert(t('dash_setup_required'))}
           />
         ))}
       </div>

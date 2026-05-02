@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.URL
 
 /**
  * InstallerManager — single entry point for all installation flows.
@@ -86,33 +87,31 @@ class InstallerManager(private val context: Context) {
 
     /**
      * Main entry point: decide offline vs online, execute, validate.
-     *
-     * Call from a coroutine on any dispatcher — this suspends on IO internally.
-     * Progress is reported via [listener] on the IO thread.
-     *
-     * Flow:
-     *   1. Check if already installed → skip
-     *   2. If payload assets exist → offline install
-     *   3. Else → online bootstrap install
-     *   4. Validate critical files
-     *   5. Write .installed marker
      */
-    suspend fun install(listener: ProgressListener) = withContext(Dispatchers.IO) {
+    suspend fun install(mode: String, customUri: android.net.Uri?, listener: ProgressListener) = withContext(Dispatchers.IO) {
         try {
-            // ── Already installed? ──────────────────────────────────────
-            if (isInstalled()) {
-                AppLogger.i(TAG, "Already installed at $prefix — skipping")
+            // ── Clean start if requested or not installed ──────────────────
+            if (isInstalled() && mode != "force") {
+                AppLogger.i(TAG, "Already installed — skipping")
                 listener.onSuccess()
                 return@withContext
             }
 
-            // ── Choose install path ─────────────────────────────────────
-            if (hasPayloadAsset()) {
-                AppLogger.i(TAG, "Payload assets detected — starting offline install")
-                installOffline(listener)
-            } else {
-                AppLogger.i(TAG, "No payload assets — starting online bootstrap install")
-                installOnline(listener)
+            when (mode) {
+                "offline" -> {
+                    if (customUri != null) {
+                        installFromCustomPayload(customUri, listener)
+                    } else {
+                        installOffline(listener)
+                    }
+                }
+                "online" -> {
+                    installOnline(listener)
+                }
+                else -> {
+                    if (hasPayloadAsset()) installOffline(listener)
+                    else installOnline(listener)
+                }
             }
 
         } catch (e: Exception) {
@@ -124,100 +123,56 @@ class InstallerManager(private val context: Context) {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Offline install (payload assets bundled in APK)
-    // ═══════════════════════════════════════════════════════════════════════
-
     private fun installOffline(listener: ProgressListener) {
-        // ── Clean start ─────────────────────────────────────────────────
-        listener.onProgress(0, "Preparando instalación offline...")
-        prefix.deleteRecursively()
-        prefix.mkdirs()
+        listener.onProgress(0, "Preparando instalación desde assets...")
+        
+        // El payload puede contener usr/ y home/ o estar plano. 
+        // Lo extraeremos en el directorio de archivos de la app.
+        try {
+            listener.onProgress(5, "Extrayendo payload principal (esto puede tardar)...")
+            val count = PayloadExtractor.extractTarGzAsset(
+                context, "openclaw-payload.tar.gz", filesDir
+            )
+            AppLogger.i(TAG, "Payload extracted: $count entries")
+            
+            completeInstallation(listener)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Offline extraction failed: ${e.message}", e)
+            listener.onError("Error extrayendo payload: ${e.message}", e)
+        }
+    }
 
-        // ── Step 1: Small tar.gz modules (bin, certs, patches) ──────────
-        val modules = listOf("bin.tar.gz", "certs.tar.gz", "patches.tar.gz")
-        modules.forEachIndexed { index, module ->
-            val pct = 5 + (index * 10) // 5%, 15%, 25%
-            listener.onProgress(pct, "Extrayendo $module...")
-            try {
-                val count = PayloadExtractor.extractTarGzAsset(
-                    context, "$PAYLOAD_ASSET_DIR/$module", prefix,
-                )
-                AppLogger.i(TAG, "$module: $count entries extracted")
-                if (count == 0) {
-                    AppLogger.w(TAG, "$module extracted 0 entries - may be empty or corrupt")
-                }
-            } catch (e: Exception) {
-                // Log full error details
-                AppLogger.e(TAG, "$module extraction FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
-                // Small modules may be empty placeholders — non-fatal but log it
-                val dirName = module.substringBefore(".tar.gz")
-                File(prefix, dirName).mkdirs()
-                AppLogger.w(TAG, "Created empty directory $dirName as fallback for failed $module")
+    private fun installFromCustomPayload(uri: android.net.Uri, listener: ProgressListener) {
+        listener.onProgress(0, "Preparando instalación desde archivo externo...")
+        try {
+            listener.onProgress(5, "Abriendo archivo seleccionado...")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                listener.onProgress(10, "Extrayendo contenido (streaming)...")
+                val count = PayloadExtractor.extractTarGzStream(input, filesDir)
+                AppLogger.i(TAG, "Custom payload extracted: $count entries")
             }
-        }
-
-        // ── Step 2: Split lib parts (streaming, no temp file) ───────────
-        listener.onProgress(35, "Extrayendo librerías (streaming)...")
-        val libParts = listOf("aa", "ab", "ac", "ad", "ae", "af")
-        try {
-            val count = PayloadExtractor.extractSplitTarGzAsset(
-                context, PAYLOAD_ASSET_DIR, "lib.part_", libParts, prefix,
-            )
-            AppLogger.i(TAG, "lib split parts: $count entries extracted (streaming)")
+            
+            completeInstallation(listener)
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Streaming lib extraction failed: ${e.message}", e)
-            listener.onError("Error extrayendo librerías: ${e.message}", e)
-            return
+            AppLogger.e(TAG, "Custom payload extraction failed: ${e.message}", e)
+            listener.onError("Error extrayendo archivo externo: ${e.message}", e)
         }
-        listener.onProgress(60, "Librerías extraídas correctamente")
+    }
 
-        // ── Step 3: glibc-aarch64.tar.xz ────────────────────────────────
-        listener.onProgress(62, "Copiando glibc al disco...")
-        val tempGlibc = File(cacheDir, "glibc-aarch64.tar.xz")
-        try {
-            val bytes = PayloadExtractor.copyAssetToFile(
-                context, "$PAYLOAD_ASSET_DIR/glibc-aarch64.tar.xz", tempGlibc,
-            )
-            AppLogger.i(TAG, "glibc copied to disk: ${bytes / 1024 / 1024}MB")
-
-            listener.onProgress(70, "Descomprimiendo glibc (xz)...")
-            val count = PayloadExtractor.extractTarXzFile(tempGlibc, prefix)
-            AppLogger.i(TAG, "glibc: $count entries extracted")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "glibc extraction failed: ${e.message}", e)
-            listener.onError("Error extrayendo glibc: ${e.message}", e)
-            return
-        } finally {
-            tempGlibc.delete()
-        }
-        listener.onProgress(85, "glibc extraído correctamente")
-
-        // ── Step 4: Apply permissions + create wrappers ─────────────────
-        listener.onProgress(87, "Configurando permisos...")
+    private fun completeInstallation(listener: ProgressListener) {
+        listener.onProgress(80, "Configurando entorno...")
+        
+        // Asegurar que los scripts de assets estén actualizados en el destino
+        applyScriptUpdate()
+        
+        // Aplicar permisos
         applyPermissions()
-        applyScriptUpdate() // Ensure run-openclaw.sh and post-setup.sh are copied from assets
-
-        // ── Step 5: Validate ────────────────────────────────────────────
-        listener.onProgress(92, "Validando instalación...")
-        val result = InstallValidator.validatePayload(prefix)
-        if (!result.passed) {
-            val msg = "Validación falló: ${result.errors.joinToString("; ")}"
-            AppLogger.e(TAG, msg)
-            listener.onError(msg)
-            return
-        }
-        result.warnings.forEach { w ->
-            AppLogger.w(TAG, "Post-install warning: $w")
-        }
-
-        // ── Step 6: Write marker ────────────────────────────────────────
-        listener.onProgress(97, "Finalizando instalación...")
+        
+        // Escribir marcador de instalación exitosa
         writeMarker()
-
-        listener.onProgress(100, "Instalación completada")
+        
+        listener.onProgress(100, "¡Instalación completada!")
         listener.onSuccess()
-        AppLogger.i(TAG, "Offline installation completed successfully")
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -225,48 +180,55 @@ class InstallerManager(private val context: Context) {
     // ═══════════════════════════════════════════════════════════════════════
 
     private suspend fun installOnline(listener: ProgressListener) {
-        listener.onProgress(0, "Descargando bootstrap de Termux...")
-        val bootstrapManager = BootstrapManager(context)
+        listener.onProgress(0, "Iniciando descarga de payload...")
+        
+        val payloadUrl = "https://github.com/desarrollo032/openclaw-android/releases/download/latest/openclaw-payload.tar.gz"
+        val tempFile = File(cacheDir, "downloaded-payload.tar.gz")
+        
         try {
-            bootstrapManager.startSetup { progress, message ->
-                val pct = (progress * 90).toInt() // Reserve last 10% for validation
-                listener.onProgress(pct, message)
+            listener.onProgress(5, "Conectando con el servidor...")
+            val url = URL(payloadUrl)
+            val connection = url.openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 15000
+            connection.readTimeout = 30000
+            
+            if (connection.responseCode != 200) {
+                throw Exception("Error del servidor: ${connection.responseCode} ${connection.responseMessage}")
             }
+            
+            val totalSize = connection.contentLength.toLong()
+            var downloaded = 0L
+            
+            listener.onProgress(10, "Descargando payload (${totalSize / 1024 / 1024}MB)...")
+            
+            connection.inputStream.use { input ->
+                tempFile.outputStream().use { output ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        downloaded += bytesRead
+                        if (totalSize > 0) {
+                            val pct = 10 + (downloaded * 60 / totalSize).toInt()
+                            listener.onProgress(pct, "Descargando... ${(downloaded / 1024 / 1024)}MB / ${(totalSize / 1024 / 1024)}MB")
+                        }
+                    }
+                }
+            }
+            
+            listener.onProgress(70, "Descarga completada. Extrayendo...")
+            tempFile.inputStream().use { input ->
+                val count = PayloadExtractor.extractTarGzStream(input, filesDir)
+                AppLogger.i(TAG, "Online payload extracted: $count entries")
+            }
+            
+            completeInstallation(listener)
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Bootstrap download/extract failed: ${e.message}", e)
-            listener.onError(
-                "Error descargando bootstrap: ${e.message ?: "sin conexión"}. " +
-                "Verifica tu conexión a internet.",
-                e,
-            )
-            return
+            AppLogger.e(TAG, "Online install failed: ${e.message}", e)
+            listener.onError("Error en la instalación online: ${e.message}", e)
+        } finally {
+            tempFile.delete()
         }
-
-        // Validate bootstrap installation
-        listener.onProgress(92, "Validando bootstrap...")
-        if (!bootstrapManager.isInstalled()) {
-            listener.onError("Bootstrap se descargó pero no se instaló correctamente")
-            return
-        }
-
-        listener.onProgress(55, "Instalando OpenClaw...")
-        val openClawManager = OpenClawManager(context)
-        val (openClawOk, openClawError) = openClawManager.installOrUpdate { percent, message ->
-            val mapped = 55 + (percent * 0.42f).toInt()
-            listener.onProgress(mapped.coerceIn(55, 97), message)
-        }
-        if (!openClawOk) {
-            listener.onError(openClawError ?: "OpenClaw installation failed")
-            return
-        }
-
-        // Write environment marker only after OpenClaw is actually installed.
-        listener.onProgress(97, "Finalizando...")
-        writeMarker()
-
-        listener.onProgress(100, "OpenClaw instalado correctamente")
-        listener.onSuccess()
-        AppLogger.i(TAG, "Online OpenClaw installation completed successfully")
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -287,61 +249,56 @@ class InstallerManager(private val context: Context) {
      * Set executable permissions on extracted binaries and create emergency wrappers.
      */
     private fun applyPermissions() {
-        // Mark all bin/ files executable
+        // Encontrar el directorio del payload (puede estar directamente en filesDir o en openclaw-payload/)
+        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+            File(filesDir, "openclaw-payload")
+        } else {
+            filesDir
+        }
+
+        AppLogger.i(TAG, "Applying permissions in ${ocaPayloadDir.absolutePath}")
+
+        // Asegurar que run-openclaw.sh sea ejecutable
+        val runScript = File(ocaPayloadDir, "run-openclaw.sh")
+        if (runScript.exists()) {
+            runScript.setExecutable(true, false)
+            runScript.setExecutable(true, true)
+        }
+
+        // Asegurar que el binario de node sea ejecutable
+        val nodeBin = File(ocaPayloadDir, "bin/node")
+        if (nodeBin.exists()) {
+            nodeBin.setExecutable(true, false)
+            nodeBin.setExecutable(true, true)
+        }
+
+        // Asegurar que el cargador de glibc sea ejecutable
+        val ldso = File(ocaPayloadDir, "glibc/lib/ld-linux-aarch64.so.1")
+        if (ldso.exists()) {
+            ldso.setExecutable(true, false)
+            ldso.setExecutable(true, true)
+        }
+        
+        // Crear enlace simbólico o wrapper en bin/openclaw para acceso fácil
         val binDir = File(prefix, "bin")
+        binDir.mkdirs()
+        val openclawLink = File(binDir, "openclaw")
+        val runScript = getRunScriptPath()
+        
+        if (runScript.exists()) {
+            try {
+                // Intentar crear un wrapper script en bin/openclaw
+                val wrapper = "#!/system/bin/sh\nexec \"${runScript.absolutePath}\" \"$@\"\n"
+                openclawLink.writeText(wrapper)
+                openclawLink.setExecutable(true, false)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to create bin wrapper: ${e.message}")
+            }
+        }
+
         if (binDir.isDirectory) {
             binDir.listFiles()?.forEach { 
                 it.setExecutable(true, false)
-                it.setExecutable(true, true) // Also set for owner+group+others
-            }
-            AppLogger.i(TAG, "Permissions set on ${binDir.listFiles()?.size ?: 0} bin files")
-        }
-
-        // Emergency bash wrapper → if bash is missing, wrap /system/bin/sh
-        val bashFile = File(binDir, "bash")
-        if (!bashFile.exists()) {
-            val script = "#!/system/bin/sh\n# Emergency bash wrapper\nexec /system/bin/sh\n"
-            bashFile.writeText(script)
-            bashFile.setExecutable(true, false)
-            bashFile.setExecutable(true, true)
-            AppLogger.i(TAG, "Emergency bash wrapper created")
-        }
-
-        // Global 'openclaw' command wrapper
-        val openclawBin = File(binDir, "openclaw")
-        if (!openclawBin.exists()) {
-            val runScript = "${filesDir.absolutePath}/payload/run-openclaw.sh"
-            val script = "#!/system/bin/sh\nexec \"$runScript\" \"\$@\"\n"
-            openclawBin.writeText(script)
-            openclawBin.setExecutable(true, false)
-            openclawBin.setExecutable(true, true)
-            // Fallback: try chmod if setExecutable failed
-            try {
-                Runtime.getRuntime().exec(arrayOf("chmod", "755", openclawBin.absolutePath))
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "chmod fallback failed for openclaw wrapper: ${e.message}")
-            }
-            AppLogger.i(TAG, "openclaw wrapper created with executable permissions")
-        } else {
-            // Ensure existing openclaw wrapper has executable permissions
-            openclawBin.setExecutable(true, false)
-            openclawBin.setExecutable(true, true)
-            try {
-                Runtime.getRuntime().exec(arrayOf("chmod", "755", openclawBin.absolutePath))
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "chmod fallback failed for existing openclaw wrapper: ${e.message}")
-            }
-        }
-
-        // Ensure run-openclaw.sh exists and is executable
-        val runOpenclawScript = File(filesDir, "payload/run-openclaw.sh")
-        if (runOpenclawScript.exists()) {
-            runOpenclawScript.setExecutable(true, false)
-            runOpenclawScript.setExecutable(true, true)
-            try {
-                Runtime.getRuntime().exec(arrayOf("chmod", "755", runOpenclawScript.absolutePath))
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "chmod fallback failed for run-openclaw.sh: ${e.message}")
             }
         }
     }
@@ -350,6 +307,15 @@ class InstallerManager(private val context: Context) {
     // Status queries (for JsBridge / UI)
     // ═══════════════════════════════════════════════════════════════════════
 
+    fun getRunScriptPath(): File {
+        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+            File(filesDir, "openclaw-payload")
+        } else {
+            filesDir
+        }
+        return File(ocaPayloadDir, "run-openclaw.sh")
+    }
+
     fun getStatus(): String = when {
         isReady() -> "ready"
         isInstalled() -> "setup_required"
@@ -357,10 +323,15 @@ class InstallerManager(private val context: Context) {
     }
 
     fun isOpenClawInstalled(): Boolean {
-        // Offline payload path: wrapper is created by applyPermissions()
-        if (File(prefix, "bin/openclaw").exists()) return true
-        // Online bootstrap path
-        return File(prefix, "lib/node_modules/openclaw/openclaw.mjs").exists()
+        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+            File(filesDir, "openclaw-payload")
+        } else {
+            filesDir
+        }
+        // Verificar binario de openclaw (enlace o wrapper) o script de arranque
+        return File(prefix, "bin/openclaw").exists() || 
+               File(ocaPayloadDir, "run-openclaw.sh").exists() ||
+               File(prefix, "lib/node_modules/openclaw/openclaw.mjs").exists()
     }
 
     /** Sync www assets from APK to the share directory. */
@@ -369,13 +340,18 @@ class InstallerManager(private val context: Context) {
         wwwDest.mkdirs()
     }
 
-    /** Apply script updates when APK version changes. */
     fun applyScriptUpdate() {
+        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+            File(filesDir, "openclaw-payload")
+        } else {
+            filesDir
+        }
         val ocaDir = File(filesDir, "home/.openclaw-android")
+        
         val scripts = listOf(
             "run.sh" to File(prefix, "bin/run.sh"),
-            "post-setup.sh" to File(filesDir, "payload/post-setup.sh"),
-            "run-openclaw.sh" to File(filesDir, "payload/run-openclaw.sh"),
+            "post-setup.sh" to File(ocaPayloadDir, "post-setup.sh"),
+            "run-openclaw.sh" to File(ocaPayloadDir, "run-openclaw.sh"),
             "glibc-compat.js" to File(ocaDir, "patches/glibc-compat.js"),
         )
         for ((assetName, destFile) in scripts) {
@@ -386,7 +362,6 @@ class InstallerManager(private val context: Context) {
                 }
                 destFile.setExecutable(true, false)
             } catch (_: Exception) {
-                // Script may not exist in assets — non-fatal
             }
         }
     }

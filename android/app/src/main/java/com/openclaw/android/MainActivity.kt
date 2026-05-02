@@ -176,8 +176,9 @@ private lateinit var binding: ActivityMainBinding
      * Called from onStoragePermissionsGranted() so storage is always available.
      */
     private fun checkAndStartInstallation() {
-        val isInstalled = OpenClawSetup(this).isPayloadAvailable()
-        val isOpenClawInstalled = isInstalled // Simplification since OpenClawSetup handles the full payload
+        val installer = InstallerManager(this)
+        val isInstalled = installer.isInstalled()
+        val isOpenClawInstalled = installer.isOpenClawInstalled()
 
         AppLogger.i(
             TAG,
@@ -258,8 +259,8 @@ private fun showInstallOverlay() {
 
             installTerminalSession = TerminalSession(
                 "/system/bin/sh",
-                homeDir.absolutePath, // Iniciar en el directorio home (dinámico)
-                arrayOf("sh", "-c", "cat"), // Usar cat para visualizar logs sin ejecutar comandos
+                homeDir.absolutePath,
+                arrayOf("/system/bin/sh"), // Usar shell interactiva para que no muera el proceso
                 emptyArray(),
                 1000,
                 terminalSessionClient
@@ -267,6 +268,9 @@ private fun showInstallOverlay() {
             binding.installTerminalView.setTerminalViewClient(terminalViewClient)
             binding.installTerminalView.setTextSize(12)
             binding.installTerminalView.attachSession(installTerminalSession)
+            
+            // Limpiar terminal y mostrar bienvenida
+            installTerminalSession?.write("\u001b[2J\u001b[H") // ANSI clear
         }
         installTerminalSession?.write("=== Iniciando Instalación de OpenClaw ===\r\n")
     }
@@ -353,24 +357,33 @@ private fun showInstallOverlay() {
         mode: String = "auto",
         onComplete: ((success: Boolean) -> Unit)? = null,
     ) {
+        val installer = InstallerManager(this)
+        
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val setup = OpenClawSetup(this@MainActivity)
-                // Use selectedPayloadUri if mode is offline and URI is set
-                val customFile = if (mode == "offline") selectedPayloadUri else null
-                
-                setup.setupOpenClaw(customFile)
-                AppLogger.i(TAG, "Installation completed successfully")
-                runOnUiThread {
-                    hideInstallOverlay()
-                    reloadWebView()
-                    onComplete?.invoke(true)
+            installer.install(mode, selectedPayloadUri, object : InstallerManager.ProgressListener {
+                override fun onProgress(percent: Int, message: String) {
+                    updateInstallProgress(percent, message)
                 }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Installation error: ${e.message}", e)
-                showInstallOverlayError(e.message ?: "Unknown error")
-                runOnUiThread { onComplete?.invoke(false) }
-            }
+
+                override fun onSuccess() {
+                    AppLogger.i(TAG, "Installation completed successfully")
+                    runOnUiThread {
+                        hideInstallOverlay()
+                        reloadWebView()
+                        onComplete?.invoke(true)
+                    }
+                }
+
+                override fun onError(message: String, cause: Throwable?) {
+                    if (cause != null) {
+                        AppLogger.e(TAG, "Installation error: $message", cause)
+                    } else {
+                        AppLogger.e(TAG, "Installation error: $message")
+                    }
+                    showInstallOverlayError(message)
+                    runOnUiThread { onComplete?.invoke(false) }
+                }
+            })
         }
     }
 

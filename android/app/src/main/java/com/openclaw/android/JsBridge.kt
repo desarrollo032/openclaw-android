@@ -152,8 +152,8 @@ class JsBridge(
 
     @JavascriptInterface
     fun getSetupStatus(): String {
-        val setup = OpenClawSetup(activity)
-        val isInstalled = setup.isPayloadAvailable()
+        val installer = InstallerManager(activity)
+        val isInstalled = installer.isInstalled()
         
         return gson.toJson(mapOf(
             "bootstrapInstalled" to isInstalled,
@@ -166,8 +166,8 @@ class JsBridge(
 
     @JavascriptInterface
     fun getBootstrapStatus(): String {
-        val setup = OpenClawSetup(activity)
-        val installed = setup.isPayloadAvailable()
+        val installer = InstallerManager(activity)
+        val installed = installer.isInstalled()
         val (prefix, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
 
         return gson.toJson(
@@ -193,21 +193,9 @@ class JsBridge(
 
     @JavascriptInterface
     fun startSetup(mode: String = "auto") {
-        // Delegate to the centralized install path.
-        // InstallerManager will detect no payload assets and use the online bootstrap.
         activity.runOnUiThread {
             activity.startInstallFromUi(mode) { success ->
-                if (success) {
-                    eventBridge.emit(
-                        "setup_progress",
-                        mapOf("progress" to 1.0f, "message" to "OpenClaw instalado"),
-                    )
-                } else {
-                    eventBridge.emit(
-                        "setup_progress",
-                        mapOf("progress" to 0f, "message" to "Error en la instalación"),
-                    )
-                }
+                AppLogger.i("JsBridge", "Setup finished: success=$success")
             }
         }
     }
@@ -276,11 +264,11 @@ class JsBridge(
                     activity.showTerminal()
                     val session = sessionManager.createSession()
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        val runScript = "${activity.filesDir.absolutePath}/payload/run-openclaw.sh"
-                        val runFile = java.io.File(runScript)
+                        val installer = InstallerManager(activity)
+                        val runFile = installer.getRunScriptPath()
                         if (runFile.exists()) {
                             runFile.setExecutable(true)
-                            session.write("$runScript\n")
+                            session.write("${runFile.absolutePath}\n")
                         } else {
                             session.write("echo 'Instalación completada. Escribe openclaw para iniciar.'\n")
                         }
@@ -310,8 +298,8 @@ class JsBridge(
      */
     @JavascriptInterface
     fun hasPayloadAsset(): String {
-        val setup = OpenClawSetup(activity)
-        return gson.toJson(mapOf("hasPayload" to setup.hasPayloadInAssets()))
+        val installer = InstallerManager(activity)
+        return gson.toJson(mapOf("hasPayload" to installer.hasPayloadAsset()))
     }
 
     @JavascriptInterface
