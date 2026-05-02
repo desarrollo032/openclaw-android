@@ -851,9 +851,7 @@ if [ -f "$TOOL_CONF" ]; then
 
     HAS_TOOLS=false
     for var in INSTALL_TMUX INSTALL_TTYD INSTALL_DUFS INSTALL_CODE_SERVER INSTALL_PLAYWRIGHT INSTALL_CLAUDE_CODE INSTALL_GEMINI_CLI INSTALL_CODEX_CLI; do
-        eval "val=\${$var:-false}"
-        # shellcheck disable=SC2154
-        [ "$val" = "true" ] && HAS_TOOLS=true && break
+        [ "${!var}" = "true" ] && HAS_TOOLS=true && break
     done
 
     if $HAS_TOOLS; then
