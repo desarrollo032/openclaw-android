@@ -221,8 +221,6 @@ object EnvironmentBuilder {
      * Using the canonical path ensures dpkg, bash, and apt find their config dirs.
      */
     private fun normalizeFilesDir(filesDir: File): File {
-        val path = filesDir.absolutePath
-        val normalized = path.replace(Regex("^/data/user/\\d+/"), "/data/data/")
-        return if (normalized != path) File(normalized) else filesDir
+        return filesDir
     }
 }
