@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import android.webkit.JavascriptInterface
+import androidx.core.content.pm.PackageInfoCompat
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -151,56 +152,31 @@ class JsBridge(
 
     @JavascriptInterface
     fun getSetupStatus(): String {
-        val installer = InstallerManager(activity)
-        val rootfsManager = RootfsManager(activity)
-
-        // 1. Check if the new universal InstallerManager says we're fully installed
-        if (installer.isReady()) {
-            return gson.toJson(mapOf(
-                "bootstrapInstalled" to true,
-                "runtimeInstalled" to true,
-                "wwwInstalled" to true,
-                "platformInstalled" to true,
-                "source" to if (installer.hasPayloadAsset()) "payload" else "bootstrap"
-            ))
-        }
-
-        // 2. Fallback to old rootfs/bootstrap logic just in case
-        return if (rootfsManager.isInstalled()) {
-            val status = rootfsManager.getStatus()
-            gson.toJson(mapOf(
-                "bootstrapInstalled" to status.rootfsExtracted,
-                "runtimeInstalled" to status.openclawInstalled,
-                "wwwInstalled" to status.wwwInstalled,
-                "platformInstalled" to status.openclawInstalled,
-                "source" to "rootfs",
-            ))
-        } else {
-            gson.toJson(bootstrapManager.getStatus())
-        }
+        val setup = OpenClawSetup(activity)
+        val isInstalled = setup.isPayloadAvailable()
+        
+        return gson.toJson(mapOf(
+            "bootstrapInstalled" to isInstalled,
+            "runtimeInstalled" to isInstalled,
+            "wwwInstalled" to isInstalled,
+            "platformInstalled" to isInstalled,
+            "source" to "payload"
+        ))
     }
 
     @JavascriptInterface
     fun getBootstrapStatus(): String {
-        val installer = InstallerManager(activity)
-        val rootfsManager = RootfsManager(activity)
-
-        val installed = installer.isInstalled() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
-        val openclawInstalled = installer.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
+        val setup = OpenClawSetup(activity)
+        val installed = setup.isPayloadAvailable()
         val (prefix, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
 
         return gson.toJson(
             mapOf(
                 "installed" to installed,
-                "openclawInstalled" to openclawInstalled,
+                "openclawInstalled" to installed,
                 "prefixPath" to prefix,
                 "openclawPath" to CommandRunner.OPENCLAW_DIR,
-                "source" to when {
-                    installer.isInstalled() -> if (installer.hasPayloadAsset()) "payload" else "bootstrap"
-                    rootfsManager.isInstalled() -> "rootfs"
-                    bootstrapManager.isInstalled() -> "bootstrap"
-                    else -> "none"
-                },
+                "source" to "payload"
             ),
         )
     }
@@ -1076,7 +1052,7 @@ class JsBridge(
         return gson.toJson(
             mapOf(
                 "versionName" to (pInfo.versionName ?: "unknown"),
-                "versionCode" to pInfo.versionCode,
+                "versionCode" to PackageInfoCompat.getLongVersionCode(pInfo),
                 "packageName" to activity.packageName,
             ),
         )

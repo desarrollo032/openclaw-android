@@ -34,7 +34,7 @@ class BootstrapManager(
     // Normalizing to the canonical path ensures dpkg, bash and other binaries
     // that use open()/opendir() (not intercepted by libtermux-exec) find their
     // config files at the expected location.
-    private val filesDir: File = normalizeFilesDir(context.filesDir)
+    private val filesDir: File = context.filesDir
 
     val prefixDir = File(filesDir, "usr")
     val homeDir = File(filesDir, "home")
@@ -200,8 +200,31 @@ class BootstrapManager(
         }
 
         onProgress(PROGRESS_DOWNLOADING, "Downloading bootstrap...")
-        val url = UrlResolver(context).getBootstrapUrl()
-        return URL(url).openStream()
+        val urlString = UrlResolver(context).getBootstrapUrl()
+
+        // Retry logic for DNS/Network errors
+        var lastException: Exception? = null
+        for (i in 1..3) {
+            try {
+                AppLogger.i(TAG, "Downloading bootstrap (attempt $i): $urlString")
+                val url = URL(urlString)
+                // FORZAR CONEXIÓN DIRECTA: Ignorar cualquier Proxy o VPN del sistema
+                val connection = url.openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection
+                connection.connectTimeout = 20000
+                connection.readTimeout = 60000
+                connection.instanceFollowRedirects = true
+
+                return connection.getInputStream()
+            } catch (e: Exception) {
+                lastException = e
+                AppLogger.w(TAG, "Bootstrap download attempt $i failed: ${e.message}")
+                if (i < 3) {
+                    onProgress(PROGRESS_DOWNLOADING, "Reintentando descarga ($i/3)...")
+                    kotlinx.coroutines.delay(5000)
+                }
+            }
+        }
+        throw lastException ?: Exception("Error de conexión al descargar bootstrap")
     }
 
     // --- Extraction ---
@@ -245,7 +268,7 @@ class BootstrapManager(
                 name.startsWith("lib/bash/") ||
                 name.endsWith(".so") ||
                 name.contains(".so.")
-        
+
         // Apply executable permissions to all known executables and ELF binaries
         if (knownExecutable) {
             file.setExecutable(true, false)
@@ -265,7 +288,7 @@ class BootstrapManager(
                 AppLogger.w(TAG, "chmod fallback failed for ELF binary $name: ${e.message}")
             }
         }
-        
+
         // Special handling for critical binaries that must be executable
         val criticalBinaries = listOf("bash", "sh", "curl", "wget", "apt", "pkg", "dpkg")
         if (criticalBinaries.any { name.contains(it) }) {
@@ -634,7 +657,7 @@ exit ${d}_rc
      */
     private fun applyPostExtractionPermissions() {
         AppLogger.i(TAG, "Applying post-extraction executable permissions")
-        
+
         val binDir = File(prefixDir, "bin")
         if (binDir.isDirectory) {
             val criticalBinaries = listOf("bash", "sh", "curl", "wget", "apt", "pkg", "dpkg", "tar", "gzip", "chmod")
@@ -647,11 +670,11 @@ exit ${d}_rc
                         file.setExecutable(true, true)
                         file.setReadable(true, false)
                         file.setReadable(true, true)
-                        
+
                         // Native chmod attempts
                         Runtime.getRuntime().exec(arrayOf("chmod", "755", file.absolutePath)).waitFor()
                         Runtime.getRuntime().exec(arrayOf("chmod", "+x", file.absolutePath)).waitFor()
-                        
+
                         // Verify permissions were applied
                         if (file.canExecute()) {
                             AppLogger.i(TAG, "✓ ${file.name} is now executable")
@@ -664,7 +687,7 @@ exit ${d}_rc
                 }
             }
         }
-        
+
         // Also apply to libexec binaries if they exist
         val libexecDir = File(prefixDir, "libexec/git-core")
         if (libexecDir.isDirectory) {
@@ -711,7 +734,7 @@ exit ${d}_rc
         if (!binDir.isDirectory) return
 
         val criticalBinaries = listOf("bash", "sh", "curl", "wget", "git", "npm", "node")
-        
+
         criticalBinaries.forEach { binName ->
             val source = File(binDir, binName)
             if (source.exists() && source.isFile) {
@@ -727,7 +750,7 @@ exit ${d}_rc
                 }
             }
         }
-        
+
         // Update PATH to include external executable directory
         val newPath = "${targetDir.absolutePath}:$prefixDir/bin:/system/bin:/bin"
         System.setProperty("java.library.path", newPath)
@@ -886,22 +909,4 @@ private object Os {
     }
 }
 
-/**
- * Normalize context.filesDir to its canonical /data/data/<pkg>/files path.
- *
- * On Android 7+ with multi-user support, context.filesDir may return
- * /data/user/0/<pkg>/files which is a bind-mount alias for the same inode.
- * Bootstrap binaries compiled for Termux have /data/data/... hardcoded in
- * their ELF strings and config lookups (open/opendir, not intercepted by
- * libtermux-exec). Using the canonical path avoids "No such file or directory"
- * errors in dpkg, bash, and apt when they try to open their config dirs.
- */
-private fun normalizeFilesDir(filesDir: File): File {
-    // /data/user/0/<pkg>/files → /data/data/<pkg>/files
-    val path = filesDir.absolutePath
-    val normalized = path.replace(
-        Regex("^/data/user/\\d+/"),
-        "/data/data/",
-    )
-    return if (normalized != path) File(normalized) else filesDir
-}
+

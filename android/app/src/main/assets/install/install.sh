@@ -9,8 +9,8 @@
 # injected by TerminalManager.buildEnvBlock() / EnvironmentBuilder.
 #
 # Required env vars (injected by TerminalManager before this script runs):
-#   PREFIX   — filesDir/usr  (e.g. /data/data/com.openclaw.android.debug/files/usr)
-#   HOME     — filesDir/home
+#   PREFIX   — app sandbox usr dir (e.g. /data/user/0/com.openclaw.android.debug/files/usr)
+#   HOME     — app sandbox home dir
 #   TMPDIR   — filesDir/tmp
 #   PATH     — $PREFIX/bin:$PREFIX/bin/applets:/system/bin:/bin
 #
@@ -68,8 +68,7 @@ if [ ! -x "$APT_BIN" ]; then
 fi
 
 # ── Ensure dpkg/apt directories exist ────────────────────────────────────────
-# These should already exist from BootstrapManager.configureApt(), but we
-# create them here as a safety net in case of partial installs.
+# Skip if already exists and has correct permissions to save time
 for dir in \
     "$PREFIX/var/lib/dpkg" \
     "$PREFIX/var/lib/dpkg/info" \
@@ -79,8 +78,10 @@ for dir in \
     "$PREFIX/var/lib/apt/lists/partial" \
     "$PREFIX/var/cache/apt/archives/partial" \
     "$PREFIX/var/log/apt"; do
-    mkdir -p "$dir"
-    chmod 755 "$dir"
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir"
+        chmod 755 "$dir"
+    fi
 done
 
 # Ensure dpkg status file exists
@@ -220,34 +221,17 @@ if [ ! -x "$NPM_BIN" ]; then
     NPM_BIN="$PREFIX/bin/npm"
 fi
 
-# Verify npm registry connectivity before installing
-log "Verifying network connectivity..."
-_NPM_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
-
-# FIX: desactivar set -e para el bloque de red — un fallo de curl no debe matar el proceso
-set +e
-_CURL_OK=false
-if curl -fsSL --connect-timeout 15 --retry 2 "$_NPM_REGISTRY" >/dev/null 2>&1; then
-    _CURL_OK=true
-    log_ok "Registry principal accesible: $_NPM_REGISTRY"
-elif curl -fsSL --connect-timeout 15 --retry 2 "https://registry.npmmirror.com/" >/dev/null 2>&1; then
-    export NPM_CONFIG_REGISTRY="https://registry.npmmirror.com/"
-    _CURL_OK=true
-    log "Usando mirror: npmmirror"
+# Incremental check: Skip npm install if OpenClaw is already there
+OC_MJS="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
+if [ -f "$OC_MJS" ]; then
+    log_ok "OpenClaw already installed at $OC_MJS. Skipping npm install."
 else
-    log_warn "No se pudo verificar conectividad — intentando npm de todas formas"
-fi
-set -e
-unset _CURL_OK
-unset _NPM_REGISTRY
+    # Verify npm registry connectivity before installing
 
-if [ -x "$NPM_BIN" ]; then
-    log "Installing OpenClaw via npm (with retry)..."
-    
     _NPM_RETRIES=3
     _NPM_RETRY_DELAY=5
     _NPM_SUCCESS=false
-    
+
     for _try in $(seq 1 $_NPM_RETRIES); do
         log "  Attempt $_try/$_NPM_RETRIES..."
         if "$NPM_BIN" install -g openclaw --ignore-scripts 2>&1 | tee -a "$LOG_FILE"; then
@@ -263,7 +247,7 @@ if [ -x "$NPM_BIN" ]; then
             fi
         fi
     done
-    
+
     if [ "$_NPM_SUCCESS" != "true" ]; then
         log_err "npm install failed after $_NPM_RETRIES attempts"
         log_err "Last npm output (last 20 lines):"
@@ -273,7 +257,7 @@ if [ -x "$NPM_BIN" ]; then
         log_err "  - Registry: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
         log_err "  - SSL certs: $([ -s "$PREFIX/etc/tls/cert.pem" ] && echo 'OK' || echo 'MISSING')"
     fi
-    
+
     # Verify installation succeeded
     OC_MJS="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
     if [ ! -f "$OC_MJS" ]; then
@@ -292,6 +276,7 @@ else
         log_err "Neither npm nor curl available. Cannot install OpenClaw."
         exit 1
     fi
+fi
 fi
 
 # ── Write installation marker ─────────────────────────────────────────────────

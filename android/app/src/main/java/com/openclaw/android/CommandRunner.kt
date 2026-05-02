@@ -3,7 +3,9 @@ package com.openclaw.android
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.content.Context
+import android.os.Build
 import android.os.Environment
+import androidx.annotation.RequiresApi
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -65,6 +67,7 @@ object CommandRunner {
      * Uses /system/bin/sh (always available on Android) as the shell.
      * The full environment is passed explicitly — no login shell needed.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     fun runSync(
         command: String,
         env: Map<String, String> = buildTermuxEnv(),
@@ -361,6 +364,7 @@ object CommandRunner {
      * This is a legacy helper — the app does not depend on it for normal operation.
      * No-op if Termux is not installed.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     fun runTermuxSetupStorage(onOutput: (String) -> Unit = {}) {
         if (!File(TERMUX_HOME).exists() || !File(TERMUX_HOME).canRead()) {
             AppLogger.i(TAG, "Termux not accessible, skipping termux-setup-storage")
@@ -396,6 +400,7 @@ object CommandRunner {
      * Sets up storage symlinks in the app sandbox, similar to termux-setup-storage.
      * Creates a ~/storage directory with symlinks to standard Android external storage directories.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     fun setupAppStorage(context: Context, onOutput: (String) -> Unit = {}) {
         val env = buildTermuxEnv(context)
         val home = env["HOME"] ?: return

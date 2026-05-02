@@ -208,6 +208,23 @@
             android:paddingBottom="12dp"
             android:visibility="gone" />
 
+        <!-- Mini-terminal para ver el progreso de instalación en tiempo real -->
+        <FrameLayout
+            android:id="@+id/installTerminalContainer"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:layout_marginTop="24dp"
+            android:background="#1A1A1A"
+            android:padding="1dp">
+
+            <com.termux.view.TerminalView
+                android:id="@+id/installTerminalView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:focusable="false"
+                android:focusableInTouchMode="false" />
+        </FrameLayout>
+
     </LinearLayout>
 
 </FrameLayout>

@@ -5,7 +5,6 @@ import android.os.Handler
 import android.os.Looper
 import com.termux.terminal.TerminalSession
 import java.io.File
-import java.util.regex.Regex
 
 /**
  * TerminalManager — orchestrates script execution inside an existing terminal
@@ -66,13 +65,12 @@ class TerminalManager(
      *   which prevents the duplicated-path bug.
      */
     fun buildEnvBlock(): String {
-        // Normalize /data/user/0/<pkg>/files -> /data/data/<pkg>/files
-        // Bootstrap binaries have /data/data/... hardcoded in their ELF strings.
-        val normalizedFilesDir = normalizeFilesDir(filesDir)
-
-        val prefix = normalizedFilesDir.resolve("usr").absolutePath
-        val home = normalizedFilesDir.resolve("home").absolutePath
-        val tmpDir = normalizedFilesDir.resolve("tmp").absolutePath
+        // Usar filesDir directamente para asegurar rutas consistentes (/data/user/0/... o /data/data/...)
+        // No mezclar /data/data/ con /data/user/0/ en el mismo bloque.
+        val base = filesDir.absolutePath
+        val prefix = "$base/usr"
+        val home = "$base/home"
+        val tmpDir = "$base/tmp"
         val ocaBin = "$home/.openclaw-android/bin"
         val nodeDir = "$home/.openclaw-android/node"
         val glibcLib = "$prefix/glibc/lib"
@@ -86,33 +84,52 @@ class TerminalManager(
             appendLine("export HOME=\"$home\"")
             appendLine("export PREFIX=\"$prefix\"")
             appendLine("export TMPDIR=\"$tmpDir\"")
-            appendLine("export TERMUX__PREFIX=\"$prefix\"")
-            appendLine("export TERMUX_PREFIX=\"$prefix\"")
-            appendLine("export TERMUX__ROOTFS=\"${File(prefix).parent}\"")
+            appendLine("export APP_FILES_DIR=\"$base\"")
+            appendLine("export APP_PACKAGE=\"${context.packageName}\"")
             appendLine("export PATH=\"$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin\"")
             appendLine("export NPM_CONFIG_PREFIX=\"$prefix\"")
             appendLine("export npm_config_prefix=\"$prefix\"")
             appendLine("export LD_LIBRARY_PATH=\"$prefix/lib:$glibcLib\"")
+
             // dpkg/apt explicit overrides — prevent fallback to compiled-in Termux paths
             appendLine("export DPKG_ADMINDIR=\"$prefix/var/lib/dpkg\"")
             appendLine("export DPKG_ROOT=\"$prefix\"")
             appendLine("export APT_CONFIG=\"$prefix/etc/apt/apt.conf\"")
             appendLine("export DEBIAN_FRONTEND=noninteractive")
+
+            // Git configuration
+            appendLine("export GIT_EXEC_PATH=\"$prefix/libexec/git-core\"")
+            appendLine("export GIT_TEMPLATE_DIR=\"$prefix/share/git-core/templates\"")
+            appendLine("export GIT_CONFIG_NOSYSTEM=1")
+
+            // SSL and Network
             appendLine("export SSL_CERT_FILE=\"$certBundle\"")
             appendLine("export CURL_CA_BUNDLE=\"$certBundle\"")
             appendLine("export GIT_SSL_CAINFO=\"$certBundle\"")
             appendLine("export RESOLV_CONF=\"$prefix/etc/resolv.conf\"")
-            appendLine("export GIT_CONFIG_NOSYSTEM=1")
+
+            // Locale and terminal
             appendLine("export LANG=en_US.UTF-8")
             appendLine("export TERM=xterm-256color")
+
+            // Android system
             appendLine("export ANDROID_DATA=/data")
             appendLine("export ANDROID_ROOT=/system")
+
+            // OpenClaw specific
             appendLine("export OA_GLIBC=1")
             appendLine("export CONTAINER=1")
+            appendLine("export CLAWDHUB_WORKDIR=\"$home/.openclaw/workspace\"")
+
+            // Termux compatibility (optional but kept for safety)
+            appendLine("export TERMUX__PREFIX=\"$prefix\"")
+            appendLine("export TERMUX_PREFIX=\"$prefix\"")
+            appendLine("export TERMUX__ROOTFS=\"$base\"")
+
+            // Bash startup suppression
             appendLine("export BASH_ENV=/dev/null")
             appendLine("export ENV=/dev/null")
-            appendLine("export APP_FILES_DIR=\"${normalizedFilesDir.absolutePath}\"")
-            appendLine("export APP_PACKAGE=\"${context.packageName}\"")
+
             appendLine("unset LD_PRELOAD")
             appendLine("# --- End Environment Setup ---")
         }
@@ -124,7 +141,7 @@ class TerminalManager(
      * shell processes it as a single atomic read rather than byte-by-byte input.
      */
     private fun writeEnvFile(): File {
-        val tmpDir = normalizeFilesDir(filesDir).resolve("tmp").also { it.mkdirs() }
+        val tmpDir = filesDir.resolve("tmp").also { it.mkdirs() }
         val envFile = tmpDir.resolve(ENV_FILE_NAME)
         envFile.writeText(buildEnvBlock())
         envFile.setReadable(true)
@@ -230,22 +247,5 @@ class TerminalManager(
         }, SHELL_INIT_DELAY_MS)
     }
 
-    /**
-     * Normalizes /data/user/0/<pkg>/files to /data/data/<pkg>/files.
-     *
-     * Android 7+ with multi-user support exposes context.filesDir as
-     * /data/user/0/<pkg>/files (a bind-mount alias). Bootstrap binaries compiled
-     * for Termux have /data/data/... hardcoded in ELF strings and config lookups
-     * via open()/opendir() — calls NOT intercepted by libtermux-exec.so.
-     * Using the canonical path avoids "No such file or directory" errors in dpkg,
-     * bash, and apt when they try to open their config directories.
-     */
-    private fun normalizeFilesDir(dir: File): File {
-        val path = dir.absolutePath
-        val normalized = path.replaceFirst(
-            Regex("^/data/user/\\d+/"),
-            "/data/data/",
-        )
-        return if (normalized != path) File(normalized) else dir
-    }
+
 }

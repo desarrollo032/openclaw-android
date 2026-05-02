@@ -39,9 +39,17 @@ class OpenClawManager(
             homeDir.mkdirs()
             ocaDir.mkdirs()
 
+            // 1. Check if ALREADY fully installed and valid
+            if (isInstalled() && isMarkerValid()) {
+                onProgress(100, "OpenClaw already installed and verified")
+                AppLogger.i(TAG, "OpenClaw is already installed and marker is valid. Skipping.")
+                return@withContext true to null
+            }
+
             onProgress(0, "Preparing minimal OpenClaw runtime...")
             val env = CommandRunner.buildTermuxEnv(context).toMutableMap()
 
+            // 2. Incremental Node.js installation
             if (!hasUsableNpm(env)) {
                 onProgress(10, "Installing Node.js $NODE_MAJOR runtime...")
                 val runtimeOk = installOfficialNode(onProgress) ||
@@ -54,17 +62,21 @@ class OpenClawManager(
                         35,
                     )
                 if (!runtimeOk) return@withContext false to "Node.js runtime installation failed"
+            } else {
+                onProgress(35, "Node.js runtime already available")
+                AppLogger.i(TAG, "Incremental install: Node.js already usable.")
             }
 
             // Verify npm registry connectivity BEFORE installing
             onProgress(35, "Verifying network connectivity...")
+            // Use mirror by default for better reliability in some regions
+            env["NPM_CONFIG_REGISTRY"] = "https://registry.npmmirror.com/"
             val registryOk = verifyNpmRegistry(onProgress, env)
             if (!registryOk) {
-                onProgress(35, "Registry unreachable — trying mirror...")
-                // Use mirror for subsequent installs
-                env["NPM_CONFIG_REGISTRY"] = "https://registry.npmmirror.com/"
-                val mirrorOk = verifyNpmRegistry(onProgress, env)
-                if (!mirrorOk) {
+                onProgress(35, "Mirror unreachable — trying official registry...")
+                env["NPM_CONFIG_REGISTRY"] = "https://registry.npmjs.org/"
+                val officialOk = verifyNpmRegistry(onProgress, env)
+                if (!officialOk) {
                     return@withContext false to "npm registry unreachable — check internet/DNS"
                 }
             }
@@ -95,13 +107,32 @@ class OpenClawManager(
             }
 
             writeInstalledMarker()
-            onProgress(100, "OpenClaw installed")
+
+            // ── ACTIVATION PHASE ───────────────────────────────────────────
+            onProgress(95, "Activating environment...")
+            try {
+                // Forzar recreación de scripts y asegurar permisos antes de terminar
+                CommandRunner.createWrapperScript(filesDir)
+                ocaDir.resolve("installed.json").let {
+                    if (it.exists()) AppLogger.i(TAG, "Environment activated: ${it.name}")
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Activation minor error: ${e.message}")
+            }
+
+            onProgress(100, "OpenClaw installed and activated")
             true to null
         }
 
     fun isInstalled(): Boolean =
         prefixDir.resolve("bin/openclaw").exists() ||
             prefixDir.resolve("lib/node_modules/openclaw/openclaw.mjs").exists()
+
+    /** Verifies that the installation marker exists and is readable */
+    private fun isMarkerValid(): Boolean {
+        val marker = ocaDir.resolve("installed.json")
+        return marker.exists() && marker.length() > 10
+    }
 
     private fun hasUsableNpm(env: Map<String, String>): Boolean {
         val hasNpm = prefixDir.resolve("bin/npm").exists() ||
@@ -126,35 +157,68 @@ class OpenClawManager(
         val tarFile = File(context.cacheDir, "node-linux-arm64.tar.xz")
         return try {
             onProgress(12, "Resolving latest Node.js $NODE_MAJOR...")
-            val shasums = URL("$NODE_RELEASE_BASE/SHASUMS256.txt").readText()
-            val tarName = Regex("""node-v$NODE_MAJOR\.[^\s]+-linux-arm64\.tar\.xz""")
-                .find(shasums)
-                ?.value
-                ?: throw IllegalStateException("Node.js linux-arm64 tarball not found")
+
+            // Intentar descargar SHASUMS con timeout y reintentos
+            var shasums: String? = null
+            val shasumsUrl = "$NODE_RELEASE_BASE/SHASUMS256.txt"
+
+            for (i in 1..2) {
+                try {
+                    AppLogger.i(TAG, "Fetching SHASUMS (attempt $i): $shasumsUrl")
+                    val connection = URL(shasumsUrl).openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection
+                    connection.connectTimeout = 15000
+                    connection.readTimeout = 15000
+                    shasums = connection.inputStream.bufferedReader().use { it.readText() }
+                    if (!shasums.isNullOrBlank()) break
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to fetch SHASUMS (attempt $i): ${e.message}")
+                    Thread.sleep(3000)
+                }
+            }
+
+            val tarName = if (!shasums.isNullOrBlank()) {
+                Regex("""node-v$NODE_MAJOR\.[^\s]+-linux-arm64\.tar\.xz""")
+                    .find(shasums)
+                    ?.value
+                    ?: "node-v24.1.0-linux-arm64.tar.xz" // Fallback a versión conocida
+            } else {
+                AppLogger.w(TAG, "Could not fetch SHASUMS, using hardcoded version fallback")
+                "node-v24.1.0-linux-arm64.tar.xz"
+            }
 
             onProgress(16, "Downloading $tarName...")
-            URL("$NODE_RELEASE_BASE/$tarName").openStream().use { input ->
+            val downloadUrl = "$NODE_RELEASE_BASE/$tarName"
+            AppLogger.i(TAG, "Downloading Node.js from: $downloadUrl")
+
+            val conn = URL(downloadUrl).openConnection(java.net.Proxy.NO_PROXY) as java.net.HttpURLConnection
+            conn.connectTimeout = 20000
+            conn.readTimeout = 60000
+            conn.instanceFollowRedirects = true
+            conn.inputStream.use { input ->
                 tarFile.outputStream().use { output -> input.copyTo(output) }
+            }
+
+            if (!tarFile.exists() || tarFile.length() == 0L) {
+                throw IllegalStateException("Downloaded tarball is empty or missing")
             }
 
             onProgress(28, "Extracting Node.js runtime...")
             nodeDir.deleteRecursively()
             nodeDir.mkdirs()
+
+            // Usar /system/bin/sh para ejecutar tar con redirección de errores capturable
             val process = ProcessBuilder(
-                "/system/bin/tar",
-                "-xJf",
-                tarFile.absolutePath,
-                "-C",
-                nodeDir.absolutePath,
-                "--strip-components=1",
+                "/system/bin/sh", "-c",
+                "/system/bin/tar -xJf \"${tarFile.absolutePath}\" -C \"${nodeDir.absolutePath}\" --strip-components=1 2>&1"
             ).apply {
                 environment().put("PATH", "/system/bin:/bin")
-                redirectErrorStream(true)
             }.start()
+
             val output = process.inputStream.bufferedReader().readText()
             val exitCode = process.waitFor()
+
             if (exitCode != 0) {
-                AppLogger.w(TAG, "Official Node extraction failed: $output")
+                AppLogger.e(TAG, "Node extraction failed (code $exitCode): $output")
                 false
             } else {
                 nodeDir.resolve("bin/node").setExecutable(true, false)
@@ -164,11 +228,11 @@ class OpenClawManager(
                 true
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "Official Node install failed: ${e.message}")
-            onProgress(18, "Official Node failed, using package fallback...")
+            AppLogger.e(TAG, "Official Node install failed: ${e.message}", e)
+            onProgress(18, "Official download failed (${e.message}), using package fallback...")
             false
         } finally {
-            tarFile.delete()
+            if (tarFile.exists()) tarFile.delete()
         }
     }
 
@@ -226,19 +290,28 @@ class OpenClawManager(
     /** Verify npm registry connectivity. Returns true if reachable. */
     private fun verifyNpmRegistry(onProgress: (Int, String) -> Unit, env: Map<String, String>): Boolean {
         val registry = env["NPM_CONFIG_REGISTRY"] ?: "https://registry.npmjs.org/"
-        return try {
-            onProgress(36, "Checking $registry...")
-            val result = CommandRunner.runSync(
-                "curl -fsSL --connect-timeout 10 $registry",
-                env,
-                homeDir,
-                timeoutMs = 15_000,
-            )
-            result.exitCode == 0
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Registry check failed: ${e.message}")
-            false
+
+        // Reintentos específicos para DNS/Red con conexión directa forzada
+        for (i in 1..2) {
+            try {
+                onProgress(36, "Checking connectivity to $registry (attempt $i)...")
+                // Usar curl con --noproxy '*' para asegurar conexión directa
+                val result = CommandRunner.runSync(
+                    "curl -fsSL --noproxy '*' --connect-timeout 15 --retry 1 $registry",
+                    env,
+                    homeDir,
+                    timeoutMs = 25_000,
+                )
+                if (result.exitCode == 0) return true
+
+                AppLogger.w(TAG, "Registry check attempt $i failed with exit code ${result.exitCode}")
+                if (i < 2) Thread.sleep(3000)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Registry check attempt $i exception: ${e.message}")
+                if (i < 2) Thread.sleep(3000)
+            }
         }
+        return false
     }
 
     private suspend fun restoreBundledPluginDependencies(

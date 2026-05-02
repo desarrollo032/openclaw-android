@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.core.content.pm.PackageInfoCompat
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.net.Uri
@@ -15,16 +16,25 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.view.Gravity
+import android.util.TypedValue
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
+import androidx.core.view.isVisible
+import androidx.core.content.edit
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.inputmethod.InputMethodManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -34,7 +44,6 @@ import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalViewClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -45,7 +54,6 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_TEXT_SIZE = 32
         private const val KEYBOARD_SHOW_DELAY_MS = 200L
         private const val REQUEST_STORAGE_PERMISSIONS = 100
-        private const val REQUEST_MANAGE_STORAGE = 101
         // Android 13+ (API 33): permiso para mostrar notificaciones del foreground service
         private const val REQUEST_POST_NOTIFICATIONS = 102
     }
@@ -63,13 +71,45 @@ private lateinit var binding: ActivityMainBinding
     private val terminalSessionClient = OpenClawSessionClient()
     private val terminalViewClient = OpenClawViewClient()
 
+    // Sesión dedicada para el terminal de instalación
+    private var installTerminalSession: TerminalSession? = null
+
 // Variable para almacenar el callback de recuperación de instalación
     private var installErrorCallback: (() -> Unit)? = null
+
+    private val storagePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) && Environment.isExternalStorageManager()) {
+            AppLogger.i(TAG, "MANAGE_EXTERNAL_STORAGE granted")
+        } else {
+            AppLogger.w(TAG, "MANAGE_EXTERNAL_STORAGE denied — showing notification")
+            showPermissionDeniedNotification("Storage access required for installation")
+        }
+        onStoragePermissionsGranted()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (binding.terminalContainer.isVisible) {
+                        showWebView()
+                    } else if (binding.webView.canGoBack()) {
+                        binding.webView.goBack()
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
+            },
+        )
 
         bootstrapManager = BootstrapManager(this)
         eventBridge = EventBridge(binding.webView)
@@ -114,51 +154,24 @@ private lateinit var binding: ActivityMainBinding
      * Called from onStoragePermissionsGranted() so storage is always available.
      */
     private fun checkAndStartInstallation() {
-        val rootfsManager = RootfsManager(this)
-        val installerManager = InstallerManager(this)
-
-        val isInstalled = installerManager.isReady() || rootfsManager.isInstalled() || bootstrapManager.isInstalled()
-        val isOpenClawInstalled = installerManager.isOpenClawInstalled() || rootfsManager.isOpenClawInstalled() || bootstrapManager.isOpenClawInstalled()
+        val isInstalled = OpenClawSetup(this).isPayloadAvailable()
+        val isOpenClawInstalled = isInstalled // Simplification since OpenClawSetup handles the full payload
 
         AppLogger.i(
             TAG,
-            "checkAndStartInstallation: installed=$isInstalled " +
-                "(installer=${installerManager.isReady()}, rootfs=${rootfsManager.isInstalled()}, " +
-                "bootstrap=${bootstrapManager.isInstalled()}), openclaw=$isOpenClawInstalled",
+            "checkAndStartInstallation: installed=$isInstalled openclaw=$isOpenClawInstalled",
         )
 
         // ── Sync www assets and apply script updates on APK upgrade ──────────
         if (isInstalled) {
             val prefs = getSharedPreferences("openclaw", 0)
             val savedVersionCode = prefs.getInt("versionCode", 0)
-            @Suppress("DEPRECATION")
-            val currentVersionCode = packageManager.getPackageInfo(packageName, 0).versionCode
-            when {
-                installerManager.isReady() -> {
-                    installerManager.syncWwwFromAssets()
-                    if (currentVersionCode > savedVersionCode) {
-                        AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode (payload)")
-                        installerManager.applyScriptUpdate()
-                        prefs.edit().putInt("versionCode", currentVersionCode).apply()
-                    }
-                }
-                rootfsManager.isInstalled() -> {
-                    rootfsManager.syncWwwFromAssets()
-                    if (currentVersionCode > savedVersionCode) {
-                        AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode (rootfs)")
-                        rootfsManager.applyScriptUpdate()
-                        prefs.edit().putInt("versionCode", currentVersionCode).apply()
-                    }
-                }
-                else -> {
-                    bootstrapManager.syncWwwFromAssets()
-                    Thread { bootstrapManager.installOaCli() }.start()
-                    if (currentVersionCode > savedVersionCode) {
-                        AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode (bootstrap)")
-                        bootstrapManager.applyScriptUpdate()
-                        prefs.edit().putInt("versionCode", currentVersionCode).apply()
-                    }
-                }
+            val pInfo = packageManager.getPackageInfo(packageName, 0)
+            val currentVersionCode = PackageInfoCompat.getLongVersionCode(pInfo).toInt()
+            
+            if (currentVersionCode > savedVersionCode) {
+                AppLogger.i(TAG, "APK upgrade: $savedVersionCode → $currentVersionCode")
+                prefs.edit { putInt("versionCode", currentVersionCode) }
             }
         }
 
@@ -174,42 +187,9 @@ private lateinit var binding: ActivityMainBinding
                 showWebView()
             }
 
-            // ── Case 2: Bootstrap installed, post-setup.sh still pending ─────
-            bootstrapManager.isInstalled() && bootstrapManager.needsPostSetup() -> {
-                AppLogger.i(TAG, "Bootstrap ready — running post-setup.sh automatically")
-                showTerminal()
-                val session = sessionManager.createSession()
-                val script = bootstrapManager.postSetupScript.absolutePath
-                binding.terminalView.post {
-                    session.write("sh \"$script\"\n")
-                }
-            }
-
-            // ── Case 3: Env installed but OpenClaw package missing ────────────
-            isInstalled && !isOpenClawInstalled -> {
-                AppLogger.i(TAG, "Environment ready — OpenClaw not installed, installing minimal package")
-                showInstallOverlay()
-                CoroutineScope(Dispatchers.IO).launch {
-                    val (ok, error) = OpenClawManager(this@MainActivity).installOrUpdate { percent, message ->
-                        updateInstallProgress(percent, message)
-                    }
-                    runOnUiThread {
-                        if (ok) {
-                            hideInstallOverlay()
-                            showWebView()
-                        } else {
-                            showInstallOverlayError(error ?: "OpenClaw installation failed")
-                        }
-                    }
-                }
-            }
-
-            // ── Case 4: Boot intent → auto-start gateway ──────────────────────
+            // ── Case 2: Boot intent → auto-start gateway ──────────────────────
             intent?.getBooleanExtra("from_boot", false) == true -> {
-                val startScript = when {
-                    installerManager.isReady() -> File(filesDir, "payload/run-openclaw.sh")
-                    else -> File(filesDir, "home/openclaw-start.sh")
-                }
+                val startScript = File(filesDir, "openclaw-payload/run-openclaw.sh")
                 AppLogger.i(TAG, "Boot launch — auto-starting gateway: ${startScript.absolutePath}")
                 showTerminal()
                 val session = sessionManager.createSession()
@@ -218,7 +198,7 @@ private lateinit var binding: ActivityMainBinding
                 }
             }
 
-            // ── Case 5: Fully installed and ready → show dashboard ───────────
+            // ── Case 3: Fully installed and ready → show dashboard ───────────
             else -> {
                 AppLogger.i(TAG, "Fully installed — showing dashboard")
                 showWebView()
@@ -244,7 +224,29 @@ private fun showInstallOverlay() {
             binding.installProgressMessage.text = "Preparando..."
             binding.installErrorText.visibility = View.GONE
             binding.btnOpenTerminalOnError.visibility = View.GONE
+
+            setupInstallTerminal()
         }
+    }
+
+    private fun setupInstallTerminal() {
+        if (installTerminalSession == null) {
+            val homeDir = filesDir.resolve("home")
+            if (!homeDir.exists()) homeDir.mkdirs()
+
+            installTerminalSession = TerminalSession(
+                "/system/bin/sh",
+                homeDir.absolutePath, // Iniciar en el directorio home (dinámico)
+                arrayOf("sh", "-c", "cat"), // Usar cat para visualizar logs sin ejecutar comandos
+                emptyArray(),
+                1000,
+                terminalSessionClient
+            )
+            binding.installTerminalView.setTerminalViewClient(terminalViewClient)
+            binding.installTerminalView.setTextSize(12)
+            binding.installTerminalView.attachSession(installTerminalSession)
+        }
+        installTerminalSession?.write("=== Iniciando Instalación de OpenClaw ===\r\n")
     }
 
 /** Hide the install overlay. */
@@ -261,6 +263,8 @@ private fun showInstallOverlay() {
             binding.installProgressBar.progress = percent
             binding.installProgressPercent.text = "$percent%"
             binding.installProgressMessage.text = message
+
+            installTerminalSession?.write("[${percent}%] $message\r\n")
         }
     }
 
@@ -285,14 +289,14 @@ private fun showInstallOverlay() {
             showTerminal()
             // Crear una sesión nueva y mostrar mensaje de ayuda
             val session = sessionManager.createSession()
-            session?.write("echo '=== Terminal de recuperación ==='\n")
-            session?.write("echo 'Ejecuta manualmente los comandos para corregir el error.'\n")
-            session?.write("echo 'Ejemplos:'\n")
-            session?.write("echo '  node --version    # Verificar Node.js'\n")
-            session?.write("echo '  which node     # Verificar ruta de node'\n")
-            session?.write("echo '  npm install -g openclaw@latest --ignore-scripts  # Reintentar instalación'\n")
-            session?.write("echo '  rm -rf ~/.npm/_cacache  # Limpiar caché de npm para liberar espacio'\n")
-            session?.write("echo ''\n")
+            session.write("echo '=== Terminal de recuperación ==='\n")
+            session.write("echo 'Ejecuta manualmente los comandos para corregir el error.'\n")
+            session.write("echo 'Ejemplos:'\n")
+            session.write("echo '  node --version    # Verificar Node.js'\n")
+            session.write("echo '  which node     # Verificar ruta de node'\n")
+            session.write("echo '  npm install -g openclaw@latest --ignore-scripts  # Reintentar instalación'\n")
+            session.write("echo '  rm -rf ~/.npm/_cacache  # Limpiar caché de npm para liberar espacio'\n")
+            session.write("echo ''\n")
             // Ejecutar callback de recuperación si está definido
             installErrorCallback?.invoke()
         }
@@ -309,8 +313,7 @@ private fun showInstallOverlay() {
      */
     fun startInstallFromUi(onComplete: ((success: Boolean) -> Unit)? = null) {
         showInstallOverlay()
-        val installerManager = InstallerManager(this)
-        autoStartInstallation(installerManager, onComplete)
+        autoStartInstallation(onComplete)
     }
 
     /**
@@ -325,35 +328,23 @@ private fun showInstallOverlay() {
      * @param onComplete optional callback for JsBridge integration
      */
     private fun autoStartInstallation(
-        installerManager: InstallerManager,
         onComplete: ((success: Boolean) -> Unit)? = null,
     ) {
         CoroutineScope(Dispatchers.IO).launch {
-            installerManager.install(object : InstallerManager.ProgressListener {
-                override fun onProgress(percent: Int, message: String) {
-                    updateInstallProgress(percent, message)
-                    AppLogger.i(TAG, "[install] $percent% - $message")
+            try {
+                val setup = OpenClawSetup(this@MainActivity)
+                setup.setupOpenClaw()
+                AppLogger.i(TAG, "Installation completed successfully")
+                runOnUiThread {
+                    hideInstallOverlay()
+                    reloadWebView()
+                    onComplete?.invoke(true)
                 }
-
-                override fun onSuccess() {
-                    AppLogger.i(TAG, "Installation completed successfully")
-                    installerManager.syncWwwFromAssets()
-                    runOnUiThread {
-                        hideInstallOverlay()
-                        onComplete?.invoke(true)
-                    }
-                }
-
-                override fun onError(message: String, cause: Throwable?) {
-                    AppLogger.e(
-                        TAG,
-                        "Installation error: $message",
-                        cause ?: Exception(message),
-                    )
-                    showInstallOverlayError(message)
-                    runOnUiThread { onComplete?.invoke(false) }
-                }
-            })
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Installation error: ${e.message}", e)
+                showInstallOverlayError(e.message ?: "Unknown error")
+                runOnUiThread { onComplete?.invoke(false) }
+            }
         }
     }
 
@@ -388,22 +379,13 @@ private fun showInstallOverlay() {
 
     // --- Storage permissions ---
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun requestStoragePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Android 11+: request MANAGE_EXTERNAL_STORAGE via Settings
             if (!Environment.isExternalStorageManager()) {
-                AppLogger.i(TAG, "Requesting MANAGE_EXTERNAL_STORAGE permission")
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    intent.data = Uri.parse("package:$packageName")
-                    startActivityForResult(intent, REQUEST_MANAGE_STORAGE)
-                } catch (e: Exception) {
-                    // Fallback: open general storage settings
-                    startActivityForResult(
-                        Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
-                        REQUEST_MANAGE_STORAGE,
-                    )
-                }
+                AppLogger.i(TAG, "Requesting MANAGE_EXTERNAL_STORAGE permission — showing explanation dialog")
+                showStoragePermissionExplanation()
             } else {
                 onStoragePermissionsGranted()
             }
@@ -420,8 +402,39 @@ private fun showInstallOverlay() {
             if (missing.isNotEmpty()) {
                 ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQUEST_STORAGE_PERMISSIONS)
             } else {
-                onStoragePermissionsGranted()
+                onStoragePerm
+                issionsGranted()
             }
+        }
+    }
+
+    /**
+     * Shows a dialog explaining why storage access is needed before taking the user to settings.
+     * This prevents the app from jumping to settings automatically on first launch.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
+    private fun showStoragePermissionExplanation() {
+        runOnUiThread {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Storage Access Required")
+                .setMessage("OpenClaw needs 'All Files Access' to manage the terminal environment, install packages, and store your data.\n\nPlease grant this permission in the next screen.")
+                .setPositiveButton("Grant Permission") { _, _ ->
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                        intent.data = "package:$packageName".toUri()
+                        storagePermissionLauncher.launch(intent)
+                    } catch (_: Exception) {
+                        storagePermissionLauncher.launch(
+                            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                        )
+                    }
+                }
+                .setNegativeButton("Later") { _, _ ->
+                    AppLogger.w(TAG, "Storage permission explanation deferred by user")
+                    onStoragePermissionsGranted() // Attempt to continue, though it might fail
+                }
+                .setCancelable(false)
+                .show()
         }
     }
 
@@ -462,15 +475,7 @@ private fun showInstallOverlay() {
         data: Intent?,
     ) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_MANAGE_STORAGE) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                AppLogger.i(TAG, "MANAGE_EXTERNAL_STORAGE granted")
-            } else {
-                AppLogger.w(TAG, "MANAGE_EXTERNAL_STORAGE denied — showing notification")
-                showPermissionDeniedNotification("Storage access required for installation")
-            }
-            onStoragePermissionsGranted()
-        }
+        // Note: REQUEST_MANAGE_STORAGE is now handled by storagePermissionLauncher
     }
 
     /**
@@ -478,6 +483,7 @@ private fun showInstallOverlay() {
      * Runs termux-setup-storage in the background, then evaluates the install
      * state and starts the appropriate installer automatically.
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun onStoragePermissionsGranted() {
         Thread {
             CommandRunner.setupAppStorage(this) { line ->
@@ -501,7 +507,7 @@ private fun showInstallOverlay() {
                 "$message\nTap to retry",
                 android.widget.Toast.LENGTH_LONG
             ).apply {
-                setGravity(android.view.Gravity.TOP, 0, 100)
+                setGravity(Gravity.TOP, 0, 100)
                 show()
             }
 
@@ -594,14 +600,13 @@ private fun showInstallOverlay() {
         runOnUiThread {
             binding.installOverlay.visibility = View.GONE
             binding.webView.visibility = View.GONE
-            binding.terminalContainer.visibility = View.VISIBLE
+            binding.terminalContainer.isVisible = true
             binding.terminalView.requestFocus()
             updateSessionTabs()
             // Delay keyboard show — view must be focused and laid out first
             binding.terminalView.postDelayed({
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                @Suppress("DEPRECATION")
-                imm.showSoftInput(binding.terminalView, InputMethodManager.SHOW_IMPLICIT)
+                val controller = WindowInsetsControllerCompat(window, window.decorView)
+                controller.show(WindowInsetsCompat.Type.ime())
             }, KEYBOARD_SHOW_DELAY_MS)
         }
     }
@@ -609,19 +614,8 @@ private fun showInstallOverlay() {
     fun showWebView() {
         runOnUiThread {
             binding.installOverlay.visibility = View.GONE
-            binding.terminalContainer.visibility = View.GONE
-            binding.webView.visibility = View.VISIBLE
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    override fun onBackPressed() {
-        if (binding.terminalContainer.visibility == View.VISIBLE) {
-            showWebView()
-        } else if (binding.webView.canGoBack()) {
-            binding.webView.goBack()
-        } else {
-            super.onBackPressed()
+            binding.terminalContainer.isVisible = false
+            binding.webView.isVisible = true
         }
     }
 
@@ -820,7 +814,7 @@ private fun showInstallOverlay() {
         val nameView =
             TextView(this).apply {
                 text = name
-                textSize = resources.getDimension(R.dimen.tab_name_text_size) / resources.displayMetrics.scaledDensity
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.tab_name_text_size))
                 val textColor = when {
                     finished -> R.color.tabTextFinished
                     active -> R.color.tabTextPrimary
@@ -838,7 +832,7 @@ private fun showInstallOverlay() {
         val closeView =
             TextView(this).apply {
                 text = getString(R.string.close_session)
-                textSize = resources.getDimension(R.dimen.tab_close_text_size) / resources.displayMetrics.scaledDensity
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.tab_close_text_size))
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.tabTextSecondary))
                 setPadding(closePad, 0, 0, 0)
                 layoutParams = LinearLayout.LayoutParams(
@@ -868,7 +862,7 @@ private fun showInstallOverlay() {
     private fun createAddButton(): TextView =
         TextView(this).apply {
             text = getString(R.string.add_session)
-            textSize = resources.getDimension(R.dimen.tab_add_text_size) / resources.displayMetrics.scaledDensity
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.tab_add_text_size))
             setTextColor(ContextCompat.getColor(this@MainActivity, R.color.tabAddButton))
             val pad = resources.getDimensionPixelSize(R.dimen.tab_add_padding)
             setPadding(pad, 0, pad, 0)
@@ -898,7 +892,11 @@ private fun showInstallOverlay() {
 
     private inner class OpenClawSessionClient : TerminalSessionClient {
         override fun onTextChanged(changedSession: TerminalSession) {
-            binding.terminalView.onScreenUpdated()
+            if (changedSession == installTerminalSession) {
+                binding.installTerminalView.onScreenUpdated()
+            } else {
+                binding.terminalView.onScreenUpdated()
+            }
         }
 
         override fun onTitleChanged(changedSession: TerminalSession) {
@@ -1004,8 +1002,16 @@ private fun showInstallOverlay() {
 
         override fun onSingleTapUp(e: MotionEvent) {
             // Toggle soft keyboard on tap (same as Termux)
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.toggleSoftInput(InputMethodManager.SHOW_IMPLICIT, 0)
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            val rootInsets = ViewCompat.getRootWindowInsets(window.decorView)
+            val isVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) ?: false
+
+            if (isVisible) {
+                controller.hide(WindowInsetsCompat.Type.ime())
+            } else {
+                binding.terminalView.requestFocus()
+                controller.show(WindowInsetsCompat.Type.ime())
+            }
         }
 
         override fun shouldBackButtonBeMappedToEscape(): Boolean = false
@@ -1014,7 +1020,7 @@ private fun showInstallOverlay() {
 
         override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
 
-        override fun isTerminalViewSelected(): Boolean = binding.terminalContainer.visibility == View.VISIBLE
+        override fun isTerminalViewSelected(): Boolean = binding.terminalContainer.isVisible
 
         override fun copyModeChanged(copyMode: Boolean) = Unit
 
