@@ -32,8 +32,7 @@ fi
 echo -e "${GREEN}[OK]${NC}   Termux detected"
 
 if ! command -v curl &>/dev/null; then
-    echo -e "${RED}[FAIL]${NC} curl not found. Install it with: pkg install curl"
-    exit 1
+    pkg_safe install -y curl
 fi
 
 OLD_DIR="$HOME/.openclaw-lite"

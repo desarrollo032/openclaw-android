@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    compileSdkVersion 36
+    compileSdkVersion 35
     ndkVersion = "27.0.12077973"
     namespace = "com.termux.view"
 
