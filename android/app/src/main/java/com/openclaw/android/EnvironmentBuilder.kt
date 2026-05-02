@@ -2,6 +2,7 @@ package com.openclaw.android
 
 import android.content.Context
 import java.io.File
+import java.util.regex.Regex
 
 /**
  * Builds the complete process environment for running OpenClaw.
@@ -158,10 +159,10 @@ object EnvironmentBuilder {
             put("CURL_CA_BUNDLE", certBundle)
             put("GIT_SSL_CAINFO", certBundle)
 
-            // ── DNS ───────────────────────────────────────────────────────────
+            // ── DNS ─────────────────────────────────────────────────────────────
             put("RESOLV_CONF", "$prefix/etc/resolv.conf")
 
-            // ── Git ───────────────────────────────────────────────────────────
+            // ── Git ─────────────────────────────────────────────────────────────
             put("GIT_CONFIG_NOSYSTEM", "1")
             put("GIT_EXEC_PATH", "$prefix/libexec/git-core")
             put("GIT_TEMPLATE_DIR", "$prefix/share/git-core/templates")
@@ -171,7 +172,7 @@ object EnvironmentBuilder {
             put("DPKG_ADMINDIR", "$prefix/var/lib/dpkg")
             put("DPKG_ROOT", prefix)
 
-            // ── Locale and terminal ───────────────────────────────────────────
+            // ── Locale and terminal ─────────────────────────────────────────
             put("LANG", "en_US.UTF-8")
             put("TERM", "xterm-256color")
 
@@ -179,7 +180,7 @@ object EnvironmentBuilder {
             put("ANDROID_DATA", "/data")
             put("ANDROID_ROOT", "/system")
 
-            // ── OpenClaw flags ────────────────────────────────────────────────
+            // ── OpenClaw flags ───────────────────────────────────────────────
             put("OA_GLIBC", "1")
             put("CONTAINER", "1")
             put("CLAWDHUB_WORKDIR", "$home/.openclaw/workspace")
@@ -221,6 +222,11 @@ object EnvironmentBuilder {
      * Using the canonical path ensures dpkg, bash, and apt find their config dirs.
      */
     private fun normalizeFilesDir(filesDir: File): File {
-        return filesDir
+        val path = filesDir.absolutePath
+        val normalized = path.replaceFirst(
+            Regex("^/data/user/\\d+/"),
+            "/data/data/",
+        )
+        return if (normalized != path) File(normalized) else filesDir
     }
 }

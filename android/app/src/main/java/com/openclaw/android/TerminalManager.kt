@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.termux.terminal.TerminalSession
 import java.io.File
+import java.util.regex.Regex
 
 /**
  * TerminalManager — orchestrates script execution inside an existing terminal
@@ -240,6 +241,11 @@ class TerminalManager(
      * bash, and apt when they try to open their config directories.
      */
     private fun normalizeFilesDir(dir: File): File {
-        return dir
+        val path = dir.absolutePath
+        val normalized = path.replaceFirst(
+            Regex("^/data/user/\\d+/"),
+            "/data/data/",
+        )
+        return if (normalized != path) File(normalized) else dir
     }
 }
