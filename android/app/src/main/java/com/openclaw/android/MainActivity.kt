@@ -200,18 +200,11 @@ private lateinit var binding: ActivityMainBinding
 
         // ── Decide what to do based on install state ──────────────────────────
         when {
-            // ── Case 1: Nothing installed → show setup wizard (React UI) ────────
-            // The wizard lets the user choose platform, tools, etc.
-            // Installation is triggered later from the wizard via JsBridge.
-            // This prevents the old bug where auto-install extracted 700MB,
-            // then the WebView loaded and triggered ANOTHER install that wiped everything.
             !isInstalled -> {
                 AppLogger.i(TAG, "Nothing installed — showing setup wizard (WebView)")
                 showWebView()
             }
-
-            // ── Case 2: Boot intent → auto-start gateway ──────────────────────
-            intent?.getBooleanExtra("from_boot", false) == true -> {
+            isBootIntent(intent) -> {
                 val startScript = File(filesDir, "openclaw-payload/run-openclaw.sh")
                 AppLogger.i(TAG, "Boot launch — auto-starting gateway: ${startScript.absolutePath}")
                 showTerminal()
@@ -220,10 +213,8 @@ private lateinit var binding: ActivityMainBinding
                     session.write("\"${startScript.absolutePath}\"\n")
                 }
             }
-
-            // ── Case 3: Fully installed and ready → show dashboard ───────────
             else -> {
-                AppLogger.i(TAG, "Fully installed — showing dashboard")
+                AppLogger.i(TAG, "Already installed — showing dashboard (WebView)")
                 showWebView()
             }
         }
@@ -579,6 +570,7 @@ private fun showInstallOverlay() {
             WebView.setWebContentsDebuggingEnabled(true)
         }
         binding.webView.apply {
+            setBackgroundColor(android.graphics.Color.parseColor("#0d1117"))
             clearCache(true)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -591,13 +583,18 @@ private fun showInstallOverlay() {
             addJavascriptInterface(jsBridge, "OpenClaw")
             webViewClient =
                 object : WebViewClient() {
-                    override fun onPageFinished(
-                        view: WebView?,
-                        url: String?,
-                    ) {
+                    override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         AppLogger.i(TAG, "WebView page loaded: $url")
-                        // Page loaded successfully
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        errorCode: Int,
+                        description: String?,
+                        failingUrl: String?
+                    ) {
+                        AppLogger.e(TAG, "WebView error ($errorCode): $description at $failingUrl")
                     }
                 }
             webChromeClient =

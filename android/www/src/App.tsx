@@ -77,9 +77,6 @@ export function App() {
     )
   }
 
-  if (!setupDone && !path.startsWith('/setup')) {
-    return null
-  }
 
   return (
     <>

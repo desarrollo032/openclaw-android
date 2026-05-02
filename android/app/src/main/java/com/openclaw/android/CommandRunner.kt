@@ -85,10 +85,27 @@ object CommandRunner {
             val process = pb.start()
             val stdout = process.inputStream.bufferedReader().readText()
             val stderr = process.errorStream.bufferedReader().readText()
-            val exited = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+            val exited = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+            } else {
+                // Fallback for API < 26: synchronous wait with manual timeout thread
+                val waiter = Thread { try { process.waitFor() } catch (e: InterruptedException) {} }
+                waiter.start()
+                waiter.join(timeoutMs)
+                if (waiter.isAlive) {
+                    waiter.interrupt()
+                    false
+                } else {
+                    true
+                }
+            }
 
             if (!exited) {
-                process.destroyForcibly()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    process.destroyForcibly()
+                } else {
+                    process.destroy()
+                }
                 CommandResult(-1, stdout, "Command timed out (${timeoutMs}ms)")
             } else {
                 CommandResult(process.exitValue(), stdout, stderr)
@@ -364,7 +381,6 @@ object CommandRunner {
      * This is a legacy helper — the app does not depend on it for normal operation.
      * No-op if Termux is not installed.
      */
-    @RequiresApi(Build.VERSION_CODES.O)
     fun runTermuxSetupStorage(onOutput: (String) -> Unit = {}) {
         if (!File(TERMUX_HOME).exists() || !File(TERMUX_HOME).canRead()) {
             AppLogger.i(TAG, "Termux not accessible, skipping termux-setup-storage")
@@ -388,7 +404,12 @@ object CommandRunner {
                 AppLogger.i(TAG, "setup-storage: $line")
                 onOutput(line)
             }
-            process.waitFor(30, TimeUnit.MILLISECONDS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                process.waitFor(30, TimeUnit.MILLISECONDS)
+            } else {
+                // Fallback for API < 26
+                Thread.sleep(30)
+            }
             AppLogger.i(TAG, "termux-setup-storage completed")
         } catch (e: Exception) {
             AppLogger.e(TAG, "termux-setup-storage failed: ${e.message}", e)
@@ -400,7 +421,6 @@ object CommandRunner {
      * Sets up storage symlinks in the app sandbox, similar to termux-setup-storage.
      * Creates a ~/storage directory with symlinks to standard Android external storage directories.
      */
-    @RequiresApi(Build.VERSION_CODES.O)
     fun setupAppStorage(context: Context, onOutput: (String) -> Unit = {}) {
         val env = buildTermuxEnv(context)
         val home = env["HOME"] ?: return
