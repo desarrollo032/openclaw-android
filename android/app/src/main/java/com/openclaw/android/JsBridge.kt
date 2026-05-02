@@ -893,7 +893,7 @@ class JsBridge(
 
         val zipFile = java.io.File(activity.cacheDir, "www.zip")
         val stagingWww = java.io.File(activity.cacheDir, "www-staging")
-        val wwwDir = bootstrapManager.wwwDir
+        val wwwDir = installerManager.getWwwDir()
         // Keep a backup of the current www so we can roll back on failure
         val backupWww = java.io.File(activity.cacheDir, "www-backup")
 
@@ -979,14 +979,20 @@ class JsBridge(
     }
 
     private suspend fun updateBootstrap() {
-        try {
-            emitProgress("bootstrap", PROGRESS_BOOTSTRAP_START, "Downloading bootstrap...")
-            bootstrapManager.startSetup { progress, message ->
-                emitProgress("bootstrap", progress, message)
+        emitProgress("bootstrap", PROGRESS_BOOTSTRAP_START, "Downloading bootstrap...")
+        installerManager.install("online", null, object : InstallerManager.ProgressListener {
+            override fun onProgress(percent: Int, message: String) {
+                emitProgress("bootstrap", percent / 100f, message)
             }
-        } catch (e: Exception) {
-            emitProgress("bootstrap", PROGRESS_START, "Update failed: ${e.message}")
-        }
+
+            override fun onSuccess() {
+                AppLogger.i(TAG, "Bootstrap updated successfully")
+            }
+
+            override fun onError(message: String, cause: Throwable?) {
+                emitProgress("bootstrap", PROGRESS_START, "Update failed: $message")
+            }
+        })
     }
 
     /**
@@ -1095,8 +1101,8 @@ class JsBridge(
         val filesDir = activity.filesDir
         val totalSpace = filesDir.totalSpace
         val freeSpace = filesDir.freeSpace
-        val bootstrapSize = bootstrapManager.prefixDir.walkTopDown().sumOf { it.length() }
-        val wwwSize = bootstrapManager.wwwDir.walkTopDown().sumOf { it.length() }
+        val bootstrapSize = installerManager.getPrefixDir().walkTopDown().sumOf { it.length() }
+        val wwwSize = installerManager.getWwwDir().walkTopDown().sumOf { it.length() }
 
         return gson.toJson(
             mapOf(
