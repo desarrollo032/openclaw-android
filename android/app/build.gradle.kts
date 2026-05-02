@@ -41,7 +41,7 @@ gradle.taskGraph.whenReady {
 
 android {
     namespace = "com.openclaw.android"
-    compileSdk = 37
+    compileSdk = 35
     ndkVersion = "27.0.12077973"
 
     dependenciesInfo {
