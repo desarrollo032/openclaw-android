@@ -148,14 +148,53 @@ elif [ -x "$APT_BIN" ]; then
 fi
 
 # Install Node.js and Git if not already present
-NODE_BIN="$HOME/.openclaw-android/bin/node"
-if [ ! -x "$NODE_BIN" ] || ! command -v git >/dev/null 2>&1; then
-    log "Node.js or Git not found."
-    log "Installing nodejs and git via pkg..."
-    if [ -x "$PREFIX/bin/pkg" ]; then
-        pkg install -y nodejs git 2>&1 | tee -a "$LOG_FILE" || \
-            log_warn "nodejs/git install had errors — dependencies may be unavailable"
+NODE_VERSION="v22.13.1"
+NODE_DIR="$HOME/.openclaw-android/node"
+NODE_BIN="$NODE_DIR/bin/node"
+
+if [ ! -x "$NODE_BIN" ]; then
+    log "Node.js no encontrado. Descargando binario oficial linux-arm64..."
+    mkdir -p "$NODE_DIR" "$TMPDIR"
+
+    set +e
+    curl -fsSL --connect-timeout 30 --retry 3 \
+        "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-arm64.tar.gz" \
+        -o "$TMPDIR/node.tar.gz"
+    _CURL_EXIT=$?
+    set -e
+
+    if [ "$_CURL_EXIT" -ne 0 ]; then
+        log_err "Fallo al descargar Node.js. Verifica conexión a internet."
+        exit 1
     fi
+
+    tar -xzf "$TMPDIR/node.tar.gz" -C "$NODE_DIR" --strip-components=1
+    rm -f "$TMPDIR/node.tar.gz"
+
+    # Crear wrapper glibc para node
+    NODE_REAL="$NODE_DIR/bin/node"
+    NODE_WRAPPER="$HOME/.openclaw-android/bin/node"
+    mkdir -p "$(dirname "$NODE_WRAPPER")"
+
+    cat > "$NODE_WRAPPER" << WRAPPER
+#!/system/bin/sh
+export LD_LIBRARY_PATH="$PREFIX/glibc/lib:$PREFIX/lib:\$LD_LIBRARY_PATH"
+unset LD_PRELOAD
+exec "$NODE_REAL" "\$@"
+WRAPPER
+    chmod +x "$NODE_WRAPPER"
+
+    log_ok "Node.js $NODE_VERSION instalado en $NODE_DIR"
+fi
+
+# Instalar git via pkg si no existe
+if ! command -v git >/dev/null 2>&1; then
+    log "Instalando git..."
+    set +e
+    if [ -x "$PREFIX/bin/pkg" ]; then
+        pkg install -y git 2>&1 | tee -a "$LOG_FILE" || log_warn "git no pudo instalarse"
+    fi
+    set -e
 fi
 
 # Create openclaw-update CLI script
@@ -176,7 +215,7 @@ chmod +x "$UPDATE_SCRIPT"
 log_ok "openclaw-update CLI command created"
 
 # ── Install OpenClaw via npm with retry logic ────────────────────────────────
-NPM_BIN="$HOME/.openclaw-android/bin/npm"
+NPM_BIN="$HOME/.openclaw-android/node/bin/npm"
 if [ ! -x "$NPM_BIN" ]; then
     NPM_BIN="$PREFIX/bin/npm"
 fi
@@ -184,15 +223,22 @@ fi
 # Verify npm registry connectivity before installing
 log "Verifying network connectivity..."
 _NPM_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}"
-if ! curl -fsSL --connect-timeout 10 "$_NPM_REGISTRY" >/dev/null 2>&1; then
-    log_warn "Primary registry unreachable, trying mirrors..."
-    if curl -fsSL --connect-timeout 10 "https://registry.npmmirror.com/" >/dev/null 2>&1; then
-        export NPM_CONFIG_REGISTRY="https://registry.npmmirror.com/"
-        log "Using npmmirror registry"
-    else
-        log_warn "No registry reachable. Will attempt npm anyway."
-    fi
+
+# FIX: desactivar set -e para el bloque de red — un fallo de curl no debe matar el proceso
+set +e
+_CURL_OK=false
+if curl -fsSL --connect-timeout 15 --retry 2 "$_NPM_REGISTRY" >/dev/null 2>&1; then
+    _CURL_OK=true
+    log_ok "Registry principal accesible: $_NPM_REGISTRY"
+elif curl -fsSL --connect-timeout 15 --retry 2 "https://registry.npmmirror.com/" >/dev/null 2>&1; then
+    export NPM_CONFIG_REGISTRY="https://registry.npmmirror.com/"
+    _CURL_OK=true
+    log "Usando mirror: npmmirror"
+else
+    log_warn "No se pudo verificar conectividad — intentando npm de todas formas"
 fi
+set -e
+unset _CURL_OK
 unset _NPM_REGISTRY
 
 if [ -x "$NPM_BIN" ]; then

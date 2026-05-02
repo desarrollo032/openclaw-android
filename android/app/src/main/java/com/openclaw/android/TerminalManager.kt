@@ -240,8 +240,6 @@ class TerminalManager(
      * bash, and apt when they try to open their config directories.
      */
     private fun normalizeFilesDir(dir: File): File {
-        val path = dir.absolutePath
-        val normalized = path.replace(Regex("^/data/user/\\d+/"), "/data/data/")
-        return if (normalized != path) File(normalized) else dir
+        return dir
     }
 }
