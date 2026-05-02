@@ -496,17 +496,20 @@ class JsBridge(
         val seen = mutableSetOf<String>()
 
         for (prefix in prefixes) {
+            // Pre-fetch directory contents to minimize I/O calls
+            val binDirContents = java.io.File("$prefix/bin").list()?.toSet() ?: emptySet()
+
             // Termux packages — check binary path
             val pkgChecks = mapOf(
-                "tmux" to "$prefix/bin/tmux",
-                "ttyd" to "$prefix/bin/ttyd",
-                "dufs" to "$prefix/bin/dufs",
-                "openssh-server" to "$prefix/bin/sshd",
-                "android-tools" to "$prefix/bin/adb",
-                "code-server" to "$prefix/bin/code-server",
+                "tmux" to "tmux",
+                "ttyd" to "ttyd",
+                "dufs" to "dufs",
+                "openssh-server" to "sshd",
+                "android-tools" to "adb",
+                "code-server" to "code-server",
             )
-            for ((id, path) in pkgChecks) {
-                if (!seen.contains(id) && java.io.File(path).exists()) {
+            for ((id, bin) in pkgChecks) {
+                if (!seen.contains(id) && binDirContents.contains(bin)) {
                     tools.add(mapOf("id" to id, "name" to id, "version" to "installed"))
                     seen.add(id)
                 }
@@ -514,8 +517,8 @@ class JsBridge(
 
             // Chromium — check multiple possible paths
             if (!seen.contains("chromium") &&
-                (java.io.File("$prefix/bin/chromium-browser").exists() ||
-                    java.io.File("$prefix/bin/chromium").exists())
+                (binDirContents.contains("chromium-browser") ||
+                    binDirContents.contains("chromium"))
             ) {
                 tools.add(mapOf("id" to "chromium", "name" to "chromium", "version" to "installed"))
                 seen.add("chromium")
@@ -530,6 +533,9 @@ class JsBridge(
             "$activeHome/.openclaw-android/bin",
             CommandRunner.OPENCLAW_BIN,
         )
+        val binDirContentsMap = binDirs.associateWith { dir ->
+            java.io.File(dir).list()?.toSet() ?: emptySet()
+        }
         val npmBinChecks = mapOf(
             "claude-code" to "claude",
             "gemini-cli" to "gemini",
@@ -539,7 +545,7 @@ class JsBridge(
         for ((id, bin) in npmBinChecks) {
             if (!seen.contains(id)) {
                 for (binDir in binDirs) {
-                    if (java.io.File("$binDir/$bin").exists()) {
+                    if (binDirContentsMap[binDir]?.contains(bin) == true) {
                         tools.add(mapOf("id" to id, "name" to id, "version" to "installed"))
                         seen.add(id)
                         break
