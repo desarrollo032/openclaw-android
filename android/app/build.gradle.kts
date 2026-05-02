@@ -4,6 +4,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.ktlint)
+    alias(libs.plugins.kotlinAndroid)
 }
 
 // ── Auto-increment versionCode and versionName on each build ────────────
@@ -105,7 +106,6 @@ defaultConfig {
             )
         }
         debug {
-            applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
         }
     }
@@ -136,6 +136,9 @@ defaultConfig {
         // Modern replacement for aaptOptions.noCompress
         noCompress += listOf("tar.gz", "tar.xz", "part_aa", "part_ab", "part_ac", "part_ad", "part_ae", "part_af")
     }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
 
 dependencies {
@@ -143,6 +146,7 @@ dependencies {
     implementation(project(":terminal-view"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+    implementation(libs.core.ktx)
     implementation(libs.material)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.kotlinx.coroutines.android)
@@ -215,7 +219,7 @@ tasks.named("preBuild") {
     dependsOn(syncWwwAssets)
 }
 
-configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+ktlint {
     android.set(true)
     outputToConsole.set(true)
     ignoreFailures.set(false)

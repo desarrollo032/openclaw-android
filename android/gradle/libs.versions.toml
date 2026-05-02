@@ -1,6 +1,6 @@
 [versions]
 agp = "8.7.0"
-kotlin = "2.1.0"
+kotlin = "2.0.21"
 coreKtx = "1.17.0"
 appcompat = "1.7.1"
 material = "1.13.0"
@@ -12,6 +12,7 @@ mockk = "1.14.9"
 kotlinxCoroutinesTest = "1.10.2"
 detekt = "1.23.8"
 ktlintGradle = "14.2.0"
+coreKtxVersion = "1.18.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -28,6 +29,7 @@ mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
 commons-compress = { module = "org.apache.commons:commons-compress", version = "1.28.0" }
 xz = { module = "org.tukaani:xz", version = "1.10" }
+core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtxVersion" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

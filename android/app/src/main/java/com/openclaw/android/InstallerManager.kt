@@ -80,7 +80,7 @@ class InstallerManager(private val context: Context) {
 
     /** True if APK bundles a payload asset. */
     fun hasPayloadAsset(): Boolean = try {
-        context.assets.open("$PAYLOAD_ASSET_DIR/glibc-aarch64.tar.xz").use { true }
+        context.assets.open("openclaw-payload.tar.gz").use { true }
     } catch (_: Exception) {
         false
     }
@@ -283,12 +283,12 @@ class InstallerManager(private val context: Context) {
         val binDir = File(prefix, "bin")
         binDir.mkdirs()
         val openclawLink = File(binDir, "openclaw")
-        val runScript = getRunScriptPath()
+        val mainRunScript = getRunScriptPath()
         
-        if (runScript.exists()) {
+        if (mainRunScript.exists()) {
             try {
                 // Intentar crear un wrapper script en bin/openclaw
-                val wrapper = "#!/system/bin/sh\nexec \"${runScript.absolutePath}\" \"$@\"\n"
+                val wrapper = "#!/system/bin/sh\nexec \"${mainRunScript.absolutePath}\" \"$@\"\n"
                 openclawLink.writeText(wrapper)
                 openclawLink.setExecutable(true, false)
             } catch (e: Exception) {
@@ -336,9 +336,13 @@ class InstallerManager(private val context: Context) {
 
     /** Sync www assets from APK to the share directory. */
     fun syncWwwFromAssets() {
-        val wwwDest = File(prefix, "share/openclaw-app/www")
+        val wwwDest = getWwwDir()
         wwwDest.mkdirs()
     }
+
+    fun getWwwDir(): File = File(prefix, "share/openclaw-app/www")
+    fun getPrefixDir(): File = prefix
+    fun getHomeDir(): File = homeDir
 
     fun applyScriptUpdate() {
         val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {

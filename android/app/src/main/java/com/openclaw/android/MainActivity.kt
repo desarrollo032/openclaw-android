@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
 private lateinit var binding: ActivityMainBinding
 
     lateinit var sessionManager: TerminalSessionManager
-    lateinit var bootstrapManager: BootstrapManager
+    lateinit var installerManager: InstallerManager
     lateinit var eventBridge: EventBridge
     private lateinit var jsBridge: JsBridge
 
@@ -133,10 +133,10 @@ private lateinit var binding: ActivityMainBinding
             },
         )
 
-        bootstrapManager = BootstrapManager(this)
+        installerManager = InstallerManager(this)
         eventBridge = EventBridge(binding.webView)
         sessionManager = TerminalSessionManager(this, terminalSessionClient, eventBridge)
-        jsBridge = JsBridge(this, sessionManager, bootstrapManager, eventBridge)
+        jsBridge = JsBridge(this, sessionManager, installerManager, eventBridge)
 
         setupTerminalView()
         setupWebView()
@@ -611,7 +611,7 @@ private fun showInstallOverlay() {
                 }
         }
 
-        val wwwDir = bootstrapManager.wwwDir
+        val wwwDir = installerManager.getWwwDir()
         val url =
             if (wwwDir.resolve("index.html").exists()) {
                 "file://${wwwDir.absolutePath}/index.html"

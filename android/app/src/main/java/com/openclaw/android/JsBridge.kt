@@ -25,7 +25,7 @@ import java.security.MessageDigest
 class JsBridge(
     private val activity: MainActivity,
     private val sessionManager: TerminalSessionManager,
-    private val bootstrapManager: BootstrapManager,
+    private val installerManager: InstallerManager,
     private val eventBridge: EventBridge,
 ) {
     private val gson = Gson()
@@ -86,14 +86,10 @@ class JsBridge(
         // Create session if none exists (e.g., after first-time setup)
         if (sessionManager.activeSession == null) {
             val session = sessionManager.createSession()
-            if (bootstrapManager.needsPostSetup()) {
-                val script = bootstrapManager.postSetupScript.absolutePath
-                // Delay write until after attachSession() initializes the shell process.
-                // createSession() posts attachSession() via runOnUiThread; writing before
-                // that runs silently drops the data (mShellPid is still 0).
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    session.write("sh $script\n")
-                }, SHELL_INIT_DELAY_MS)
+            if (!installerManager.isInstalled()) {
+                // If not installed, we can't really do much in the terminal,
+                // but we could trigger the install or show a message.
+                session.write("echo 'Entorno no instalado. Por favor, usa el Dashboard para instalar.'\n")
             }
         }
         activity.showTerminal()
@@ -320,7 +316,7 @@ class JsBridge(
 
     @JavascriptInterface
     fun saveToolSelections(json: String) {
-        val configFile = java.io.File(bootstrapManager.homeDir, ".openclaw-android/tool-selections.conf")
+        val configFile = java.io.File(installerManager.getHomeDir(), ".openclaw-android/tool-selections.conf")
         configFile.parentFile?.mkdirs()
         val selections = gson.fromJson(json, Map::class.java) as? Map<*, *> ?: return
         val lines =
@@ -358,7 +354,7 @@ class JsBridge(
             CommandRunner.runSync(
                 "npm list -g --depth=0 --json 2>/dev/null",
                 env,
-                bootstrapManager.prefixDir,
+                installerManager.getPrefixDir(),
                 timeoutMs = PLATFORM_LIST_TIMEOUT_MS,
             )
         return result.stdout.ifBlank { "[]" }
@@ -440,14 +436,14 @@ class JsBridge(
     @JavascriptInterface
     fun switchPlatform(id: String) {
         // Write active platform marker
-        val markerFile = java.io.File(bootstrapManager.homeDir, ".openclaw-android/.platform")
+        val markerFile = java.io.File(installerManager.getHomeDir(), ".openclaw-android/.platform")
         markerFile.parentFile?.mkdirs()
         markerFile.writeText(id)
     }
 
     @JavascriptInterface
     fun getActivePlatform(): String {
-        val markerFile = java.io.File(bootstrapManager.homeDir, ".openclaw-android/.platform")
+        val markerFile = java.io.File(installerManager.getHomeDir(), ".openclaw-android/.platform")
         val id = if (markerFile.exists()) markerFile.readText().trim() else "openclaw"
         return gson.toJson(mapOf("id" to id, "name" to id.replaceFirstChar { it.uppercase() }))
     }
