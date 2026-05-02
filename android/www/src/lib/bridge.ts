@@ -20,7 +20,9 @@ interface OpenClawBridge {
   getSetupStatus(): string
   getBootstrapStatus(): string
   getAppFilesDir(): string
-  startSetup(): void
+  startSetup(mode?: string): void
+  hasPayloadAsset(): string
+  pickPayloadFile(): void
   /** Install from pre-built rootfs asset (no network). Emits setup_progress events. */
   startRootfsInstall(): void
   /** Returns rootfs installation status: extracted, initialized, openclawInstalled, wwwInstalled */

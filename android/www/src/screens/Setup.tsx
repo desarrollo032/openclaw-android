@@ -7,7 +7,7 @@ interface Props {
   onComplete: () => void
 }
 
-type SetupPhase = 'welcome' | 'tool-select' | 'installing' | 'done' | 'failed'
+type SetupPhase = 'welcome' | 'mode-select' | 'tool-select' | 'installing' | 'done' | 'failed'
 
 function getOptionalTools() {
   return [
@@ -34,6 +34,24 @@ export function Setup({ onComplete }: Props) {
   const [tipIndex, setTipIndex] = useState(0)
   const [checkingConn, setCheckingConn] = useState(false)
   const [connResult, setConnResult] = useState<'ok' | 'fail' | null>(null)
+  const [installMode, setInstallMode] = useState<'online' | 'offline'>('online')
+  const [hasAsset, setHasAsset] = useState(false)
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
+
+  useEffect(() => {
+    const d = bridge.callJson<{ hasPayload: boolean }>('hasPayloadAsset')
+    if (d) {
+      setHasAsset(!!d.hasPayload)
+      if (d.hasPayload) setInstallMode('offline')
+    }
+  }, [])
+
+  const onPayloadSelected = useCallback((data: unknown) => {
+    const d = data as { name: string }
+    if (d.name) setSelectedFileName(d.name)
+  }, [])
+
+  useNativeEvent('payload_file_selected', onPayloadSelected)
 
   useEffect(() => {
     if (phase !== 'installing') return
@@ -79,7 +97,7 @@ export function Setup({ onComplete }: Props) {
     setError('')
     setConnResult(null)
 
-    bridge.call('startSetup')
+    bridge.call('startSetup', installMode)
   }
 
   function handleCheckConnection() {
@@ -107,8 +125,8 @@ export function Setup({ onComplete }: Props) {
     }, 12000)
   }
 
-  const steps = [t('step_platform'), t('step_tools'), t('step_setup')]
-  const currentStep = phase === 'welcome' ? 0 : phase === 'tool-select' ? 1 : phase === 'failed' ? 2 : 2
+  const steps = [t('step_platform'), t('step_path'), t('step_tools'), t('step_setup')]
+  const currentStep = phase === 'welcome' ? 0 : phase === 'mode-select' ? 1 : phase === 'tool-select' ? 2 : 3
 
   function renderStepper() {
     return (
@@ -151,9 +169,87 @@ export function Setup({ onComplete }: Props) {
           </div>
         </div>
 
-        <button className="btn btn-primary btn-full" onClick={() => setPhase('tool-select')}>
+        <button className="btn btn-primary btn-full" onClick={() => setPhase('mode-select')}>
           {t('setup_next')} →
         </button>
+      </div>
+    )
+  }
+
+  if (phase === 'mode-select') {
+    return (
+      <div className="setup-container">
+        {renderStepper()}
+        <div className="setup-title">{t('setup_mode_title')}</div>
+        
+        <div className="card-group" style={{ width: '100%', maxWidth: 400 }}>
+          <div 
+            className={`card clickable ${installMode === 'online' ? 'selected' : ''}`}
+            onClick={() => setInstallMode('online')}
+            style={installMode === 'online' ? { borderColor: 'var(--accent)', background: 'var(--accent-dim)' } : {}}
+          >
+            <div className="card-row">
+              <div className="card-icon">🌐</div>
+              <div className="card-content">
+                <div className="card-label">{t('setup_mode_online_label')}</div>
+                <div className="card-desc">{t('setup_mode_online_desc')}</div>
+              </div>
+            </div>
+          </div>
+
+          <div 
+            className={`card clickable ${installMode === 'offline' ? 'selected' : ''}`}
+            onClick={() => setInstallMode('offline')}
+            style={installMode === 'offline' ? { borderColor: 'var(--accent)', background: 'var(--accent-dim)' } : {}}
+          >
+            <div className="card-row">
+              <div className="card-icon">📦</div>
+              <div className="card-content">
+                <div className="card-label">{t('setup_mode_offline_label')}</div>
+                <div className="card-desc">{t('setup_mode_offline_desc')}</div>
+              </div>
+            </div>
+            
+            {installMode === 'offline' && (
+              <div style={{ marginTop: 12, padding: '0 8px' }}>
+                {!hasAsset && !selectedFileName ? (
+                  <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 8 }}>
+                    ⚠️ {t('setup_offline_not_found')}
+                  </div>
+                ) : null}
+                
+                {selectedFileName ? (
+                  <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 8 }}>
+                    ✓ {t('setup_offline_selected', { name: selectedFileName })}
+                  </div>
+                ) : null}
+
+                <button 
+                  className="btn btn-secondary btn-sm btn-full"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    bridge.call('pickPayloadFile')
+                  }}
+                >
+                  {t('setup_offline_select')}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="setup-actions">
+          <button className="btn btn-ghost btn-sm" onClick={() => setPhase('welcome')}>
+            ← {t('step_platform')}
+          </button>
+          <button 
+            className="btn btn-primary" 
+            onClick={() => setPhase('tool-select')}
+            disabled={installMode === 'offline' && !hasAsset && !selectedFileName}
+          >
+            {t('setup_next')} →
+          </button>
+        </div>
       </div>
     )
   }
@@ -192,8 +288,8 @@ export function Setup({ onComplete }: Props) {
         </div>
 
         <div className="setup-actions">
-          <button className="btn btn-ghost btn-sm" onClick={() => setPhase('welcome')}>
-            ← {t('step_platform')}
+          <button className="btn btn-ghost btn-sm" onClick={() => setPhase('mode-select')}>
+            ← {t('setup_mode_title')}
           </button>
           <button className="btn btn-primary" onClick={handleStartSetup}>
             {t('setup_start')}

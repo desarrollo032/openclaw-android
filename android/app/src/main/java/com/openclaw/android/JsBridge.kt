@@ -192,11 +192,11 @@ class JsBridge(
         )
 
     @JavascriptInterface
-    fun startSetup() {
+    fun startSetup(mode: String = "auto") {
         // Delegate to the centralized install path.
         // InstallerManager will detect no payload assets and use the online bootstrap.
         activity.runOnUiThread {
-            activity.startInstallFromUi { success ->
+            activity.startInstallFromUi(mode) { success ->
                 if (success) {
                     eventBridge.emit(
                         "setup_progress",
@@ -310,8 +310,15 @@ class JsBridge(
      */
     @JavascriptInterface
     fun hasPayloadAsset(): String {
-        val payloadManager = PayloadManager(activity)
-        return gson.toJson(mapOf("hasPayload" to payloadManager.hasPayloadAsset()))
+        val setup = OpenClawSetup(activity)
+        return gson.toJson(mapOf("hasPayload" to setup.hasPayloadInAssets()))
+    }
+
+    @JavascriptInterface
+    fun pickPayloadFile() {
+        activity.runOnUiThread {
+            activity.pickPayloadFile()
+        }
     }
 
     @JavascriptInterface

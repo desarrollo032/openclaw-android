@@ -87,13 +87,15 @@ El enfoque estándar requiere instalar proot-distro con Linux, añadiendo 700MB-
 
 ---
 
-## 📱 App Claw
+## 📱 App Claw (Instalación Híbrida)
 
-APK independiente con emulador de terminal + UI WebView — no requiere Termux.
+APK independiente con emulador de terminal + UI WebView. No requiere app externa Termux.
 
-- Configuración con un toque: bootstrap, Node.js y OpenClaw instalados desde la app
-- Dashboard integrado para control de gateway, runtime y herramientas
-- Funciona independientemente de Termux
+- **Diseño Mobile-First**: Interfaz React rediseñada para ser completamente responsiva.
+- **Instalación Híbrida Inteligente**: 
+  - *Offline (Payload)*: Extrae un payload empaquetado desde los assets. Sin red, súper rápido.
+  - *Online (Fallback)*: Usa scripts para compilar descargar e inicializar en un sandbox.
+- **Dashboard integrado** para control de gateway, runtime y herramientas.
 
 Descarga el APK desde [Releases](https://github.com/AidanPark/openclaw-android/releases).
 
@@ -145,23 +147,15 @@ Ver la [guía Mantener Procesos Vivos](docs/disable-phantom-process-killer.md) p
 pkg update -y && pkg install -y curl
 ```
 
-### Paso 4: Instalar OpenClaw
+### Paso 4: Configuración (App o Termux)
 
-> **Tip SSH**: Usa la [Guía SSH Termux](docs/termux-ssh-guide.md) para teclear desde teclado físico.
+> **Vía App Android (Recomendado)**: Simplemente abre la app, selecciona tus herramientas y comenzará la instalación híbrida de manera automática y offline si el payload está disponible.
 
+> **Vía Termux**:
 ```bash
 curl -sL myopenclawhub.com/install | bash && source ~/.bashrc
-```
-
-Todo se instala automáticamente. Toma 3–10 minutos. Wi-Fi recomendado.
-
-### Paso 5: Configuración Inicial
-
-```bash
 openclaw onboard
 ```
-
-### Paso 6: Iniciar el Gateway
 
 > Ejecuta `openclaw gateway` directamente en Termux, **no vía SSH**.
 

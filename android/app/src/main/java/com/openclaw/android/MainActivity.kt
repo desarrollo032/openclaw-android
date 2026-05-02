@@ -84,9 +84,31 @@ private lateinit var binding: ActivityMainBinding
             AppLogger.i(TAG, "MANAGE_EXTERNAL_STORAGE granted")
         } else {
             AppLogger.w(TAG, "MANAGE_EXTERNAL_STORAGE denied — showing notification")
-            showPermissionDeniedNotification("Storage access required for installation")
+            showPermissionDeniedNotification("Se requiere acceso al almacenamiento para la instalación")
         }
         onStoragePermissionsGranted()
+    }
+
+    private var selectedPayloadUri: Uri? = null
+
+    private val payloadFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            selectedPayloadUri = it
+            AppLogger.i(TAG, "Payload file selected: $it")
+            // Notify UI
+            eventBridge.emit("payload_file_selected", mapOf("uri" to it.toString(), "name" to getFileName(it)))
+        }
+    }
+
+    private fun getFileName(uri: Uri): String {
+        return uri.path?.split("/")?.last() ?: "payload.tar.gz"
+    }
+
+    fun pickPayloadFile() {
+        payloadFilePickerLauncher.launch(arrayOf("application/gzip", "application/x-gzip", "application/x-tgz"))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -311,9 +333,9 @@ private fun showInstallOverlay() {
      * @param onComplete callback invoked on the main thread when install finishes
      *                   (success or error). JsBridge uses this to decide next step.
      */
-    fun startInstallFromUi(onComplete: ((success: Boolean) -> Unit)? = null) {
+    fun startInstallFromUi(mode: String = "auto", onComplete: ((success: Boolean) -> Unit)? = null) {
         showInstallOverlay()
-        autoStartInstallation(onComplete)
+        autoStartInstallation(mode, onComplete)
     }
 
     /**
@@ -328,12 +350,16 @@ private fun showInstallOverlay() {
      * @param onComplete optional callback for JsBridge integration
      */
     private fun autoStartInstallation(
+        mode: String = "auto",
         onComplete: ((success: Boolean) -> Unit)? = null,
     ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val setup = OpenClawSetup(this@MainActivity)
-                setup.setupOpenClaw()
+                // Use selectedPayloadUri if mode is offline and URI is set
+                val customFile = if (mode == "offline") selectedPayloadUri else null
+                
+                setup.setupOpenClaw(customFile)
                 AppLogger.i(TAG, "Installation completed successfully")
                 runOnUiThread {
                     hideInstallOverlay()
@@ -402,8 +428,7 @@ private fun showInstallOverlay() {
             if (missing.isNotEmpty()) {
                 ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQUEST_STORAGE_PERMISSIONS)
             } else {
-                onStoragePerm
-                issionsGranted()
+                onStoragePermissionsGranted()
             }
         }
     }
@@ -415,10 +440,10 @@ private fun showInstallOverlay() {
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     private fun showStoragePermissionExplanation() {
         runOnUiThread {
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Storage Access Required")
-                .setMessage("OpenClaw needs 'All Files Access' to manage the terminal environment, install packages, and store your data.\n\nPlease grant this permission in the next screen.")
-                .setPositiveButton("Grant Permission") { _, _ ->
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Permiso de Almacenamiento")
+                .setMessage("OpenClaw requiere el permiso de 'Acceso a todos los archivos' para descargar dependencias, gestionar el entorno de la terminal y almacenar tus datos de forma local.\n\nPor favor, permite este acceso en la siguiente pantalla.")
+                .setPositiveButton("Permitir") { _, _ ->
                     try {
                         val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                         intent.data = "package:$packageName".toUri()
@@ -429,7 +454,7 @@ private fun showInstallOverlay() {
                         )
                     }
                 }
-                .setNegativeButton("Later") { _, _ ->
+                .setNegativeButton("Más tarde") { _, _ ->
                     AppLogger.w(TAG, "Storage permission explanation deferred by user")
                     onStoragePermissionsGranted() // Attempt to continue, though it might fail
                 }
@@ -452,7 +477,7 @@ private fun showInstallOverlay() {
                     onStoragePermissionsGranted()
                 } else {
                     AppLogger.w(TAG, "Storage permissions denied — showing notification")
-                    showPermissionDeniedNotification("Storage permissions required for installation")
+                    showPermissionDeniedNotification("Se requieren permisos de almacenamiento para instalar")
                     // Continue anyway but show warning
                     onStoragePermissionsGranted()
                 }
@@ -504,7 +529,7 @@ private fun showInstallOverlay() {
             // Create a simple toast notification
             android.widget.Toast.makeText(
                 this,
-                "$message\nTap to retry",
+                "$message\nToca para reintentar",
                 android.widget.Toast.LENGTH_LONG
             ).apply {
                 setGravity(Gravity.TOP, 0, 100)
@@ -512,13 +537,13 @@ private fun showInstallOverlay() {
             }
 
             // Also show a dialog for better visibility
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Permission Required")
-                .setMessage("$message\n\nSome features may not work correctly without storage access.")
-                .setPositiveButton("Retry") { _, _ ->
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Permiso Requerido")
+                .setMessage("$message\n\nEl entorno de la terminal y otras funcionalidades importantes podrían fallar si no otorgas el acceso.")
+                .setPositiveButton("Reintentar") { _, _ ->
                     requestStoragePermissions()
                 }
-                .setNegativeButton("Continue Anyway") { _, _ ->
+                .setNegativeButton("Continuar") { _, _ ->
                     // User chooses to continue without permissions
                 }
                 .setCancelable(false)

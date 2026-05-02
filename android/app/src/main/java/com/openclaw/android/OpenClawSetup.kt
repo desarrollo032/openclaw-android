@@ -10,15 +10,21 @@ class OpenClawSetup(private val context: Context) {
     // Directorio donde extraemos el payload
     private val payloadDir = context.filesDir.resolve("openclaw-payload")
 
-    fun setupOpenClaw() {
-        if (isPayloadAvailable()) {
+    fun setupOpenClaw(customPayloadUri: android.net.Uri? = null) {
+        if (customPayloadUri != null) {
+            installFromCustomPayload(customPayloadUri)
+        } else if (isPayloadAvailable()) {
             installFromPayload()
         } else {
             installOnlineWithCurl()
         }
     }
 
-    private fun isPayloadAvailable(): Boolean {
+    fun hasPayloadInAssets(): Boolean {
+        return hasAsset("openclaw-payload.tar.gz")
+    }
+
+    fun isPayloadAvailable(): Boolean {
         // Verificar si el payload ya fue extraído previamente
         return payloadDir.resolve("run-openclaw.sh").exists() ||
                hasAsset("openclaw-payload.tar.gz")
@@ -35,22 +41,40 @@ class OpenClawSetup(private val context: Context) {
     private fun installFromPayload() {
         if (!payloadDir.resolve("run-openclaw.sh").exists()) {
             AppLogger.i("OpenClawSetup", "Extracting payload from assets...")
-            // Extraer el payload del asset usando PayloadExtractor existente si posible
             try {
                 PayloadExtractor.extractTarGzAsset(context, "openclaw-payload.tar.gz", payloadDir)
             } catch (e: Exception) {
                 AppLogger.e("OpenClawSetup", "Error extracting payload: ${e.message}")
+                throw e
             }
         }
         
+        postInstall(payloadDir)
+    }
+
+    private fun installFromCustomPayload(uri: android.net.Uri) {
+        AppLogger.i("OpenClawSetup", "Extracting payload from custom URI: $uri")
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                PayloadExtractor.extractTarGzStream(input, payloadDir)
+            }
+        } catch (e: Exception) {
+            AppLogger.e("OpenClawSetup", "Error extracting custom payload: ${e.message}")
+            throw e
+        }
+        
+        postInstall(payloadDir)
+    }
+
+    private fun postInstall(workingDir: File) {
         // Dar permisos de ejecución
-        File(payloadDir, "run-openclaw.sh").setExecutable(true)
-        File(payloadDir, "bin/node").setExecutable(true)
-        val glibcNode = File(payloadDir, "glibc/lib/ld-linux-aarch64.so.1")
-        if(glibcNode.exists()) glibcNode.setExecutable(true)
+        File(workingDir, "run-openclaw.sh").setExecutable(true)
+        File(workingDir, "bin/node").setExecutable(true)
+        val glibcNode = File(workingDir, "glibc/lib/ld-linux-aarch64.so.1")
+        if (glibcNode.exists()) glibcNode.setExecutable(true)
 
         // Iniciar OpenClaw
-        startOpenClaw(payloadDir)
+        startOpenClaw(workingDir)
     }
 
     private fun installOnlineWithCurl() {

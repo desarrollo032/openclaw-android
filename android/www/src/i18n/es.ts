@@ -13,6 +13,14 @@ export const es = {
   // Setup - selección de plataforma
   setup_choose_platform: 'Elige tu plataforma',
   setup_more_platforms: 'Más plataformas disponibles en Ajustes.',
+  setup_mode_title: 'Modo de instalación',
+  setup_mode_online_label: 'Instalación Online',
+  setup_mode_online_desc: 'Descarga los componentes desde internet (~200MB).',
+  setup_mode_offline_label: 'Instalación Offline',
+  setup_mode_offline_desc: 'Instala desde un archivo local. Ideal sin internet.',
+  setup_offline_not_found: 'Archivo de instalación no encontrado en la app.',
+  setup_offline_select: 'Seleccionar archivo .tar.gz',
+  setup_offline_selected: 'Archivo seleccionado: {name}',
 
   // Setup - selección de ruta
   setup_path_title: 'Ubicación de instalación',

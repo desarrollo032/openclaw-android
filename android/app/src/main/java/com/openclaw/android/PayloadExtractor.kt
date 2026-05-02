@@ -77,6 +77,24 @@ object PayloadExtractor {
     }
 
     /**
+     * Extract a tar.gz from an InputStream.
+     *
+     * @param input  The compressed input stream
+     * @param destDir  Target directory for extraction
+     * @return Number of entries extracted
+     * @throws IOException on extraction failure
+     */
+    fun extractTarGzStream(input: InputStream, destDir: File): Int {
+        return BufferedInputStream(input, BUFFER_SIZE).use { buffered ->
+            GZIPInputStream(buffered).use { gzip ->
+                TarArchiveInputStream(gzip).use { tar ->
+                    extractTarEntries(tar, destDir)
+                }
+            }
+        }
+    }
+
+    /**
      * Extract a tar.xz file from the filesystem.
      *
      * Uses Apache Commons Compress XZCompressorInputStream.
