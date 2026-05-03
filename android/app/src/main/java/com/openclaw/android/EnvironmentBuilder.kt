@@ -130,7 +130,7 @@ object EnvironmentBuilder {
                 }
             }
         }
-        
+        return env
     }
 
     private fun resolveFilesDirFromEnv(): File? {
