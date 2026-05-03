@@ -205,7 +205,7 @@ private lateinit var binding: ActivityMainBinding
                 showWebView()
             }
             isBootIntent(intent) -> {
-                val startScript = File(filesDir, "openclaw-payload/run-openclaw.sh")
+                val startScript = installer.getRunScriptPath()
                 AppLogger.i(TAG, "Boot launch — auto-starting gateway: ${startScript.absolutePath}")
                 showTerminal()
                 val session = sessionManager.createSession()
@@ -248,11 +248,14 @@ private fun showInstallOverlay() {
             val homeDir = filesDir.resolve("home")
             if (!homeDir.exists()) homeDir.mkdirs()
 
+            val envMap = EnvironmentBuilder.buildEnvironment(filesDir, packageName)
+            val env = envMap.entries.map { "${it.key}=${it.value}" }.toTypedArray()
+
             installTerminalSession = TerminalSession(
                 "/system/bin/sh",
                 homeDir.absolutePath,
                 arrayOf("/system/bin/sh"), // Usar shell interactiva para que no muera el proceso
-                emptyArray(),
+                env,
                 1000,
                 terminalSessionClient
             )
@@ -271,6 +274,7 @@ private fun showInstallOverlay() {
         runOnUiThread {
             binding.installOverlay.visibility = View.GONE
             binding.btnOpenTerminalOnError.visibility = View.GONE
+            binding.webView.visibility = View.VISIBLE
         }
     }
 
@@ -514,11 +518,6 @@ private fun showInstallOverlay() {
      */
     @RequiresApi(Build.VERSION_CODES.O)
     private fun onStoragePermissionsGranted() {
-        Thread {
-            CommandRunner.setupAppStorage(this) { line ->
-                AppLogger.i(TAG, "setup-storage: $line")
-            }
-        }.start()
         // Always evaluate install state after permissions are settled.
         // This is the single entry point for the install/launch decision.
         checkAndStartInstallation()
@@ -607,17 +606,6 @@ private fun showInstallOverlay() {
                     }
                 }
         }
-
-        val wwwDir = installerManager.getWwwDir()
-        val url =
-            if (wwwDir.resolve("index.html").exists()) {
-                "file://${wwwDir.absolutePath}/index.html"
-            } else {
-                // Load bundled fallback setup page from assets
-                "file:///android_asset/www/index.html"
-            }
-        AppLogger.i(TAG, "Loading WebView URL: $url")
-        binding.webView.loadUrl(url)
     }
 
     fun reloadWebView() {
@@ -648,6 +636,21 @@ private fun showInstallOverlay() {
 
     fun showWebView() {
         runOnUiThread {
+            setupWebView()
+            
+            val wwwDir = installerManager.getWwwDir()
+            val url =
+                if (wwwDir.resolve("index.html").exists()) {
+                    "file://${wwwDir.absolutePath}/index.html"
+                } else {
+                    "file:///android_asset/www/index.html"
+                }
+            
+            if (binding.webView.url != url) {
+                AppLogger.i(TAG, "Loading WebView URL: $url")
+                binding.webView.loadUrl(url)
+            }
+
             binding.installOverlay.visibility = View.GONE
             binding.terminalContainer.isVisible = false
             binding.webView.isVisible = true
@@ -1151,5 +1154,9 @@ private fun showInstallOverlay() {
         ) {
             AppLogger.e(tag, "Exception", e)
         }
+    }
+
+    private fun isBootIntent(intent: Intent?): Boolean {
+        return intent?.getBooleanExtra("from_boot", false) == true
     }
 }

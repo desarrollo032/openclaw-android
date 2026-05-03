@@ -23,10 +23,19 @@ object EnvironmentBuilder {
     fun buildEnvironment(filesDir: File?, packageName: String? = null): Map<String, String> {
         val actualFilesDir = filesDir ?: resolveFilesDirFromEnv() ?: File("/data/local/tmp")
         val base = actualFilesDir.absolutePath
-        val prefix = "$base/usr"
-        val home = "$base/home"
         val actualPackageName = packageName ?: actualFilesDir.parentFile?.name ?: "com.openclaw.android"
 
+        val home = "$base/home"
+        
+        // Detect payload directory (prioritizing HOME for the new layout)
+        val payloadDir = listOf(
+            File(home, "payload"),
+            File(home, "openclaw-payload"),
+            File(base, "payload"),
+            File(base, "openclaw-payload")
+        ).find { it.isDirectory } ?: actualFilesDir
+
+        val prefix = if (payloadDir != actualFilesDir) payloadDir.absolutePath else "$base/usr"
         val ocaDir = "$home/.openclaw-android"
         val ocaBin = "$ocaDir/bin"
         val nodeDir = "$ocaDir/node"
@@ -35,9 +44,9 @@ object EnvironmentBuilder {
 
         // Ensure standard folders exist before shell starts
         File(home).mkdirs()
-        File(prefix).mkdirs()
+        if (prefix == "$base/usr") File(prefix).mkdirs()
         File("$prefix/bin").mkdirs()
-        File("$base/tmp").mkdirs()
+        File(tmpDir).mkdirs()
 
         // Ensure resolv.conf exists before any network call
         ensureResolvConf(prefix)
@@ -50,7 +59,7 @@ object EnvironmentBuilder {
             put("PAYLOAD_DIR", "$base/payload")
             put("APP_PACKAGE", actualPackageName)
 
-            put("PATH", "$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/bin/applets:/system/bin:/bin")
+            put("PATH", "$ocaBin:$nodeDir/bin:$prefix/bin:$prefix/lib/node/bin:$prefix/bin/applets:/system/bin:/system/xbin:/vendor/bin:/bin")
             put("NPM_CONFIG_PREFIX", prefix)
             put("npm_config_prefix", prefix)
 
@@ -96,6 +105,32 @@ object EnvironmentBuilder {
             put("_OA_COMPAT_PATH", "$ocaDir/patches/glibc-compat.js")
             put("_OA_WRAPPER_PATH", "$ocaBin/node")
         }
+
+        // --- Dynamic Wrapper Generation (ensure functional bridge on every launch) ---
+        val ocaBinDir = File(home, ".openclaw-android/bin")
+        val loader = File(prefix, "glibc/lib/ld-linux-aarch64.so.1")
+        val glibcLibDir = File(prefix, "glibc/lib")
+
+        if (loader.exists()) {
+            ocaBinDir.mkdirs()
+            val binaries = listOf("bash", "node", "npm", "git", "openclaw")
+            for (binName in binaries) {
+                val realBin = File(prefix, "bin/$binName")
+                if (realBin.exists()) {
+                    val wrapperFile = File(ocaBinDir, binName)
+                    try {
+                        val wrapperContent = """
+                            #!/system/bin/sh
+                            export LD_LIBRARY_PATH="${glibcLibDir.absolutePath}:${'$'}LD_LIBRARY_PATH"
+                            exec "${loader.absolutePath}" --library-path "${glibcLibDir.absolutePath}" "${realBin.absolutePath}" "$@"
+                        """.trimIndent()
+                        wrapperFile.writeText(wrapperContent)
+                        wrapperFile.setExecutable(true, false)
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+        
     }
 
     private fun resolveFilesDirFromEnv(): File? {
@@ -104,13 +139,30 @@ object EnvironmentBuilder {
         return if (homeFile.name == "home") homeFile.parentFile else null
     }
 
+    /** Detect payload directory (prioritizing HOME for the new layout) */
+    fun resolvePayloadDir(filesDir: File): File {
+        val base = filesDir.absolutePath
+        val home = "$base/home"
+        return listOf(
+            File(home, "payload"),
+            File(home, "openclaw-payload"),
+            File(base, "payload"),
+            File(base, "openclaw-payload")
+        ).find { it.isDirectory } ?: filesDir
+    }
+
+    /** Detect prefix directory (payload or legacy /usr) */
+    fun resolvePrefix(filesDir: File): File {
+        val payload = resolvePayloadDir(filesDir)
+        return if (payload != filesDir) payload else File(filesDir, "usr")
+    }
+
     fun resolveActivePaths(filesDir: File? = null): Pair<String, String> {
         val actualFilesDir = filesDir ?: resolveFilesDirFromEnv() ?: File("/data/local/tmp")
-        val base = actualFilesDir.absolutePath
-        val localPrefix = "$base/usr"
-        val localHome = "$base/home"
-        File(localHome).mkdirs()
-        return Pair(localPrefix, localHome)
+        val prefix = resolvePrefix(actualFilesDir)
+        val home = File(actualFilesDir, "home")
+        home.mkdirs()
+        return Pair(prefix.absolutePath, home.absolutePath)
     }
 
     private fun ensureResolvConf(prefix: String) {

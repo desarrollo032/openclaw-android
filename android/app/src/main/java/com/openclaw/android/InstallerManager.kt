@@ -38,9 +38,19 @@ class InstallerManager(private val context: Context) {
 
     // ── Filesystem layout ──────────────────────────────────────────────────
     private val filesDir: File = context.filesDir
-    private val prefix = File(filesDir, "usr")
     private val homeDir = File(filesDir, "home")
     private val cacheDir: File = context.cacheDir
+
+    // Dynamic prefix resolution to match EnvironmentBuilder logic
+    private val prefix: File get() {
+        val payloadDir = listOf(
+            File(homeDir, "payload"),
+            File(homeDir, "openclaw-payload"),
+            File(filesDir, "payload"),
+            File(filesDir, "openclaw-payload")
+        ).find { it.isDirectory }
+        return payloadDir ?: File(filesDir, "usr")
+    }
 
     private val markerInstalled = File(filesDir, ".installed")
 
@@ -79,10 +89,30 @@ class InstallerManager(private val context: Context) {
         isInstalled() && InstallValidator.isStructurallyComplete(prefix)
 
     /** True if APK bundles a payload asset. */
-    fun hasPayloadAsset(): Boolean = try {
-        context.assets.open("openclaw-payload.tar.gz").use { true }
-    } catch (_: Exception) {
-        false
+    fun hasPayloadAsset(): Boolean {
+        val names = listOf("openclaw-payload.tar.gz", "payload.tar.gz", "payload/openclaw-payload.tar.gz", "payload/payload.tar.gz")
+        for (name in names) {
+            try {
+                context.assets.open(name).use { 
+                    AppLogger.i(TAG, "Payload asset found: $name")
+                    return true 
+                }
+            } catch (_: Exception) {
+            }
+        }
+        AppLogger.w(TAG, "No payload asset found in APK")
+        return false
+    }
+
+    private fun getPayloadAssetPath(): String? {
+        val names = listOf("openclaw-payload.tar.gz", "payload.tar.gz", "payload/openclaw-payload.tar.gz", "payload/payload.tar.gz")
+        for (name in names) {
+            try {
+                context.assets.open(name).use { return name }
+            } catch (_: Exception) {
+            }
+        }
+        return null
     }
 
     /**
@@ -126,14 +156,22 @@ class InstallerManager(private val context: Context) {
     private fun installOffline(listener: ProgressListener) {
         listener.onProgress(0, "Preparando instalación desde assets...")
         
-        // El payload puede contener usr/ y home/ o estar plano. 
-        // Lo extraeremos en el directorio de archivos de la app.
         try {
+            // Copy the payload archive to homeDir as requested (to be visible in ls -la)
+            val payloadDest = File(homeDir, "openclaw-payload.tar.gz")
+            if (!payloadDest.exists()) {
+                listener.onProgress(2, "Copiando archivo de carga...")
+                val assetPath = getPayloadAssetPath() ?: "openclaw-payload.tar.gz"
+                context.assets.open(assetPath).use { input ->
+                    File(homeDir, "openclaw-payload.tar.gz").outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+
             listener.onProgress(5, "Extrayendo payload principal (esto puede tardar)...")
-            val count = PayloadExtractor.extractTarGzAsset(
-                context, "openclaw-payload.tar.gz", filesDir
+            val count = PayloadExtractor.extractTarGzFile(
+                payloadDest, homeDir
             )
-            AppLogger.i(TAG, "Payload extracted: $count entries")
+            AppLogger.i(TAG, "Payload extracted to HOME: $count entries")
             
             completeInstallation(listener)
         } catch (e: Exception) {
@@ -237,11 +275,18 @@ class InstallerManager(private val context: Context) {
 
     private fun writeMarker() {
         try {
+            // Internal app marker
             markerInstalled.writeText("0.4.0\n")
-            AppLogger.i(TAG, "Installed marker written at ${markerInstalled.absolutePath}")
+            
+            // Shell script marker (~/.openclaw-android/installed.json)
+            val ocaDir = File(homeDir, ".openclaw-android")
+            ocaDir.mkdirs()
+            val ocaMarker = File(ocaDir, "installed.json")
+            ocaMarker.writeText("{\"version\": \"0.4.0\", \"status\": \"success\"}\n")
+            
+            AppLogger.i(TAG, "Installed markers written at ${markerInstalled.absolutePath} and ${ocaMarker.absolutePath}")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to write marker: ${e.message}", e)
-            // Non-fatal: next launch will re-install which is safe
         }
     }
 
@@ -249,12 +294,12 @@ class InstallerManager(private val context: Context) {
      * Set executable permissions on extracted binaries and create emergency wrappers.
      */
     private fun applyPermissions() {
-        // Encontrar el directorio del payload (puede estar directamente en filesDir o en openclaw-payload/)
-        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+        val ocaPayloadDir = listOf(
+            File(homeDir, "payload"),
+            File(homeDir, "openclaw-payload"),
+            File(filesDir, "payload"),
             File(filesDir, "openclaw-payload")
-        } else {
-            filesDir
-        }
+        ).find { it.isDirectory } ?: filesDir
 
         AppLogger.i(TAG, "Applying permissions in ${ocaPayloadDir.absolutePath}")
 
@@ -262,27 +307,37 @@ class InstallerManager(private val context: Context) {
         val runScript = File(ocaPayloadDir, "run-openclaw.sh")
         if (runScript.exists()) {
             runScript.setExecutable(true, false)
-            runScript.setExecutable(true, true)
         }
 
-        // Asegurar que el binario de node sea ejecutable
-        val nodeBin = File(ocaPayloadDir, "bin/node")
-        if (nodeBin.exists()) {
-            nodeBin.setExecutable(true, false)
-            nodeBin.setExecutable(true, true)
+        // Asegurar que el binario de node sea ejecutable (en prefix/bin o ocaPayloadDir/bin)
+        listOf(
+            File(prefix, "bin/node"),
+            File(ocaPayloadDir, "bin/node"),
+            File(homeDir, ".openclaw-android/bin/node")
+        ).forEach { node ->
+            if (node.exists()) node.setExecutable(true, false)
         }
 
         // Asegurar que el cargador de glibc sea ejecutable
-        val ldso = File(ocaPayloadDir, "glibc/lib/ld-linux-aarch64.so.1")
+        val ldso = File(prefix, "glibc/lib/ld-linux-aarch64.so.1")
         if (ldso.exists()) {
             ldso.setExecutable(true, false)
-            ldso.setExecutable(true, true)
         }
         
+        // Recursively set executable for ALL files in the entire payload directory
+        if (ocaPayloadDir.isDirectory) {
+            AppLogger.i(TAG, "Setting recursive permissions on payload: ${ocaPayloadDir.absolutePath}")
+            ocaPayloadDir.walkTopDown().forEach { file ->
+                if (file.isFile) {
+                    file.setExecutable(true, false)
+                }
+            }
+        }
+
         // Crear enlace simbólico o wrapper en bin/openclaw para acceso fácil
-        val binDir = File(prefix, "bin")
-        binDir.mkdirs()
-        val openclawLink = File(binDir, "openclaw")
+        val prefixBinDir = File(prefix, "bin")
+        prefixBinDir.mkdirs()
+        val openclawLink = File(prefixBinDir, "openclaw")
         val mainRunScript = getRunScriptPath()
         
         if (mainRunScript.exists()) {
@@ -295,12 +350,6 @@ class InstallerManager(private val context: Context) {
                 AppLogger.w(TAG, "Failed to create bin wrapper: ${e.message}")
             }
         }
-
-        if (binDir.isDirectory) {
-            binDir.listFiles()?.forEach { 
-                it.setExecutable(true, false)
-            }
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -308,11 +357,12 @@ class InstallerManager(private val context: Context) {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun getRunScriptPath(): File {
-        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+        val ocaPayloadDir = listOf(
+            File(homeDir, "payload"),
+            File(homeDir, "openclaw-payload"),
+            File(filesDir, "payload"),
             File(filesDir, "openclaw-payload")
-        } else {
-            filesDir
-        }
+        ).find { it.isDirectory } ?: filesDir
         return File(ocaPayloadDir, "run-openclaw.sh")
     }
 
@@ -323,11 +373,12 @@ class InstallerManager(private val context: Context) {
     }
 
     fun isOpenClawInstalled(): Boolean {
-        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+        val ocaPayloadDir = listOf(
+            File(homeDir, "payload"),
+            File(homeDir, "openclaw-payload"),
+            File(filesDir, "payload"),
             File(filesDir, "openclaw-payload")
-        } else {
-            filesDir
-        }
+        ).find { it.isDirectory } ?: filesDir
         // Verificar binario de openclaw (enlace o wrapper) o script de arranque
         return File(prefix, "bin/openclaw").exists() || 
                File(ocaPayloadDir, "run-openclaw.sh").exists() ||
@@ -337,7 +388,30 @@ class InstallerManager(private val context: Context) {
     /** Sync www assets from APK to the share directory. */
     fun syncWwwFromAssets() {
         val wwwDest = getWwwDir()
-        wwwDest.mkdirs()
+        if (!wwwDest.exists()) wwwDest.mkdirs()
+        copyAssetFolder(context.assets, "www", wwwDest.absolutePath)
+    }
+
+    private fun copyAssetFolder(assetManager: android.content.res.AssetManager, assetPath: String, destPath: String) {
+        try {
+            val assets = assetManager.list(assetPath)
+            if (assets.isNullOrEmpty()) {
+                // It's a file
+                val destFile = File(destPath)
+                assetManager.open(assetPath).use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            } else {
+                // It's a directory
+                val destDir = File(destPath)
+                if (!destDir.exists()) destDir.mkdirs()
+                for (asset in assets) {
+                    copyAssetFolder(assetManager, "$assetPath/$asset", "$destPath/$asset")
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to copy asset $assetPath: ${e.message}")
+        }
     }
 
     fun getWwwDir(): File = File(prefix, "share/openclaw-app/www")
@@ -345,12 +419,13 @@ class InstallerManager(private val context: Context) {
     fun getHomeDir(): File = homeDir
 
     fun applyScriptUpdate() {
-        val ocaPayloadDir = if (File(filesDir, "openclaw-payload").isDirectory) {
+        val ocaPayloadDir = listOf(
+            File(homeDir, "payload"),
+            File(homeDir, "openclaw-payload"),
+            File(filesDir, "payload"),
             File(filesDir, "openclaw-payload")
-        } else {
-            filesDir
-        }
-        val ocaDir = File(filesDir, "home/.openclaw-android")
+        ).find { it.isDirectory } ?: filesDir
+        val ocaDir = File(homeDir, ".openclaw-android")
         
         val scripts = listOf(
             "run.sh" to File(prefix, "bin/run.sh"),

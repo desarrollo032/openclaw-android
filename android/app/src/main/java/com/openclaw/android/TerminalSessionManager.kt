@@ -30,16 +30,18 @@ class TerminalSessionManager(
      * Creates a new terminal session using the app-local sandbox exclusively.
      */
     fun createSession(): TerminalSession {
+        val base = activity.filesDir.absolutePath
+        val homeDir = File(base, "home").also { it.mkdirs() }
+        val tmpDir = File(base, "tmp").also { it.mkdirs() }
+
+        // Use EnvironmentBuilder to get the dynamic paths (including payload detection)
         val env = EnvironmentBuilder.buildEnvironment(
             activity.filesDir,
             activity.packageName,
         ).toMutableMap()
 
-        // Ensure directories exist with unified /data/user/0/... base
-        val base = activity.filesDir.absolutePath
-        val homeDir = File(base, "home").also { it.mkdirs() }
-        val prefix = File(base, "usr").also { it.mkdirs() }
-        val tmpDir = File(base, "tmp").also { it.mkdirs() }
+        val prefixPath = env["PREFIX"] ?: "$base/usr"
+        val prefix = File(prefixPath).also { if (!it.exists()) it.mkdirs() }
 
         env["HOME"] = homeDir.absolutePath
         env["PREFIX"] = prefix.absolutePath
@@ -104,9 +106,9 @@ class TerminalSessionManager(
         }
 
         val shellArgs: Array<String> = if (shellBin.endsWith("/bash")) {
-            arrayOf("bash", "--norc", "--noprofile")
+            arrayOf("bash", "-i", "--norc", "--noprofile")
         } else {
-            arrayOf("sh")
+            arrayOf("sh", "-i")
         }
 
         AppLogger.i(TAG, "Creating session: shell=$shellBin home=${homeDir.absolutePath}")

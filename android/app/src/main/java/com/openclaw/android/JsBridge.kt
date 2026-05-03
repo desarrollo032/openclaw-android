@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.io.File
 import java.security.MessageDigest
 
 /**
@@ -164,14 +165,14 @@ class JsBridge(
     fun getBootstrapStatus(): String {
         val installer = InstallerManager(activity)
         val installed = installer.isInstalled()
-        val (prefix, _) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+        val (prefix, home) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
 
         return gson.toJson(
             mapOf(
                 "installed" to installed,
                 "openclawInstalled" to installed,
                 "prefixPath" to prefix,
-                "openclawPath" to CommandRunner.OPENCLAW_DIR,
+                "homePath" to home,
                 "source" to "payload"
             ),
         )
@@ -218,7 +219,8 @@ class JsBridge(
             activity.runOnUiThread { activity.showTerminal() }
             val session = sessionManager.createSession()
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                session.write("${activity.filesDir.absolutePath}/home/openclaw-start.sh\n")
+                val startScript = File(activity.filesDir, "home/openclaw-start.sh")
+                session.write("${startScript.absolutePath}\n")
             }, SHELL_INIT_DELAY_MS)
         }
     }
@@ -726,8 +728,9 @@ class JsBridge(
                 activity.showTerminal()
                 val session = sessionManager.createSession()
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    val startScript = "${activity.filesDir.absolutePath}/home/openclaw-start.sh"
-                    session.write("$startScript\n")
+                    val (prefix, home) = EnvironmentBuilder.resolveActivePaths(activity.filesDir)
+                    val startScript = File(home, "openclaw-start.sh")
+                    session.write("${startScript.absolutePath}\n")
                 }, SHELL_INIT_DELAY_MS)
             }
             eventBridge.emit("gateway_status", mapOf("status" to "launched"))

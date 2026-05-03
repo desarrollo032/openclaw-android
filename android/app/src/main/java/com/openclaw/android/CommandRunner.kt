@@ -170,10 +170,9 @@ object CommandRunner {
      * Check if OpenClaw is installed in the app sandbox.
      * Only checks app-local executable/package paths — never Termux paths.
      */
-    fun isOpenClawInstalled(): Boolean {
-        val localHome = System.getenv("HOME") ?: return false
-        val filesDir = File(localHome).parentFile ?: return false
-        val prefix = filesDir.resolve("usr")
+    fun isOpenClawInstalled(context: Context? = null): Boolean {
+        val (prefixPath, _) = EnvironmentBuilder.resolveActivePaths(context?.filesDir)
+        val prefix = File(prefixPath)
         return prefix.resolve("bin/openclaw").exists() ||
             prefix.resolve("lib/node_modules/openclaw/openclaw.mjs").exists()
     }
@@ -205,7 +204,7 @@ object CommandRunner {
         val glibcLib = "$prefix/glibc/lib"
         val tmpDir = env["TMPDIR"] ?: "$prefix/../tmp"
         val certBundle = "$prefix/etc/tls/cert.pem"
-        val ocaMjs = "$prefix/lib/node_modules/openclaw/openclaw.mjs"
+        val ocaMjs = File(prefix, "lib/node_modules/openclaw/openclaw.mjs").absolutePath
 
         val scriptPath = File(home, "openclaw-start.sh")
         val content = buildString {
