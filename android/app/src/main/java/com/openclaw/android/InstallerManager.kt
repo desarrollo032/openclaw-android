@@ -209,7 +209,11 @@ class InstallerManager(private val context: Context) {
             }
 
             override fun onError(message: String, cause: Throwable?) {
-                AppLogger.e(TAG, "proot install error: $message", cause)
+                if (cause != null) {
+                    AppLogger.e(TAG, "proot install error: $message", cause)
+                } else {
+                    AppLogger.e(TAG, "proot install error: $message")
+                }
                 listener.onError(message, cause)
             }
         })
