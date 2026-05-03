@@ -206,6 +206,7 @@ object CommandRunner {
         val certBundle = "$prefix/etc/tls/cert.pem"
         val ocaMjs = File(prefix, "lib/node_modules/openclaw/openclaw.mjs").absolutePath
 
+        val compatJs = "$home/.openclaw-android/patches/glibc-compat.js"
         val scriptPath = File(home, "openclaw-start.sh")
         val content = buildString {
             appendLine("#!/system/bin/sh")
@@ -235,10 +236,20 @@ object CommandRunner {
             appendLine("export OA_GLIBC=1")
             appendLine("export CONTAINER=1")
             appendLine("export CLAWDHUB_WORKDIR=\"$home/.openclaw/workspace\"")
+            appendLine("export _OA_WRAPPER_PATH=\"$ocaBin/node\"")
             appendLine()
             appendLine("# Unset LD_PRELOAD: prevents bionic libtermux-exec.so from")
             appendLine("# loading into the glibc node process (causes PHDR crash).")
             appendLine("unset LD_PRELOAD")
+            appendLine()
+            appendLine("# Load glibc-compat.js shim: fixes process.execPath, os.cpus(),")
+            appendLine("# os.networkInterfaces() and auto-disables Bonjour on Android.")
+            appendLine("if [ -f \"$compatJs\" ]; then")
+            appendLine("  case \"\${NODE_OPTIONS:-}\" in")
+            appendLine("    *\"$compatJs\"*) ;;")
+            appendLine("    *) export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }-r $compatJs\" ;;")
+            appendLine("  esac")
+            appendLine("fi")
             appendLine()
             appendLine("exec \"$nodeBin\" \"$ocaMjs\" gateway --host 0.0.0.0")
         }

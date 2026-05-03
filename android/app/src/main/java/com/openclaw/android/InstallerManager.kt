@@ -199,16 +199,27 @@ class InstallerManager(private val context: Context) {
 
     private fun completeInstallation(listener: ProgressListener) {
         listener.onProgress(80, "Configurando entorno...")
-        
+
         // Asegurar que los scripts de assets estén actualizados en el destino
         applyScriptUpdate()
-        
+
         // Aplicar permisos
         applyPermissions()
-        
-        // Escribir marcador de instalación exitosa
+
+        // Validar estructura antes de escribir el marcador
+        listener.onProgress(90, "Validando instalación...")
+        val validation = InstallValidator.validatePayload(prefix)
+        if (!validation.passed) {
+            val errorMsg = "Validación fallida: ${validation.errors.joinToString("; ")}"
+            AppLogger.e(TAG, errorMsg)
+            listener.onError(errorMsg)
+            return
+        }
+        validation.warnings.forEach { AppLogger.w(TAG, "Install warning: $it") }
+
+        // Escribir marcador solo si la validación pasó
         writeMarker()
-        
+
         listener.onProgress(100, "¡Instalación completada!")
         listener.onSuccess()
     }

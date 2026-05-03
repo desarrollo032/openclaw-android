@@ -113,7 +113,7 @@ OC_MJS="$PREFIX/lib/node_modules/openclaw/openclaw.mjs"
 OC_BIN="$PREFIX/bin/openclaw"
 if [ -f "$OC_MJS" ]; then
     [ -L "$OC_BIN" ] && rm -f "$OC_BIN"
-    printf '#!/bin/bash\nexec "%s" "%s" "$@"\n' "$OCA_BIN/node" "$OC_MJS" > "$OC_BIN"
+    printf '#!/system/bin/sh\nexec "%s" "%s" "$@"\n' "$OCA_BIN/node" "$OC_MJS" > "$OC_BIN"
     chmod +x "$OC_BIN"
     ok "openclaw wrapper → $OC_BIN"
 else
@@ -131,7 +131,7 @@ for js_file in "$PREFIX/lib/node_modules"/*/bin/*.js \
         "#!/usr/bin/env node")
             # Reemplazar con wrapper glibc
             tmp="${js_file}.patching"
-            { printf '#!/bin/bash\nexec "%s"\n' "$OCA_BIN/node"; tail -n +2 "$js_file"; } > "$tmp" \
+            { printf '#!/system/bin/sh\nexec "%s"\n' "$OCA_BIN/node"; tail -n +2 "$js_file"; } > "$tmp" \
                 && mv "$tmp" "$js_file" || rm -f "$tmp"
             count=$((count + 1))
             ;;
@@ -176,7 +176,7 @@ fi
 echo "[7/8] Creating openclaw-start.sh..."
 WRAPPER="$HOME_DIR/openclaw-start.sh"
 cat > "$WRAPPER" << WRAPEOF
-#!/bin/bash
+#!/system/bin/sh
 export HOME="$HOME_DIR"
 export PREFIX="$PREFIX"
 export TMPDIR="$APP_FILES_DIR/tmp"

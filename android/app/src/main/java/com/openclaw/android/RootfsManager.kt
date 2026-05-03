@@ -352,7 +352,7 @@ class RootfsManager(
         val ocBin = File(prefix, "bin/openclaw")
         if (ocMjs.exists()) {
             if (ocBin.exists() && !ocBin.isFile) ocBin.delete()
-            ocBin.writeText("#!/bin/bash\nexec \"$ocaBin/node\" \"${ocMjs.absolutePath}\" \"\$@\"\n")
+            ocBin.writeText("#!/system/bin/sh\nexec \"$ocaBin/node\" \"${ocMjs.absolutePath}\" \"\$@\"\n")
             ocBin.setExecutable(true)
         }
 
@@ -369,7 +369,7 @@ class RootfsManager(
                             jsFile.writeText(
                                 jsFile.readText().replaceFirst(
                                     "#!/usr/bin/env node",
-                                    "#!/bin/bash\nexec \"$ocaBin/node\"",
+                                    "#!/system/bin/sh\nexec \"$ocaBin/node\"",
                                 ),
                             )
                     }
@@ -412,7 +412,7 @@ class RootfsManager(
         val wrapperScript = File(homeDir, "openclaw-start.sh")
         wrapperScript.writeText(
             buildString {
-                appendLine("#!/bin/bash")
+                appendLine("#!/system/bin/sh")
                 appendLine("export HOME=\"$home\"")
                 appendLine("export PREFIX=\"$prefix\"")
                 appendLine("export TMPDIR=\"$tmp\"")

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/system/bin/sh
 # =============================================================================
 # install.sh — OpenClaw Android Local Installer
 # =============================================================================
@@ -25,7 +25,7 @@
 #     $PREFIX/var/lib/dpkg/lock-frontend  ← correct, accessible
 # =============================================================================
 
-set -euo pipefail
+set -eu
 
 # ── Validate environment ──────────────────────────────────────────────────────
 : "${PREFIX:?PREFIX not set. Run this script via the OpenClaw terminal.}"

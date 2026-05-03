@@ -110,11 +110,24 @@ object InstallValidator {
     /**
      * Quick check: is the payload extraction structurally complete?
      * Lighter than full validatePayload — for status checks.
+     *
+     * Accepts either a traditional Termux-style prefix (has bin/bash or bin/sh)
+     * OR an OpenClaw payload prefix (has bin/node or the glibc-wrapped node wrapper).
+     * Both layouts are valid — the key requirement is the glibc dynamic linker.
      */
     fun isStructurallyComplete(prefix: File): Boolean {
-        return File(prefix, "bin").isDirectory &&
-               (File(prefix, "bin/bash").exists() || File(prefix, "bin/sh").exists()) &&
-               File(prefix, "lib").isDirectory &&
-               File(prefix, "glibc/lib/ld-linux-aarch64.so.1").exists()
+        val hasGlibcLinker = File(prefix, "glibc/lib/ld-linux-aarch64.so.1").exists()
+        val hasBinDir = File(prefix, "bin").isDirectory
+        val hasLibDir = File(prefix, "lib").isDirectory
+
+        // Traditional shell layout (Termux bootstrap)
+        val hasShell = File(prefix, "bin/bash").exists() || File(prefix, "bin/sh").exists()
+
+        // OpenClaw payload layout (glibc-wrapped node, no bash required)
+        val hasNode = File(prefix, "bin/node").exists() ||
+            File(prefix, "bin/openclaw").exists() ||
+            File(prefix, "lib/node_modules/openclaw/openclaw.mjs").exists()
+
+        return hasBinDir && hasLibDir && hasGlibcLinker && (hasShell || hasNode)
     }
 }

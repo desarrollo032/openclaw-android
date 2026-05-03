@@ -133,7 +133,7 @@ echo "[docker-build] [5/5] Installing OpenClaw..."
 
 # Create temporary node wrapper for npm install
 cat > "${OCA_BIN}/node" <<WRAPPER
-#!/bin/bash
+#!/system/bin/sh
 unset LD_PRELOAD
 export _OA_WRAPPER_PATH="${OCA_BIN}/node"
 _OA_COMPAT="${OCA_DIR}/patches/glibc-compat.js"
@@ -150,7 +150,7 @@ chmod +x "${OCA_BIN}/node"
 # Create npm wrapper
 if [ -f "${NODE_DIR}/lib/node_modules/npm/bin/npm-cli.js" ]; then
     cat > "${OCA_BIN}/npm" <<NPMWRAP
-#!/bin/bash
+#!/system/bin/sh
 exec "${OCA_BIN}/node" "${NODE_DIR}/lib/node_modules/npm/bin/npm-cli.js" "\$@"
 NPMWRAP
     chmod +x "${OCA_BIN}/npm"
@@ -159,7 +159,7 @@ fi
 # Create npx wrapper
 if [ -f "${NODE_DIR}/lib/node_modules/npm/bin/npx-cli.js" ]; then
     cat > "${OCA_BIN}/npx" <<NPXWRAP
-#!/bin/bash
+#!/system/bin/sh
 exec "${OCA_BIN}/node" "${NODE_DIR}/lib/node_modules/npm/bin/npx-cli.js" "\$@"
 NPXWRAP
     chmod +x "${OCA_BIN}/npx"
@@ -192,7 +192,7 @@ fi
 
 # Create openclaw wrapper in PREFIX/bin
 OC_BIN="${PREFIX}/bin/openclaw"
-printf '#!/bin/bash\nexec "%s/node" "%s" "$@"\n' "${OCA_BIN}" "${OC_MJS}" > "$OC_BIN"
+printf '#!/system/bin/sh\nexec "%s/node" "%s" "$@"\n' "${OCA_BIN}" "${OC_MJS}" > "$OC_BIN"
 chmod +x "$OC_BIN"
 
 # ── Apply placeholder substitution ───────────────────────────────────────────

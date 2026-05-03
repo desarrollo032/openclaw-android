@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/system/bin/sh
 # run.sh — OpenClaw runtime launcher
 #
 # This script is the single entry point for running OpenClaw gateway.
@@ -13,7 +13,7 @@
 #   SSL_CERT_FILE, CURL_CA_BUNDLE, RESOLV_CONF
 #   OA_GLIBC=1, CONTAINER=1
 
-set -euo pipefail
+set -eu
 
 # ── Validate required variables ───────────────────────────────────────────────
 : "${PREFIX:?PREFIX not set — run via EnvironmentBuilder}"
