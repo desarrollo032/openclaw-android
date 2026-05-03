@@ -151,13 +151,17 @@ class JsBridge(
     fun getSetupStatus(): String {
         val installer = InstallerManager(activity)
         val isInstalled = installer.isInstalled()
-        
+        val setupManager = SetupManager(activity)
+
         return gson.toJson(mapOf(
             "bootstrapInstalled" to isInstalled,
             "runtimeInstalled" to isInstalled,
             "wwwInstalled" to isInstalled,
             "platformInstalled" to isInstalled,
-            "source" to "payload"
+            "source" to if (File(activity.filesDir, ".proot-installed").exists()) "proot" else "payload",
+            "prootReady" to ProotManager.isProotReady(activity),
+            "rootfsReady" to ProotManager.isRootfsReady(activity),
+            "openclawReady" to setupManager.isOpenClawInstalledInRootfs(),
         ))
     }
 
@@ -304,6 +308,181 @@ class JsBridge(
     fun pickPayloadFile() {
         activity.runOnUiThread {
             activity.pickPayloadFile()
+        }
+    }
+
+    /**
+     * Retorna el estado de glibc y versiones instaladas para la UI.
+     * Detecta: versión de OpenClaw, Node.js, y estado de glibc.
+     */
+    @JavascriptInterface
+    fun getGlibcStatus(): String {
+        val installer = InstallerManager(activity)
+        val homeDir = installer.getHomeDir()
+        val payloadDir = listOf(
+            java.io.File(homeDir, "payload"),
+            java.io.File(homeDir, "openclaw-payload"),
+            java.io.File(activity.filesDir, "payload"),
+            java.io.File(activity.filesDir, "openclaw-payload"),
+        ).firstOrNull { it.isDirectory }
+
+        val ldso = payloadDir?.let { java.io.File(it, "glibc/lib/ld-linux-aarch64.so.1") }
+        val nodeInGlibc = payloadDir?.let { java.io.File(it, "glibc/bin/node") }
+        val ocMjs = payloadDir?.let { java.io.File(it, "openclaw/openclaw.mjs") }
+
+        return gson.toJson(mapOf(
+            "installed" to (ldso?.exists() == true && (ldso.length()) > 100_000),
+            "linkerPath" to (ldso?.absolutePath ?: ""),
+            "linkerSize" to (ldso?.length() ?: 0L),
+            "nodeInGlibc" to (nodeInGlibc?.exists() == true),
+            "openclawMjs" to (ocMjs?.exists() == true),
+            "payloadDir" to (payloadDir?.absolutePath ?: "not found"),
+            "manualInstallPath" to homeDir.absolutePath,
+        ))
+    }
+
+    /**
+     * Retorna las versiones instaladas de OpenClaw, Node.js y npm.
+     * Lee desde package.json (sin ejecutar nada) para ser rápido y seguro.
+     */
+    @JavascriptInterface
+    fun getVersionInfo(): String {
+        val installer = InstallerManager(activity)
+        val homeDir = installer.getHomeDir()
+
+        val payloadDir = listOf(
+            java.io.File(homeDir, "payload"),
+            java.io.File(homeDir, "openclaw-payload"),
+            java.io.File(activity.filesDir, "payload"),
+            java.io.File(activity.filesDir, "openclaw-payload"),
+        ).firstOrNull { it.isDirectory }
+
+        // OpenClaw version desde package.json
+        val openclawVersion = try {
+            val pkg = payloadDir?.let { java.io.File(it, "openclaw/package.json") }
+            if (pkg?.exists() == true) {
+                val match = Regex(""""version"\s*:\s*"([^"]+)"""").find(pkg.readText())
+                match?.groupValues?.getOrNull(1) ?: "unknown"
+            } else "not installed"
+        } catch (_: Exception) { "unknown" }
+
+        // Node version desde installed.json (escrito durante instalación)
+        val ocaDir = java.io.File(homeDir, ".openclaw-android")
+        val installedJson = java.io.File(ocaDir, "installed.json")
+        var nodeVersion = "unknown"
+        var installedAt = ""
+        var source = "unknown"
+        if (installedJson.exists()) {
+            try {
+                val content = installedJson.readText()
+                nodeVersion = Regex(""""nodeVersion"\s*:\s*"([^"]+)"""")
+                    .find(content)?.groupValues?.getOrNull(1) ?: "unknown"
+                installedAt = Regex(""""installedAt"\s*:\s*(\d+)""")
+                    .find(content)?.groupValues?.getOrNull(1) ?: ""
+                source = Regex(""""source"\s*:\s*"([^"]+)"""")
+                    .find(content)?.groupValues?.getOrNull(1) ?: "unknown"
+            } catch (_: Exception) {}
+        }
+
+        // npm version desde node_modules/npm/package.json
+        val npmVersion = try {
+            val npmPkg = payloadDir?.let {
+                java.io.File(it, "glibc/lib/node_modules/npm/package.json")
+            }
+            if (npmPkg?.exists() == true) {
+                val match = Regex(""""version"\s*:\s*"([^"]+)"""").find(npmPkg.readText())
+                match?.groupValues?.getOrNull(1) ?: "unknown"
+            } else "unknown"
+        } catch (_: Exception) { "unknown" }
+
+        // glibc version desde ld-linux size (proxy)
+        val ldso = payloadDir?.let { java.io.File(it, "glibc/lib/ld-linux-aarch64.so.1") }
+        val glibcOk = ldso?.exists() == true && (ldso.length()) > 100_000
+
+        return gson.toJson(mapOf(
+            "openclaw" to mapOf(
+                "version" to openclawVersion,
+                "installed" to (openclawVersion != "not installed"),
+                "path" to (payloadDir?.let { "${it.absolutePath}/openclaw/openclaw.mjs" } ?: ""),
+            ),
+            "node" to mapOf(
+                "version" to nodeVersion,
+                "installed" to (nodeVersion != "unknown"),
+                "path" to (payloadDir?.let { "${it.absolutePath}/glibc/bin/node" } ?: ""),
+            ),
+            "npm" to mapOf(
+                "version" to npmVersion,
+                "installed" to (npmVersion != "unknown"),
+            ),
+            "glibc" to mapOf(
+                "ok" to glibcOk,
+                "linkerPath" to (ldso?.absolutePath ?: ""),
+                "linkerSize" to (ldso?.length() ?: 0L),
+            ),
+            "installedAt" to installedAt,
+            "source" to source,
+            "payloadDir" to (payloadDir?.absolutePath ?: ""),
+        ))
+    }
+
+    /**
+     * Instala glibc desde un archivo externo seleccionado por el usuario.
+     * El usuario debe colocar glibc-aarch64.tar.xz en:
+     *   - Descargas del teléfono, o
+     *   - ${homeDir}/glibc-aarch64.tar.xz
+     * y luego llamar este método.
+     *
+     * También acepta el archivo seleccionado via pickGlibcFile().
+     */
+    @JavascriptInterface
+    fun installGlibcManually() {
+        launchWithErrorHandling(errorEventType = "glibc_install") {
+            val installer = InstallerManager(activity)
+            val homeDir = installer.getHomeDir()
+
+            // Buscar el archivo en ubicaciones conocidas
+            val candidates = listOf(
+                java.io.File(homeDir, "glibc-aarch64.tar.xz"),
+                java.io.File(activity.filesDir, "glibc-aarch64.tar.xz"),
+                java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS),
+                    "glibc-aarch64.tar.xz"
+                ),
+            )
+
+            val archive = candidates.firstOrNull { it.exists() && it.length() > 10_000 }
+            if (archive == null) {
+                eventBridge.emit("glibc_install", mapOf(
+                    "success" to false,
+                    "error" to "glibc-aarch64.tar.xz no encontrado. Colócalo en: ${homeDir.absolutePath}",
+                    "searchedPaths" to candidates.map { it.absolutePath },
+                ))
+                return@launchWithErrorHandling
+            }
+
+            eventBridge.emit("glibc_install", mapOf(
+                "success" to null,
+                "message" to "Instalando glibc desde ${archive.absolutePath}...",
+            ))
+
+            val ok = installer.installGlibcFromFile(archive)
+            eventBridge.emit("glibc_install", mapOf(
+                "success" to ok,
+                "message" to if (ok) "glibc instalado correctamente" else "Error instalando glibc",
+                "linkerPath" to "${installer.getPrefixDir().absolutePath}/glibc/lib/ld-linux-aarch64.so.1",
+            ))
+        }
+    }
+
+    /**
+     * Abre el selector de archivos para que el usuario elija glibc-aarch64.tar.xz manualmente.
+     * Después de seleccionar, llama installGlibcManually() automáticamente.
+     */
+    @JavascriptInterface
+    fun pickGlibcFile() {
+        activity.runOnUiThread {
+            activity.pickGlibcFile()
         }
     }
 

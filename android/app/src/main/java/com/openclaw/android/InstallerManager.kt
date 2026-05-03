@@ -81,12 +81,23 @@ class InstallerManager(private val context: Context) {
     // ── Public API ─────────────────────────────────────────────────────────
 
     /** True if the environment is structurally installed (marker + dirs). */
-    fun isInstalled(): Boolean =
-        prefix.isDirectory && markerInstalled.exists()
+    fun isInstalled(): Boolean {
+        // Verificar instalación proot (nuevo flujo)
+        val prootInstalled = File(filesDir, ".proot-installed").exists() &&
+            SetupManager(context).isInstalled()
+        if (prootInstalled) return true
+        // Verificar instalación legada (payload)
+        return prefix.isDirectory && markerInstalled.exists()
+    }
 
     /** True if glibc and node are both present (fully functional). */
-    fun isReady(): Boolean =
-        isInstalled() && InstallValidator.isStructurallyComplete(prefix)
+    fun isReady(): Boolean {
+        // proot: verificar que openclaw está en el rootfs
+        if (File(filesDir, ".proot-installed").exists()) {
+            return SetupManager(context).isOpenClawInstalledInRootfs()
+        }
+        return isInstalled() && InstallValidator.isStructurallyComplete(prefix)
+    }
 
     /** True if APK bundles a payload asset. */
     fun hasPayloadAsset(): Boolean {
@@ -117,10 +128,15 @@ class InstallerManager(private val context: Context) {
 
     /**
      * Main entry point: decide offline vs online, execute, validate.
+     *
+     * Orden de preferencia:
+     *   1. proot (nuevo — robusto, sin Phantom Process Killer)
+     *   2. payload offline desde assets (legado)
+     *   3. payload online desde GitHub releases (legado)
      */
     suspend fun install(mode: String, customUri: android.net.Uri?, listener: ProgressListener) = withContext(Dispatchers.IO) {
         try {
-            // ── Clean start if requested or not installed ──────────────────
+            // ── Ya instalado ───────────────────────────────────────────────
             if (isInstalled() && mode != "force") {
                 AppLogger.i(TAG, "Already installed — skipping")
                 listener.onSuccess()
@@ -131,16 +147,25 @@ class InstallerManager(private val context: Context) {
                 "offline" -> {
                     if (customUri != null) {
                         installFromCustomPayload(customUri, listener)
-                    } else {
+                    } else if (hasPayloadAsset()) {
                         installOffline(listener)
+                    } else {
+                        // Sin payload en assets → usar proot (descarga rootfs)
+                        installViaProot(listener)
                     }
                 }
+                "proot" -> installViaProot(listener)
                 "online" -> {
-                    installOnline(listener)
+                    // Intentar proot primero (más confiable), luego online legacy
+                    installViaProot(listener)
                 }
                 else -> {
-                    if (hasPayloadAsset()) installOffline(listener)
-                    else installOnline(listener)
+                    // Auto: proot si no hay payload en assets
+                    if (hasPayloadAsset()) {
+                        installOffline(listener)
+                    } else {
+                        installViaProot(listener)
+                    }
                 }
             }
 
@@ -153,26 +178,75 @@ class InstallerManager(private val context: Context) {
         }
     }
 
-    private fun installOffline(listener: ProgressListener) {
-        listener.onProgress(0, "Preparando instalación desde assets...")
-        
-        try {
-            // Copy the payload archive to homeDir as requested (to be visible in ls -la)
-            val payloadDest = File(homeDir, "openclaw-payload.tar.gz")
-            if (!payloadDest.exists()) {
-                listener.onProgress(2, "Copiando archivo de carga...")
-                val assetPath = getPayloadAssetPath() ?: "openclaw-payload.tar.gz"
-                context.assets.open(assetPath).use { input ->
-                    File(homeDir, "openclaw-payload.tar.gz").outputStream().use { output -> input.copyTo(output) }
-                }
+    /**
+     * Instalación via proot + Ubuntu rootfs.
+     * Este es el nuevo flujo principal — robusto contra Phantom Process Killer.
+     */
+    private fun installViaProot(listener: ProgressListener) {
+        AppLogger.i(TAG, "Starting proot-based installation")
+        val setupManager = SetupManager(context)
+
+        // Si ya está instalado via proot, solo verificar
+        if (setupManager.isInstalled()) {
+            AppLogger.i(TAG, "proot installation already complete")
+            listener.onSuccess()
+            return
+        }
+
+        setupManager.install(object : SetupManager.ProgressListener {
+            override fun onProgress(percent: Int, message: String) {
+                listener.onProgress(percent, message)
             }
 
-            listener.onProgress(5, "Extrayendo payload principal (esto puede tardar)...")
-            val count = PayloadExtractor.extractTarGzFile(
-                payloadDest, homeDir
-            )
-            AppLogger.i(TAG, "Payload extracted to HOME: $count entries")
-            
+            override fun onSuccess() {
+                // Sincronizar marcadores con el sistema legado
+                try {
+                    writeMarker()
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Could not write legacy marker: ${e.message}")
+                }
+                listener.onSuccess()
+            }
+
+            override fun onError(message: String, cause: Throwable?) {
+                AppLogger.e(TAG, "proot install error: $message", cause)
+                listener.onError(message, cause)
+            }
+        })
+    }
+
+    private fun installOffline(listener: ProgressListener) {
+        listener.onProgress(0, "Preparando instalación desde assets...")
+
+        try {
+            // Asegurar que homeDir existe
+            homeDir.mkdirs()
+            File(filesDir, "tmp").mkdirs()
+
+            // Copiar el payload desde assets a homeDir
+            val payloadDest = File(homeDir, "openclaw-payload.tar.gz")
+            if (!payloadDest.exists() || payloadDest.length() < 1_000_000) {
+                listener.onProgress(2, "Copiando payload desde APK (~167MB)...")
+                val assetPath = getPayloadAssetPath() ?: "openclaw-payload.tar.gz"
+                AppLogger.i(TAG, "Copying asset '$assetPath' to ${payloadDest.absolutePath}")
+                context.assets.open(assetPath).use { input ->
+                    payloadDest.outputStream().use { output -> input.copyTo(output) }
+                }
+                AppLogger.i(TAG, "Payload copied: ${payloadDest.length() / 1024 / 1024}MB")
+            } else {
+                AppLogger.i(TAG, "Payload already copied: ${payloadDest.length() / 1024 / 1024}MB")
+            }
+
+            listener.onProgress(5, "Extrayendo payload (puede tardar 1-2 min)...")
+            AppLogger.i(TAG, "Extracting payload to ${homeDir.absolutePath}")
+            val count = PayloadExtractor.extractTarGzFile(payloadDest, homeDir)
+            AppLogger.i(TAG, "Payload extracted: $count entries to ${homeDir.absolutePath}")
+
+            // Verificar que el payload se extrajo correctamente
+            val payloadDir = resolvePayloadDir()
+            AppLogger.i(TAG, "Resolved payload dir: ${payloadDir.absolutePath} (exists=${payloadDir.exists()})")
+
+            listener.onProgress(75, "Payload extraído ($count archivos). Configurando entorno...")
             completeInstallation(listener)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Offline extraction failed: ${e.message}", e)
@@ -199,24 +273,46 @@ class InstallerManager(private val context: Context) {
 
     private fun completeInstallation(listener: ProgressListener) {
         listener.onProgress(80, "Configurando entorno...")
-
-        // Asegurar que los scripts de assets estén actualizados en el destino
         applyScriptUpdate()
 
-        // Reparar symlinks rotos de glibc (libc.so, libm.so, libpthread.so)
-        // Causa del error: "CANNOT LINK EXECUTABLE: libc.so >= file size: 0 >= 0"
-        val glibcLibDir = File(prefix, "glibc/lib")
-        if (glibcLibDir.isDirectory) {
-            AppLogger.i(TAG, "Repairing glibc symlinks in ${glibcLibDir.absolutePath}")
-            PayloadExtractor.repairGlibcSymlinks(glibcLibDir)
-        }
+        // ── El payload ya tiene glibc/ extraído directamente ──────────────────
+        // La estructura del tar.gz es:
+        //   payload/glibc/lib/ld-linux-aarch64.so.1  ← ya extraído
+        //   payload/glibc/bin/node                   ← node via glibc
+        //   payload/openclaw/openclaw.mjs             ← OpenClaw
+        //   payload/run-openclaw.sh                   ← launcher
+        //
+        // No hay glibc-aarch64.tar.xz dentro — glibc está listo tras la extracción.
+        // Solo necesitamos: verificar, reparar symlinks, permisos y crear wrappers.
 
-        // Aplicar permisos
+        val payloadDir = resolvePayloadDir()
+        AppLogger.i(TAG, "Payload dir: ${payloadDir.absolutePath}")
+
+        // ── Paso 1: verificar y reparar glibc ────────────────────────────────
+        listener.onProgress(82, "Verificando glibc...")
+        verifyAndRepairGlibc(payloadDir, listener)
+
+        // ── Paso 2: crear wrapper node en .openclaw-android/bin/ ─────────────
+        listener.onProgress(85, "Configurando Node.js...")
+        setupNodeWrapper(payloadDir)
+
+        // ── Paso 3: configurar DNS y SSL ──────────────────────────────────────
+        listener.onProgress(87, "Configurando DNS y SSL...")
+        setupDnsAndSsl(payloadDir)
+
+        // ── Paso 4: crear openclaw-start.sh ──────────────────────────────────
+        listener.onProgress(88, "Creando scripts de lanzamiento...")
+        createStartScript(payloadDir)
+
+        // ── Paso 5: permisos ──────────────────────────────────────────────────
         applyPermissions()
 
-        // Validar estructura antes de escribir el marcador
+        // ── Paso 6: escribir marcador de instalación ──────────────────────────
+        writeInstalledJson(payloadDir)
+
+        // ── Paso 7: validar ───────────────────────────────────────────────────
         listener.onProgress(90, "Validando instalación...")
-        val validation = InstallValidator.validatePayload(prefix)
+        val validation = InstallValidator.validatePayload(payloadDir)
         if (!validation.passed) {
             val errorMsg = "Validación fallida: ${validation.errors.joinToString("; ")}"
             AppLogger.e(TAG, errorMsg)
@@ -225,11 +321,331 @@ class InstallerManager(private val context: Context) {
         }
         validation.warnings.forEach { AppLogger.w(TAG, "Install warning: $it") }
 
-        // Escribir marcador solo si la validación pasó
         writeMarker()
-
         listener.onProgress(100, "¡Instalación completada!")
         listener.onSuccess()
+    }
+
+    /**
+     * Verifica que glibc está en su lugar y repara symlinks críticos.
+     * El payload ya tiene glibc/ extraído — solo verificamos y reparamos.
+     *
+     * Si glibc NO está (payload corrupto o instalación manual incompleta),
+     * busca glibc-aarch64.tar.xz en ubicaciones conocidas como fallback.
+     */
+    private fun verifyAndRepairGlibc(payloadDir: File, listener: ProgressListener) {
+        val ldso = File(payloadDir, "glibc/lib/ld-linux-aarch64.so.1")
+
+        if (ldso.exists() && ldso.length() > 100_000) {
+            ldso.setExecutable(true, false)
+            AppLogger.i(TAG, "glibc OK: ${ldso.absolutePath} (${ldso.length()} bytes)")
+            listener.onProgress(83, "glibc verificado (${ldso.length() / 1024}KB)")
+        } else {
+            // glibc no está — buscar archivo comprimido como fallback
+            AppLogger.w(TAG, "glibc linker missing at ${ldso.absolutePath}, searching for archive...")
+            listener.onProgress(82, "glibc no encontrado, buscando archivo comprimido...")
+            val archive = findGlibcArchive(payloadDir)
+            if (archive != null) {
+                AppLogger.i(TAG, "Extracting glibc from ${archive.absolutePath}")
+                listener.onProgress(82, "Extrayendo glibc (${archive.length() / 1024}KB)...")
+                try {
+                    PayloadExtractor.extractTarXzFile(archive, payloadDir)
+                    if (ldso.exists()) {
+                        ldso.setExecutable(true, false)
+                        AppLogger.i(TAG, "glibc extracted OK: ${ldso.absolutePath}")
+                        listener.onProgress(83, "glibc instalado correctamente")
+                    } else {
+                        AppLogger.e(TAG, "glibc linker still missing after extraction")
+                        listener.onProgress(83, "ADVERTENCIA: glibc no disponible")
+                    }
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "glibc extraction failed: ${e.message}", e)
+                    listener.onProgress(83, "ERROR extrayendo glibc: ${e.message}")
+                }
+            } else {
+                AppLogger.e(TAG, "glibc archive not found anywhere")
+                listener.onProgress(83, "ADVERTENCIA: glibc no encontrado — instalar manualmente")
+            }
+        }
+
+        // Reparar symlinks críticos siempre
+        PayloadExtractor.repairGlibcSymlinks(File(payloadDir, "glibc/lib"))
+    }
+
+    /**
+     * Crea el wrapper node en .openclaw-android/bin/node que apunta al node de glibc.
+     * El payload tiene node en payload/glibc/bin/node (ELF glibc).
+     */
+    private fun setupNodeWrapper(payloadDir: File) {
+        val ocaDir = File(homeDir, ".openclaw-android")
+        val binDir = File(ocaDir, "bin")
+        binDir.mkdirs()
+
+        // node está en payload/glibc/bin/node
+        val nodeInGlibc = File(payloadDir, "glibc/bin/node")
+        val ldso = File(payloadDir, "glibc/lib/ld-linux-aarch64.so.1")
+        val glibcLib = File(payloadDir, "glibc/lib")
+
+        if (!nodeInGlibc.exists()) {
+            AppLogger.w(TAG, "node not found at ${nodeInGlibc.absolutePath}")
+            return
+        }
+        nodeInGlibc.setExecutable(true, false)
+
+        // Crear wrapper que lanza node via ld-linux (necesario en Android)
+        val nodeWrapper = File(binDir, "node")
+        val wrapperContent = buildString {
+            appendLine("#!/system/bin/sh")
+            appendLine("# OpenClaw glibc-wrapped Node.js — auto-generated")
+            appendLine("unset LD_PRELOAD")
+            appendLine("export _OA_WRAPPER_PATH=\"${nodeWrapper.absolutePath}\"")
+            appendLine("_OA_COMPAT=\"${ocaDir.absolutePath}/patches/glibc-compat.js\"")
+            appendLine("if [ -f \"\$_OA_COMPAT\" ]; then")
+            appendLine("  case \"\${NODE_OPTIONS:-}\" in")
+            appendLine("    *\"\$_OA_COMPAT\"*) ;;")
+            appendLine("    *) export NODE_OPTIONS=\"\${NODE_OPTIONS:+\$NODE_OPTIONS }-r \$_OA_COMPAT\" ;;")
+            appendLine("  esac")
+            appendLine("fi")
+            if (ldso.exists()) {
+                appendLine("exec \"${ldso.absolutePath}\" --library-path \"${glibcLib.absolutePath}\" \"${nodeInGlibc.absolutePath}\" \"\$@\"")
+            } else {
+                // Sin ldso, intentar ejecutar directamente (puede funcionar en algunos dispositivos)
+                appendLine("exec \"${nodeInGlibc.absolutePath}\" \"\$@\"")
+            }
+        }
+        nodeWrapper.writeText(wrapperContent)
+        nodeWrapper.setExecutable(true, false)
+        AppLogger.i(TAG, "node wrapper created: ${nodeWrapper.absolutePath}")
+
+        // npm wrapper
+        val npmCli = File(payloadDir, "glibc/lib/node_modules/npm/bin/npm-cli.js")
+        if (npmCli.exists()) {
+            val npmWrapper = File(binDir, "npm")
+            npmWrapper.writeText("#!/system/bin/sh\nexec \"${nodeWrapper.absolutePath}\" \"${npmCli.absolutePath}\" \"\$@\"\n")
+            npmWrapper.setExecutable(true, false)
+        }
+
+        // Copiar glibc-compat.js desde assets
+        val patchesDir = File(ocaDir, "patches")
+        patchesDir.mkdirs()
+        val compatDest = File(patchesDir, "glibc-compat.js")
+        if (!compatDest.exists()) {
+            try {
+                context.assets.open("glibc-compat.js").use { i ->
+                    compatDest.outputStream().use { o -> i.copyTo(o) }
+                }
+                AppLogger.i(TAG, "glibc-compat.js installed")
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Could not copy glibc-compat.js: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Configura DNS (resolv.conf) y SSL (cert.pem) para que node pueda hacer HTTPS.
+     */
+    private fun setupDnsAndSsl(payloadDir: File) {
+        val dns = "nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n"
+
+        // resolv.conf en glibc/etc/
+        val glibcEtc = File(payloadDir, "glibc/etc")
+        glibcEtc.mkdirs()
+        val resolvConf = File(glibcEtc, "resolv.conf")
+        if (!resolvConf.exists() || resolvConf.length() == 0L) {
+            resolvConf.writeText(dns)
+            AppLogger.i(TAG, "resolv.conf written: ${resolvConf.absolutePath}")
+        }
+
+        // nsswitch.conf
+        val nsswitch = File(glibcEtc, "nsswitch.conf")
+        if (!nsswitch.exists()) {
+            nsswitch.writeText("passwd: files\ngroup: files\nhosts: files dns\n")
+        }
+
+        // SSL: usar cert.pem del payload si existe, sino Android system certs
+        val sslDir = File(payloadDir, "ssl")
+        sslDir.mkdirs()
+        val certPem = File(sslDir, "cert.pem")
+        if (!certPem.exists() || certPem.length() == 0L) {
+            val androidCerts = File("/system/etc/security/cacerts")
+            if (androidCerts.isDirectory) {
+                var count = 0
+                androidCerts.listFiles()?.filter { it.name.endsWith(".0") }?.forEach { cert ->
+                    try {
+                        val content = cert.readText()
+                        if (content.contains("BEGIN CERTIFICATE")) {
+                            certPem.appendText(content)
+                            count++
+                        }
+                    } catch (_: Exception) {}
+                }
+                AppLogger.i(TAG, "SSL cert bundle built from Android system: $count certs")
+            }
+        }
+    }
+
+    /**
+     * Crea openclaw-start.sh en homeDir — el script que lanza el gateway.
+     * Usa run-openclaw.sh del payload si existe, sino crea uno nuevo.
+     */
+    private fun createStartScript(payloadDir: File) {
+        val startScript = File(homeDir, "openclaw-start.sh")
+        val runScript = File(payloadDir, "run-openclaw.sh")
+
+        if (runScript.exists()) {
+            runScript.setExecutable(true, false)
+            // Crear wrapper que llama al run-openclaw.sh del payload
+            startScript.writeText(buildString {
+                appendLine("#!/system/bin/sh")
+                appendLine("# OpenClaw gateway launcher — auto-generated")
+                appendLine("export HOME=\"${homeDir.absolutePath}\"")
+                appendLine("export TMPDIR=\"${File(filesDir, "tmp").absolutePath}\"")
+                appendLine("export OA_GLIBC=1")
+                appendLine("export CONTAINER=1")
+                appendLine("unset LD_PRELOAD")
+                appendLine("exec \"${runScript.absolutePath}\" gateway --host 0.0.0.0 \"\$@\"")
+            })
+        } else {
+            // Crear script directo
+            val nodeWrapper = File(homeDir, ".openclaw-android/bin/node")
+            val ocMjs = File(payloadDir, "openclaw/openclaw.mjs")
+            startScript.writeText(buildString {
+                appendLine("#!/system/bin/sh")
+                appendLine("export HOME=\"${homeDir.absolutePath}\"")
+                appendLine("export TMPDIR=\"${File(filesDir, "tmp").absolutePath}\"")
+                appendLine("export OA_GLIBC=1")
+                appendLine("export CONTAINER=1")
+                appendLine("unset LD_PRELOAD")
+                appendLine("exec \"${nodeWrapper.absolutePath}\" \"${ocMjs.absolutePath}\" gateway --host 0.0.0.0 \"\$@\"")
+            })
+        }
+        startScript.setExecutable(true, false)
+        AppLogger.i(TAG, "openclaw-start.sh created: ${startScript.absolutePath}")
+    }
+
+    /**
+     * Escribe installed.json con las versiones detectadas del payload.
+     */
+    private fun writeInstalledJson(payloadDir: File) {
+        val ocaDir = File(homeDir, ".openclaw-android")
+        ocaDir.mkdirs()
+        val marker = File(ocaDir, "installed.json")
+
+        val openclawVersion = readOpenClawVersionFromPayload(payloadDir)
+        val nodeVersion = readNodeVersionFromPayload(payloadDir)
+
+        marker.writeText(
+            """
+            {
+              "installed": true,
+              "source": "payload",
+              "openclawVersion": "$openclawVersion",
+              "nodeVersion": "$nodeVersion",
+              "payloadDir": "${payloadDir.absolutePath}",
+              "installedAt": "${System.currentTimeMillis()}"
+            }
+            """.trimIndent()
+        )
+        AppLogger.i(TAG, "installed.json written: openclaw=$openclawVersion node=$nodeVersion")
+    }
+
+    /**
+     * Lee la versión de OpenClaw desde payload/openclaw/package.json.
+     */
+    private fun readOpenClawVersionFromPayload(payloadDir: File): String {
+        val pkg = File(payloadDir, "openclaw/package.json")
+        if (!pkg.exists()) return "unknown"
+        return try {
+            val match = Regex(""""version"\s*:\s*"([^"]+)"""").find(pkg.readText())
+            match?.groupValues?.getOrNull(1) ?: "unknown"
+        } catch (_: Exception) { "unknown" }
+    }
+
+    /**
+     * Lee la versión de Node.js desde el binario en glibc/bin/node.
+     * Intenta ejecutarlo con --version; si falla, lee el string de versión del ELF.
+     */
+    private fun readNodeVersionFromPayload(payloadDir: File): String {
+        val nodeInGlibc = File(payloadDir, "glibc/bin/node")
+        val ldso = File(payloadDir, "glibc/lib/ld-linux-aarch64.so.1")
+
+        if (!nodeInGlibc.exists()) return "unknown"
+
+        return try {
+            val cmd = if (ldso.exists()) {
+                listOf(ldso.absolutePath, "--library-path",
+                    File(payloadDir, "glibc/lib").absolutePath,
+                    nodeInGlibc.absolutePath, "--version")
+            } else {
+                listOf(nodeInGlibc.absolutePath, "--version")
+            }
+            val pb = ProcessBuilder(cmd)
+            pb.environment().apply {
+                clear()
+                put("PATH", "/system/bin:/bin")
+                put("LD_LIBRARY_PATH", File(payloadDir, "glibc/lib").absolutePath)
+            }
+            pb.redirectErrorStream(true)
+            val process = pb.start()
+            val output = process.inputStream.bufferedReader().readText().trim()
+            process.waitFor()
+            output.removePrefix("v").trim().ifEmpty { "unknown" }
+        } catch (_: Exception) { "unknown" }
+    }
+
+    /**
+     * Resuelve el directorio del payload extraído.
+     */
+    private fun resolvePayloadDir(): File {
+        return listOf(
+            File(homeDir, "payload"),
+            File(homeDir, "openclaw-payload"),
+            File(filesDir, "payload"),
+            File(filesDir, "openclaw-payload"),
+        ).firstOrNull { it.isDirectory }
+            ?: File(homeDir, "payload").also { it.mkdirs() }
+    }
+
+    /**
+     * Busca glibc-aarch64.tar.xz como fallback si glibc no está en el payload.
+     * Incluye Descargas del teléfono para instalación manual.
+     */
+    private fun findGlibcArchive(payloadDir: File): File? {
+        val candidates = listOf(
+            File(payloadDir, "glibc-aarch64.tar.xz"),
+            File(homeDir, "glibc-aarch64.tar.xz"),
+            File(filesDir, "glibc-aarch64.tar.xz"),
+            File(android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS), "glibc-aarch64.tar.xz"),
+        )
+        return candidates.firstOrNull { it.exists() && it.length() > 10_000 }
+    }
+
+    /**
+     * Instala glibc desde un archivo externo proporcionado por el usuario.
+     */
+    fun installGlibcFromFile(archiveFile: File): Boolean {
+        AppLogger.i(TAG, "Installing glibc from: ${archiveFile.absolutePath}")
+        if (!archiveFile.exists() || archiveFile.length() < 10_000) return false
+
+        val payloadDir = resolvePayloadDir()
+        val dest = File(homeDir, "glibc-aarch64.tar.xz")
+        if (archiveFile.absolutePath != dest.absolutePath) {
+            try { archiveFile.copyTo(dest, overwrite = true) } catch (_: Exception) {}
+        }
+
+        return try {
+            PayloadExtractor.extractTarXzFile(archiveFile, payloadDir)
+            val ldso = File(payloadDir, "glibc/lib/ld-linux-aarch64.so.1")
+            if (ldso.exists()) {
+                ldso.setExecutable(true, false)
+                PayloadExtractor.repairGlibcSymlinks(File(payloadDir, "glibc/lib"))
+                true
+            } else false
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "glibc install failed: ${e.message}", e)
+            false
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -376,6 +792,11 @@ class InstallerManager(private val context: Context) {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun getRunScriptPath(): File {
+        // Nuevo flujo proot: usar el script generado por SetupManager
+        val prootScript = File(homeDir, "openclaw-start.sh")
+        if (prootScript.exists()) return prootScript
+
+        // Legado: buscar en payload dirs
         val ocaPayloadDir = listOf(
             File(homeDir, "payload"),
             File(homeDir, "openclaw-payload"),
@@ -392,14 +813,18 @@ class InstallerManager(private val context: Context) {
     }
 
     fun isOpenClawInstalled(): Boolean {
+        // Nuevo flujo proot
+        if (File(filesDir, ".proot-installed").exists()) {
+            return SetupManager(context).isOpenClawInstalledInRootfs()
+        }
+        // Legado
         val ocaPayloadDir = listOf(
             File(homeDir, "payload"),
             File(homeDir, "openclaw-payload"),
             File(filesDir, "payload"),
             File(filesDir, "openclaw-payload")
         ).find { it.isDirectory } ?: filesDir
-        // Verificar binario de openclaw (enlace o wrapper) o script de arranque
-        return File(prefix, "bin/openclaw").exists() || 
+        return File(prefix, "bin/openclaw").exists() ||
                File(ocaPayloadDir, "run-openclaw.sh").exists() ||
                File(prefix, "lib/node_modules/openclaw/openclaw.mjs").exists()
     }

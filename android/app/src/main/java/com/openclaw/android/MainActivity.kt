@@ -111,6 +111,48 @@ private lateinit var binding: ActivityMainBinding
         payloadFilePickerLauncher.launch(arrayOf("application/gzip", "application/x-gzip", "application/x-tgz"))
     }
 
+    // Launcher para seleccionar glibc-aarch64.tar.xz manualmente
+    private val glibcFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            AppLogger.i(TAG, "glibc file selected: $it")
+            // Copiar el archivo al homeDir y luego instalar
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val homeDir = File(filesDir, "home").also { d -> d.mkdirs() }
+                    val dest = File(homeDir, "glibc-aarch64.tar.xz")
+                    contentResolver.openInputStream(it)?.use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    AppLogger.i(TAG, "glibc archive copied to ${dest.absolutePath} (${dest.length()} bytes)")
+                    val ok = InstallerManager(this@MainActivity).installGlibcFromFile(dest)
+                    eventBridge.emit("glibc_install", mapOf(
+                        "success" to ok,
+                        "message" to if (ok) "glibc instalado desde archivo" else "Error instalando glibc",
+                    ))
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "glibc file install failed: ${e.message}", e)
+                    eventBridge.emit("glibc_install", mapOf(
+                        "success" to false,
+                        "error" to (e.message ?: "Error desconocido"),
+                    ))
+                }
+            }
+        }
+    }
+
+    fun pickGlibcFile() {
+        // Aceptar .tar.xz y archivos genéricos (algunos gestores de archivos no reconocen xz)
+        glibcFilePickerLauncher.launch(arrayOf(
+            "application/x-xz",
+            "application/x-tar",
+            "application/octet-stream",
+            "*/*",
+        ))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
