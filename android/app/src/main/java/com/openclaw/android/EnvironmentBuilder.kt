@@ -51,7 +51,7 @@ object EnvironmentBuilder {
         // Ensure resolv.conf exists before any network call
         ensureResolvConf(prefix)
 
-        return buildMap {
+        val env = buildMap {
             put("HOME", home)
             put("PREFIX", prefix)
             put("TMPDIR", tmpDir)
