@@ -82,9 +82,13 @@ object InstallValidator {
         }
 
         // ── Critical: shell availability ────────────────────────────────────
+        // Accept either a shell in the payload OR the Android system shell.
+        // The system shell (/system/bin/sh) is always available on Android 7+
+        // and is a valid fallback when the payload doesn't bundle bash/sh.
         val bashExists = File(binDir, "bash").exists()
         val shExists = File(binDir, "sh").exists()
-        if (!bashExists && !shExists) {
+        val systemShExists = File("/system/bin/sh").exists()
+        if (!bashExists && !shExists && !systemShExists) {
             errors.add("No shell (bash/sh) found in bin/ — payload is incomplete or corrupt")
         }
 
@@ -114,6 +118,9 @@ object InstallValidator {
      * Accepts either a traditional Termux-style prefix (has bin/bash or bin/sh)
      * OR an OpenClaw payload prefix (has bin/node or the glibc-wrapped node wrapper).
      * Both layouts are valid — the key requirement is the glibc dynamic linker.
+     *
+     * Also accepts the Android system shell (/system/bin/sh) as a valid shell,
+     * since it is always present on Android 7+ and can run post-setup scripts.
      */
     fun isStructurallyComplete(prefix: File): Boolean {
         val hasGlibcLinker = File(prefix, "glibc/lib/ld-linux-aarch64.so.1").exists()
@@ -121,7 +128,12 @@ object InstallValidator {
         val hasLibDir = File(prefix, "lib").isDirectory
 
         // Traditional shell layout (Termux bootstrap)
-        val hasShell = File(prefix, "bin/bash").exists() || File(prefix, "bin/sh").exists()
+        val hasPayloadShell = File(prefix, "bin/bash").exists() || File(prefix, "bin/sh").exists()
+
+        // Android system shell — always available on Android 7+, valid fallback
+        val hasSystemShell = File("/system/bin/sh").exists()
+
+        val hasShell = hasPayloadShell || hasSystemShell
 
         // OpenClaw payload layout (glibc-wrapped node, no bash required)
         val hasNode = File(prefix, "bin/node").exists() ||

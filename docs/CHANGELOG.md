@@ -6,6 +6,55 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/), y es
 
 ---
 
+## [App v0.5.1 / UI v1.1.1] — 2026-05-02
+
+### 🐛 Corregido — Error crítico: `libc.so` corrupto
+
+**Síntoma:** `CANNOT LINK EXECUTABLE "sh": file offset for the library "libc.so" >= file size: 0 >= 0`
+
+**Causa raíz:** Al extraer el payload tar.gz en Android, los symlinks (`libc.so -> libc.so.6`) se extraen como archivos vacíos (0 bytes) en lugar de symlinks reales. El dynamic linker de Android falla al intentar cargar un `libc.so` de 0 bytes.
+
+**Correcciones:**
+
+- **`PayloadExtractor.kt`**: Nuevo método `repairGlibcSymlinks()` que detecta y repara archivos `.so` de 0 bytes convirtiéndolos en symlinks correctos (`libc.so -> libc.so.6`, `libm.so -> libm.so.6`, etc.)
+- **`PayloadExtractor.kt`**: Durante la extracción, los archivos `libc.so` de 0 bytes se omiten (son symlinks rotos en el tar) para que el symlink real se cree correctamente
+- **`InstallerManager.kt`**: `completeInstallation()` ahora llama a `repairGlibcSymlinks()` antes de `applyPermissions()` y la validación
+- **`InstallValidator.kt`**: El check de shell ahora acepta `/system/bin/sh` (siempre disponible en Android 7+) como shell válido — el payload no necesita incluir bash/sh
+- **`InstallValidator.isStructurallyComplete()`**: Actualizado para aceptar el shell del sistema Android
+
+### 🐛 Corregido — `curl | bash` falla en Android
+
+**Síntoma:** `sh: bash: inaccessible or not found`
+
+**Causa raíz:** Android no tiene `bash` en `/usr/bin/env bash`. Solo tiene `/system/bin/sh` (mksh/toybox).
+
+**Corrección:**
+
+- **`scripts/install-remote.sh`**: Nuevo script de instalación remoto 100% compatible con POSIX `sh`. Funciona con:
+  - `curl -sL myopenclawhub.com/install | sh`
+  - `curl -sL myopenclawhub.com/install | bash` (si bash disponible)
+  - Android `/system/bin/sh`, Termux bash, Linux sh/dash/bash
+  - Detecta automáticamente el entorno (App sandbox / Termux / Linux)
+  - Repara symlinks glibc automáticamente
+  - Usa `#!/system/bin/sh` en wrappers de Node.js (no `#!/usr/bin/env bash`)
+
+### 🐛 Corregido (UI)
+
+- **`runtime-grid`**: Clase CSS faltante — Dashboard roto. Corregido.
+- **`var(--primary)` / `var(--primary-rgb)`**: Variables CSS no definidas. Añadidas como alias de `--accent`.
+- **`@keyframes pulse`**: Animación del FAB no definida. Añadida.
+- **Iconos duplicados en Quick Actions**: "Sesiones" y "Nueva sesión" tenían el mismo icono 📋. Corregido.
+- **Status hardcodeado en español**: "detectado" ahora usa `t('env_detected')`.
+- **`openssh-server` descripción incorrecta**: Usaba `tool_ttyd`. Corregido con `tool_ssh_server`.
+
+### ✨ Añadido
+
+- **`env_detected`**: Nueva clave i18n (EN/ES)
+- **`tool_ssh_server`**: Nueva clave i18n (EN/ES)
+- **`scripts/install-remote.sh`**: Script de instalación remoto POSIX sh compatible
+
+---
+
 ## [App v0.5.0 / Script v1.1.0] — 2026-05-02
 
 ### ✨ Añadido (Arquitectura Híbrida)

@@ -14,7 +14,7 @@ function getTools(): Tool[] {
     { id: 'claude-code', name: 'Claude Code', desc: t('tool_claude_code'), category: 'ai' },
     { id: 'gemini-cli', name: 'Gemini CLI', desc: t('tool_gemini_cli'), category: 'ai' },
     { id: 'codex-cli', name: 'Codex CLI', desc: t('tool_codex_cli'), category: 'ai' },
-    { id: 'openssh-server', name: 'SSH Server', desc: t('tool_ttyd'), category: 'network' },
+    { id: 'openssh-server', name: 'SSH Server', desc: t('tool_ssh_server'), category: 'network' },
     { id: 'ttyd', name: 'ttyd', desc: t('tool_ttyd'), category: 'network' },
     { id: 'dufs', name: 'dufs', desc: t('tool_dufs'), category: 'network' },
     { id: 'android-tools', name: 'Android Tools', desc: 'ADB — Phantom Process Killer', category: 'system' },

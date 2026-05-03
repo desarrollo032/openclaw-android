@@ -100,17 +100,27 @@ android/
 │   ├── java/com/openclaw/android/
 │   │   ├── MainActivity.kt           # Contenedor WebView + TerminalView + permisos
 │   │   ├── OpenClawService.kt        # Foreground Service (START_STICKY)
-│   │   ├── BootstrapManager.kt       # Descarga/extracción/configuración bootstrap
+│   │   ├── InstallerManager.kt       # Orquestador de instalación (online/offline)
+│   │   ├── PayloadExtractor.kt       # Extracción streaming tar.gz (sin saturar RAM)
+│   │   ├── PayloadManager.kt         # Fachada de compatibilidad sobre InstallerManager
+│   │   ├── OpenClawManager.kt        # Instalación online vía npm
+│   │   ├── RootfsManager.kt          # Instalación desde rootfs pre-construido
+│   │   ├── InstallValidator.kt       # Verificación post-instalación
 │   │   ├── JsBridge.kt               # 34 métodos @JavascriptInterface
 │   │   ├── EventBridge.kt            # Eventos Kotlin → WebView
 │   │   ├── CommandRunner.kt          # bash -l -c + grun + rutas Termux + wrapper
 │   │   ├── EnvironmentBuilder.kt     # Variables de entorno Termux reales
 │   │   ├── UrlResolver.kt            # URLs BuildConfig + config.json remoto
-│   │   └── TerminalSessionManager.kt # Gestión multi-sesión terminal
+│   │   ├── TerminalManager.kt        # Gestión PTY terminal
+│   │   ├── TerminalSessionManager.kt # Gestión multi-sesión terminal
+│   │   ├── BootReceiver.kt           # Auto-arranque al iniciar el dispositivo
+│   │   └── AppLogger.kt              # Logging centralizado
 │   ├── assets/
-│   │   ├── www/                      # UI fallback (vanilla JS)
-│   │   ├── post-setup.sh             # Script de instalación OpenClaw
-│   │   └── glibc-compat.js           # Compatibilidad glibc
+│   │   ├── www/                      # UI React compilada (fallback)
+│   │   ├── post-setup.sh             # Script de configuración post-extracción
+│   │   ├── run-openclaw.sh           # Lanzador del gateway OpenClaw
+│   │   ├── env-init.sh               # Inicialización de variables de entorno
+│   │   └── glibc-compat.js           # Shim Node.js para compatibilidad glibc
 │   └── res/                          # Recursos Android
 ├── app/src/test/java/com/openclaw/android/
 │   ├── AppLoggerTest.kt              # 7 tests — delegación de Log
@@ -120,10 +130,12 @@ android/
 │   └── VersionCompareTest.kt         # 8 tests — lógica semver OTA
 ├── www/                              # React SPA (UI producción)
 │   └── src/
-│       ├── lib/bridge.ts             # Wrapper tipado JsBridge
+│       ├── lib/bridge.ts             # Wrapper tipado JsBridge (34 métodos)
 │       ├── lib/useNativeEvent.ts     # Hook EventBridge para React
-│       ├── lib/router.tsx            # Router hash-based
-│       └── screens/                  # Pantallas de la app
+│       ├── lib/router.tsx            # Router hash-based (file:// compatible)
+│       ├── components/               # Componentes reutilizables (Button, Card)
+│       ├── i18n/                     # Internacionalización (EN, ES)
+│       └── screens/                  # Pantallas: Dashboard, Setup, Settings*
 ├── terminal-emulator/                # Emulador PTY (fork ReTerminal)
 └── terminal-view/                    # Renderizado terminal (fork ReTerminal)
 ```

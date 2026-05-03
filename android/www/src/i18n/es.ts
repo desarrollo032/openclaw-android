@@ -63,6 +63,7 @@ export const es = {
   // Setup - descripciones de herramientas
   tool_tmux: 'Multiplexor de terminal para sesiones en segundo plano',
   tool_ttyd: 'Terminal web — accede desde el navegador',
+  tool_ssh_server: 'Servidor OpenSSH — acceso remoto por SSH',
   tool_dufs: 'Servidor de archivos (WebDAV)',
   tool_code_server: 'VS Code en el navegador',
   tool_claude_code: 'CLI de IA de Anthropic',
@@ -77,6 +78,7 @@ export const es = {
   dash_management: 'Gestión',
 
   env_not_detected: 'no encontrado',
+  env_detected: 'detectado',
 
   // Panel - comandos
   cmd_gateway: 'Iniciar la pasarela',

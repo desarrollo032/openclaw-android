@@ -240,6 +240,10 @@ object PayloadExtractor {
                     }
                     entry.isSymbolicLink -> {
                         destFile.parentFile?.mkdirs()
+                        // Remove any existing file/symlink at this path before creating
+                        if (destFile.exists() || destFile.isFile) {
+                            destFile.delete()
+                        }
                         try {
                             android.system.Os.symlink(entry.linkName, destFile.absolutePath)
                             AppLogger.d(TAG, "Created symlink: ${entry.name} -> ${entry.linkName}")
@@ -250,6 +254,13 @@ object PayloadExtractor {
                     }
                     else -> {
                         destFile.parentFile?.mkdirs()
+                        // Skip zero-byte files that are likely broken symlinks extracted as empty files
+                        if (entry.size == 0L && entry.name.contains("libc.so")) {
+                            AppLogger.w(TAG, "Skipping zero-byte libc.so entry: ${entry.name} (likely broken symlink in tar)")
+                            count++
+                            entry = tar.nextTarEntry
+                            continue
+                        }
                         FileOutputStream(destFile).use { out ->
                             tar.copyTo(out)
                         }
@@ -269,5 +280,76 @@ object PayloadExtractor {
         }
         AppLogger.i(TAG, "Total entries extracted: $count")
         return count
+    }
+
+    /**
+     * Post-extraction repair: fix broken libc.so symlinks in glibc/lib/.
+     *
+     * When a tar.gz is created on Linux, libc.so is a symlink to libc.so.6.
+     * Some extraction tools (or corrupted archives) extract it as a zero-byte
+     * regular file instead of a symlink, causing:
+     *   CANNOT LINK EXECUTABLE: file offset >= file size: 0 >= 0
+     *
+     * This method detects and repairs that condition.
+     *
+     * @param glibcLibDir  The glibc/lib directory (e.g. prefix/glibc/lib)
+     */
+    fun repairGlibcSymlinks(glibcLibDir: File) {
+        if (!glibcLibDir.isDirectory) return
+
+        // libc.so should be a symlink to libc.so.6
+        val libcSo = File(glibcLibDir, "libc.so")
+        val libcSo6 = File(glibcLibDir, "libc.so.6")
+
+        if (libcSo6.exists() && libcSo6.length() > 0) {
+            // libc.so.6 is the real file — ensure libc.so is a symlink to it
+            if (libcSo.exists() && libcSo.length() == 0L) {
+                // Zero-byte file — broken symlink extracted as empty file
+                AppLogger.w(TAG, "Repairing broken libc.so (zero-byte) → symlink to libc.so.6")
+                libcSo.delete()
+                try {
+                    android.system.Os.symlink("libc.so.6", libcSo.absolutePath)
+                    AppLogger.i(TAG, "Repaired: libc.so -> libc.so.6")
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Failed to create libc.so symlink: ${e.message}")
+                }
+            } else if (!libcSo.exists()) {
+                // Missing entirely — create the symlink
+                try {
+                    android.system.Os.symlink("libc.so.6", libcSo.absolutePath)
+                    AppLogger.i(TAG, "Created missing: libc.so -> libc.so.6")
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Failed to create libc.so symlink: ${e.message}")
+                }
+            }
+        }
+
+        // Same repair for libm.so -> libm.so.6
+        val libmSo = File(glibcLibDir, "libm.so")
+        val libmSo6 = File(glibcLibDir, "libm.so.6")
+        if (libmSo6.exists() && libmSo6.length() > 0 && libmSo.exists() && libmSo.length() == 0L) {
+            AppLogger.w(TAG, "Repairing broken libm.so (zero-byte) → symlink to libm.so.6")
+            libmSo.delete()
+            try {
+                android.system.Os.symlink("libm.so.6", libmSo.absolutePath)
+                AppLogger.i(TAG, "Repaired: libm.so -> libm.so.6")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to create libm.so symlink: ${e.message}")
+            }
+        }
+
+        // libpthread.so -> libpthread.so.0 (glibc 2.34+ merged into libc.so.6)
+        val libpthreadSo = File(glibcLibDir, "libpthread.so")
+        val libpthreadSo0 = File(glibcLibDir, "libpthread.so.0")
+        if (libpthreadSo0.exists() && libpthreadSo0.length() > 0 &&
+            libpthreadSo.exists() && libpthreadSo.length() == 0L) {
+            libpthreadSo.delete()
+            try {
+                android.system.Os.symlink("libpthread.so.0", libpthreadSo.absolutePath)
+                AppLogger.i(TAG, "Repaired: libpthread.so -> libpthread.so.0")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to create libpthread.so symlink: ${e.message}")
+            }
+        }
     }
 }

@@ -13,15 +13,15 @@ interface PlatformInfo { id: string; name: string }
 interface SessionInfo { id: string; active: boolean }
 interface InstalledTool { id: string; name: string; version?: string }
 
-function RuntimeItem({ icon, label, status, active, onClick }: { 
-  icon: string, 
-  label: string, 
-  status: string, 
+function RuntimeItem({ icon, label, status, active, onClick }: {
+  icon: string,
+  label: string,
+  status: string,
   active: boolean,
-  onClick?: () => void 
+  onClick?: () => void
 }) {
   return (
-    <div 
+    <div
       className={`dash-env-item ${active ? 'active' : 'not-found'} ${onClick ? 'clickable' : ''}`}
       onClick={onClick}
     >
@@ -157,8 +157,8 @@ export function Dashboard() {
   return (
     <div className="page">
       {!isInstalled && (
-        <div className="card" style={{ 
-          background: 'var(--bg-tertiary)', 
+        <div className="card" style={{
+          background: 'var(--bg-tertiary)',
           border: '1px solid var(--warning)',
           marginBottom: 16,
           display: 'flex',
@@ -172,14 +172,14 @@ export function Dashboard() {
               <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('dash_setup_desc')}</div>
             </div>
           </div>
-          <button 
-            className="btn btn-primary" 
-            style={{ 
-              width: '100%', 
-              padding: '12px', 
-              fontSize: '15px', 
+          <button
+            className="btn btn-primary"
+            style={{
+              width: '100%',
+              padding: '12px',
+              fontSize: '15px',
               fontWeight: 600,
-              boxShadow: '0 4px 12px rgba(var(--primary-rgb), 0.3)'
+              boxShadow: '0 4px 12px rgba(88, 166, 255, 0.3)'
             }}
             onClick={() => window.location.hash = '/setup'}
           >
@@ -190,7 +190,7 @@ export function Dashboard() {
 
       {/* Floating Action Button for Setup */}
       {!isInstalled && (
-        <div 
+        <div
           onClick={() => window.location.hash = '/setup'}
           style={{
             position: 'fixed',
@@ -240,23 +240,23 @@ export function Dashboard() {
         <RuntimeItem
           icon="⬢"
           label="Node.js"
-          status={bootstrapStatus?.installed ? 'detectado' : t('env_not_detected')}
+          status={bootstrapStatus?.installed ? t('env_detected') : t('env_not_detected')}
           active={!!bootstrapStatus?.installed}
-          onClick={() => !bootstrapStatus?.installed && (window.location.hash = '/setup')}
+          onClick={() => !bootstrapStatus?.installed ? (window.location.hash = '/setup') : undefined}
         />
         <RuntimeItem
           icon="⎇"
           label="git"
-          status={bootstrapStatus?.installed ? 'detectado' : t('env_not_detected')}
+          status={bootstrapStatus?.installed ? t('env_detected') : t('env_not_detected')}
           active={!!bootstrapStatus?.installed}
-          onClick={() => !bootstrapStatus?.installed && (window.location.hash = '/setup')}
+          onClick={() => !bootstrapStatus?.installed ? (window.location.hash = '/setup') : undefined}
         />
         <RuntimeItem
           icon="🦀"
           label="openclaw"
-          status={bootstrapStatus?.openclawInstalled ? 'detectado' : t('env_not_detected')}
+          status={bootstrapStatus?.openclawInstalled ? t('env_detected') : t('env_not_detected')}
           active={!!bootstrapStatus?.openclawInstalled}
-          onClick={() => !bootstrapStatus?.openclawInstalled && (window.location.hash = '/setup')}
+          onClick={() => !bootstrapStatus?.openclawInstalled ? (window.location.hash = '/setup') : undefined}
         />
       </div>
 
@@ -307,7 +307,7 @@ export function Dashboard() {
 
       <div className="section-title">{t('dash_quick_actions')}</div>
       <div className="dash-quick-grid">
-        <QuickAction icon="📋" label={t('dash_sessions')} onClick={() => {
+        <QuickAction icon="🖥" label={t('dash_sessions')} onClick={() => {
           const sessions = bridge.callJson<SessionInfo[]>('getTerminalSessions')
           if (sessions && sessions.length > 0) {
             bridge.call('showTerminal')
@@ -316,7 +316,7 @@ export function Dashboard() {
             bridge.call('showTerminal')
           }
         }} />
-        <QuickAction icon="📋" label={t('dash_new_session')} onClick={() => {
+        <QuickAction icon="➕" label={t('dash_new_session')} onClick={() => {
           bridge.call('createSession')
           bridge.call('showTerminal')
         }} />

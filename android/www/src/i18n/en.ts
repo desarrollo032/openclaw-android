@@ -63,6 +63,7 @@ export const en = {
   // Setup - tool descriptions
   tool_tmux: 'Terminal multiplexer for background sessions',
   tool_ttyd: 'Web terminal — access from a browser',
+  tool_ssh_server: 'OpenSSH server — remote access via SSH',
   tool_dufs: 'File server (WebDAV)',
   tool_code_server: 'VS Code in browser',
   tool_claude_code: 'Anthropic AI CLI',
@@ -71,6 +72,7 @@ export const en = {
 
   // Runtime environment detection
   env_not_detected: 'not found',
+  env_detected: 'detected',
 
   // Dashboard
   dash_setup_required: 'Setup Required',

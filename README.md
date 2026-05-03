@@ -1,9 +1,9 @@
 # OpenClaw en Android 🦞
 
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0+-brightgreen)](https://developer.android.com)
-[![Termux Requerido](https://img.shields.io/badge/Termux-Requerido-orange)](https://f-droid.org/packages/com.termux/)
+[![APK Independiente](https://img.shields.io/badge/Termux-Opcional-blue)](https://f-droid.org/packages/com.termux/)
 [![Sin proot](https://img.shields.io/badge/proot--distro-No%20Requerido-blue)](https://github.com/termux/proot-distro)
-[![Licencia MIT](https://img.shields.io/github/license/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/blob/main/LICENSE)
+[![Licencia GPL v3](https://img.shields.io/github/license/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/blob/main/LICENSE)
 [![Estrellas](https://img.shields.io/github/stars/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android)
 [![Descargas](https://img.shields.io/github/downloads/AidanPark/openclaw-android/total)](https://github.com/AidanPark/openclaw-android/releases)
 [![Issues](https://img.shields.io/github/issues/AidanPark/openclaw-android)](https://github.com/AidanPark/openclaw-android/issues)

@@ -21,6 +21,9 @@
   --accent: #58a6ff;
   --accent-hover: #79c0ff;
   --accent-dim: rgba(88, 166, 255, .15);
+  /* Alias for components that reference --primary */
+  --primary: #58a6ff;
+  --primary-rgb: 88, 166, 255;
   --success: #3fb950;
   --success-dim: rgba(63, 185, 80, .15);
   --warning: #d29922;
@@ -184,8 +187,15 @@ body {
 }
 
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .page-header {
@@ -1028,12 +1038,16 @@ body {
   animation: spin 0.6s linear;
 }
 
-/* Runtime env grid */
-.dash-env-grid {
+/* ─── Runtime grid (Dashboard) ───────────────── */
+.runtime-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
-  padding: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 10px;
 }
 
 .dash-env-item {
@@ -1044,6 +1058,15 @@ body {
   gap: 4px;
   position: relative;
   border-right: 1px solid var(--border-subtle);
+  cursor: default;
+}
+
+.dash-env-item.clickable {
+  cursor: pointer;
+}
+
+.dash-env-item.clickable:active {
+  background: var(--bg-tertiary);
 }
 
 .dash-env-item:last-child {
@@ -1061,19 +1084,17 @@ body {
   font-weight: 600;
 }
 
-.dash-env-version {
-  font-size: 12px;
+.dash-env-status {
+  font-size: 11px;
   font-family: monospace;
-  font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-muted);
   text-align: center;
   word-break: break-all;
   max-width: 100%;
 }
 
-.dash-env-version.not-found {
-  color: var(--text-muted);
-  font-style: italic;
+.dash-env-item.active .dash-env-status {
+  color: var(--success);
 }
 
 .dash-env-dot {
@@ -1161,6 +1182,17 @@ body {
   }
 }
 
+/* ─── Installed tools row ────────────────────── */
+.dash-tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dash-tool-pill {
+  font-size: 12px;
+}
+
 /* ─── Animations ─────────────────────────────── */
 @keyframes fade-in {
   from {
@@ -1177,6 +1209,20 @@ body {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(88, 166, 255, 0.5);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow: 0 0 0 8px rgba(88, 166, 255, 0);
+    transform: scale(1.05);
   }
 }
 

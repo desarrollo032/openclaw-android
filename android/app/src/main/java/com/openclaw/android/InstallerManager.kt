@@ -203,6 +203,14 @@ class InstallerManager(private val context: Context) {
         // Asegurar que los scripts de assets estén actualizados en el destino
         applyScriptUpdate()
 
+        // Reparar symlinks rotos de glibc (libc.so, libm.so, libpthread.so)
+        // Causa del error: "CANNOT LINK EXECUTABLE: libc.so >= file size: 0 >= 0"
+        val glibcLibDir = File(prefix, "glibc/lib")
+        if (glibcLibDir.isDirectory) {
+            AppLogger.i(TAG, "Repairing glibc symlinks in ${glibcLibDir.absolutePath}")
+            PayloadExtractor.repairGlibcSymlinks(glibcLibDir)
+        }
+
         // Aplicar permisos
         applyPermissions()
 
