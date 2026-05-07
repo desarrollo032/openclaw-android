@@ -48,7 +48,7 @@ dependencies {
     
     // For robust tar.gz and tar.xz extraction
     implementation("org.apache.commons:commons-compress:1.26.0")
-    implementation("org.tukaani:xz:1.9")
+    implementation("org.tukaani:xz:1.12")
     implementation("androidx.webkit:webkit:1.10.0")
 
     testImplementation("junit:junit:4.13.2")
