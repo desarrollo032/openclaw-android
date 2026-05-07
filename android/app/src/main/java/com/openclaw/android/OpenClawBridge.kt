@@ -110,7 +110,12 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
         val obj = JSONObject()
         obj.put("versionName", packageInfo.versionName)
-        obj.put("versionCode", if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) packageInfo.longVersionCode else packageInfo.versionCode.toLong())
+        @Suppress("DEPRECATION")
+        val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
+            packageInfo.longVersionCode
+        else
+            packageInfo.versionCode.toLong()
+        obj.put("versionCode", versionCode)
         obj.put("packageName", context.packageName)
         return obj.toString()
     }

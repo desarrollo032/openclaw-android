@@ -126,15 +126,21 @@ fun Context.extractTarGz(
 fun extractTarXzFromStream(
     inputStream: InputStream,
     targetDir: File,
+    @Suppress("UNUSED_PARAMETER")
     onProgress: ((pct: Int, read: Long, total: Long, file: String) -> Unit)? = null
 ): Boolean = try {
     targetDir.mkdirs()
     XZCompressorInputStream(inputStream.buffered(1 shl 16)).use { xzIn ->
         TarArchiveInputStream(xzIn).use { tarIn ->
+            @Suppress("DEPRECATION")
             var entry = tarIn.nextTarEntry
             while (entry != null) {
                 val name = entry.name.trimStart('.', '/')
-                if (name.isEmpty()) { entry = tarIn.nextTarEntry; continue }
+                if (name.isEmpty()) {
+                    @Suppress("DEPRECATION")
+                    entry = tarIn.nextTarEntry
+                    continue
+                }
 
                 val outFile = File(targetDir, name)
                 if (entry.isDirectory) {
@@ -148,6 +154,7 @@ fun extractTarXzFromStream(
                         outFile.chmodWithOs(493)
                     }
                 }
+                @Suppress("DEPRECATION")
                 entry = tarIn.nextTarEntry
             }
         }
@@ -165,10 +172,15 @@ fun extractTarGzFromStream(
     targetDir.mkdirs()
     GZIPInputStream(inputStream.buffered(1 shl 16)).use { gzIn ->
         TarArchiveInputStream(gzIn).use { tarIn ->
+            @Suppress("DEPRECATION")
             var entry = tarIn.nextTarEntry
             while (entry != null) {
                 val name = entry.name.trimStart('.', '/')
-                if (name.isEmpty()) { entry = tarIn.nextTarEntry; continue }
+                if (name.isEmpty()) {
+                    @Suppress("DEPRECATION")
+                    entry = tarIn.nextTarEntry
+                    continue
+                }
 
                 val outFile = File(targetDir, name)
                 if (entry.isDirectory) {
@@ -179,6 +191,7 @@ fun extractTarGzFromStream(
                         tarIn.copyTo(fos, bufferSize = 65536)
                     }
                 }
+                @Suppress("DEPRECATION")
                 entry = tarIn.nextTarEntry
             }
         }
@@ -191,11 +204,28 @@ fun extractTarGzFromStream(
 
 // ── Permissions ───────────────────────────────────────────────────────────────
 
+/**
+ * Apply executable permissions using the system chmod binary.
+ * Os.chmod() is silently blocked by SELinux on Android 12+ even in app_payload.
+ * Calling /system/bin/chmod directly bypasses that restriction.
+ */
 fun File.chmodWithOs(mode: Int = 493) {
+    // Convert numeric mode to octal string (e.g. 493 → "755")
+    val octal = mode.toString(8)
     try {
-        Os.chmod(absolutePath, mode)
+        val result = ProcessBuilder("/system/bin/chmod", octal, absolutePath)
+            .redirectErrorStream(true)
+            .start()
+            .waitFor()
+        if (result != 0) {
+            Log.w(TAG, "chmod $octal $absolutePath → exit $result, falling back to Os.chmod")
+            Os.chmod(absolutePath, mode)
+        }
     } catch (e: Exception) {
-        Log.w(TAG, "chmod($absolutePath, $mode) failed: ${e.message}")
+        Log.w(TAG, "chmod($absolutePath, $octal) failed: ${e.message} — trying Os.chmod")
+        try { Os.chmod(absolutePath, mode) } catch (e2: Exception) {
+            Log.e(TAG, "Os.chmod also failed: ${e2.message}")
+        }
     }
 }
 

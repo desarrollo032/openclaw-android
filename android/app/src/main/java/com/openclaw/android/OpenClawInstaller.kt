@@ -23,7 +23,7 @@ object OpenClawInstaller {
 
     // ── Directory helpers ─────────────────────────────────────────────────────
 
-    fun getPayloadDir(context: Context): File = File(context.filesDir, "home/payload")
+    fun getPayloadDir(context: Context): File = context.getDir("payload", Context.MODE_PRIVATE)
     fun getConfigDir(context: Context):  File = File(context.filesDir, ".openclaw")
 
     // ── Readiness checks ──────────────────────────────────────────────────────
@@ -202,10 +202,13 @@ object OpenClawInstaller {
     // ── Permissions ───────────────────────────────────────────────────────────
 
     /**
-     * Apply Os.chmod(0755) to every file that must be executable.
-     * setExecutable() is unreliable on Android 12+ for ELF loaders.
+     * Apply 0755 to every file that must be executable.
+     * Uses system chmod binary — Os.chmod() is blocked by SELinux on Android 12+.
      */
     suspend fun fixPermissions(base: File) = withContext(Dispatchers.IO) {
+        // Ensure the base directory itself is traversable
+        base.chmodWithOs(493) // 0755
+
         val critical = listOf(
             File(base, "glibc/lib/ld-linux-aarch64.so.1"),
             File(base, "node/bin/node.real"),

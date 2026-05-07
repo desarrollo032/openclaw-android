@@ -155,10 +155,10 @@ class OnboardActivity : AppCompatActivity() {
             }
         } else {
             appendOutput("\n⚠ Onboard terminó con código $code.\n")
-            appendOutput("Puedes continuar de todas formas o reintentar.\n")
+            appendOutput("Puedes ir al dashboard y configurar desde allí.\n")
             setStatus("Onboard finalizado (código $code)", Color.parseColor("#f87171"))
             doneButton.visibility = View.VISIBLE
-            doneButton.setText("Continuar de todas formas")
+            doneButton.setText("Ir al dashboard")
             doneButton.setOnClickListener { launchDashboard() }
         }
     }
@@ -248,7 +248,7 @@ class OnboardActivity : AppCompatActivity() {
 
         // ── "Continue anyway" button ──────────────────────────────────────────
         doneButton = Button(this)
-        doneButton.setText("Continuar de todas formas")
+        doneButton.setText("Ir al dashboard")
         doneButton.textSize = 14f
         doneButton.typeface = Typeface.DEFAULT_BOLD
         doneButton.setTextColor(Color.WHITE)
