@@ -198,15 +198,6 @@ class InstallationActivity : AppCompatActivity() {
         }
     }
 
-    private fun setInstalling(on: Boolean) {
-        progressBar.visibility   = if (on) View.VISIBLE else View.GONE
-        pctText.visibility       = if (on) View.VISIBLE else View.GONE
-        btnInstall.isEnabled     = !on
-        btnPickPayload.isEnabled = !on
-        btnPickConfig.isEnabled  = !on
-        if (on) { modeCard.visibility = View.GONE; clearError() }
-    }
-
     private fun checkManualReady() {
         if (pickedPayloadUri != null && pickedConfigUri != null) {
             btnInstall.visibility = View.VISIBLE

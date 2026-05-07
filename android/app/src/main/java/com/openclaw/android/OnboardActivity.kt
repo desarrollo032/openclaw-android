@@ -5,6 +5,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
 import android.util.Log
@@ -12,7 +13,6 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -24,14 +24,10 @@ private const val TAG = "OnboardActivity"
 
 /**
  * Runs `openclaw onboard` as an interactive terminal session.
- *
- * The user types responses to the onboard wizard prompts.
- * When onboard exits successfully (exit code 0), we start the gateway
- * and navigate to OpenClawDashboardActivity.
+ * When onboard exits with code 0, starts the gateway and opens the dashboard.
  */
 class OnboardActivity : AppCompatActivity() {
 
-    // ── Views ─────────────────────────────────────────────────────────────────
     private lateinit var terminalOutput: TextView
     private lateinit var inputField:     EditText
     private lateinit var sendButton:     ImageButton
@@ -39,18 +35,13 @@ class OnboardActivity : AppCompatActivity() {
     private lateinit var scrollView:     ScrollView
     private lateinit var statusBar:      TextView
 
-    // ── Process ───────────────────────────────────────────────────────────────
     private var process:     Process?     = null
     private var stdinWriter: PrintWriter? = null
     private var ioJob:       Job?         = null
-    private var exitCode:    Int          = -1
-
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = buildLayout()
-        setContentView(root)
+        setContentView(buildLayout())
         startOnboard()
     }
 
@@ -98,7 +89,6 @@ class OnboardActivity : AppCompatActivity() {
                         put("OPENCLAW_HOME",   configDir.absolutePath)
                         put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")
                         put("PATH",            "${base.absolutePath}/node/bin:/system/bin")
-                        // Force non-interactive color/width for cleaner output
                         put("TERM",            "xterm-256color")
                         put("COLUMNS",         "80")
                         put("LINES",           "40")
@@ -116,7 +106,6 @@ class OnboardActivity : AppCompatActivity() {
                     sendButton.isEnabled = true
                 }
 
-                // Read stdout/stderr line by line and display in terminal
                 ioJob = launch(Dispatchers.IO) {
                     process!!.inputStream.bufferedReader().forEachLine { line ->
                         Log.d(TAG, line)
@@ -124,12 +113,9 @@ class OnboardActivity : AppCompatActivity() {
                     }
                 }
 
-                exitCode = process!!.waitFor()
-                Log.i(TAG, "onboard exited with code $exitCode")
-
-                withContext(Dispatchers.Main) {
-                    onOnboardFinished(exitCode)
-                }
+                val exitCode = process!!.waitFor()
+                Log.i(TAG, "onboard exited: $exitCode")
+                withContext(Dispatchers.Main) { onOnboardFinished(exitCode) }
 
             } catch (e: Exception) {
                 Log.e(TAG, "onboard failed", e)
@@ -147,13 +133,9 @@ class OnboardActivity : AppCompatActivity() {
             writer.println(text)
             writer.flush()
         }
-        runOnUiThread {
-            appendOutput("> $text\n")
-            inputField.text.clear()
-        }
+        appendOutput("> $text\n")
+        inputField.text.clear()
     }
-
-    // ── Completion ────────────────────────────────────────────────────────────
 
     private fun onOnboardFinished(code: Int) {
         inputField.isEnabled = false
@@ -163,7 +145,6 @@ class OnboardActivity : AppCompatActivity() {
             appendOutput("\n✓ Configuración completada.\n")
             setStatus("✓ Listo — iniciando gateway...", Color.parseColor("#4ade80"))
             doneButton.visibility = View.GONE
-            // Small delay so user can read the success message
             lifecycleScope.launch {
                 delay(1_500)
                 launchDashboard()
@@ -173,7 +154,7 @@ class OnboardActivity : AppCompatActivity() {
             appendOutput("Puedes continuar de todas formas o reintentar.\n")
             setStatus("Onboard finalizado (código $code)", Color.parseColor("#f87171"))
             doneButton.visibility = View.VISIBLE
-            doneButton.text       = if (code == 0) "Continuar" else "Continuar de todas formas"
+            doneButton.text       = "Continuar de todas formas"
             doneButton.setOnClickListener { launchDashboard() }
         }
     }
@@ -187,16 +168,13 @@ class OnboardActivity : AppCompatActivity() {
         finish()
     }
 
-    // ── UI helpers ────────────────────────────────────────────────────────────
-
     private fun appendOutput(text: String) {
         terminalOutput.append(text)
-        // Auto-scroll to bottom
         scrollView.post { scrollView.fullScroll(View.FOCUS_DOWN) }
     }
 
     private fun setStatus(msg: String, color: Int) {
-        statusBar.text      = msg
+        statusBar.text = msg
         statusBar.setTextColor(color)
     }
 
@@ -212,67 +190,58 @@ class OnboardActivity : AppCompatActivity() {
             layoutParams = FrameLayout.LayoutParams(-1, -1)
         }
 
-        // ── Header bar ────────────────────────────────────────────────────────
+        // Header
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity     = Gravity.CENTER_VERTICAL
             setPadding(16.dp(), 12.dp(), 16.dp(), 12.dp())
             setBackgroundColor(Color.parseColor("#0d0d1a"))
         }
-
         header.addView(TextView(this).apply {
-            text      = "🦀"
-            textSize  = 20f
+            text     = "🦀"
+            textSize = 20f
             layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = 10.dp() }
         })
-
-        header.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
-
-            addView(TextView(this@OnboardActivity).apply {
-                text     = "OpenClaw Onboard"
-                textSize = 15f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.WHITE)
-            })
-
-            statusBar = TextView(this@OnboardActivity).apply {
-                text     = "Iniciando..."
-                textSize = 11f
-                setTextColor(Color.parseColor("#a0a0c0"))
-            }
-            addView(statusBar)
+        headerInfo.addView(TextView(this).apply {
+            text     = "OpenClaw Onboard"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
         })
-
+        statusBar = TextView(this).apply {
+            text     = "Iniciando..."
+            textSize = 11f
+            setTextColor(Color.parseColor("#a0a0c0"))
+        }
+        headerInfo.addView(statusBar)
+        header.addView(headerInfo)
         root.addView(header)
 
-        // ── Terminal output ────────────────────────────────────────────────────
+        // Terminal output
         scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
             setBackgroundColor(Color.parseColor("#080810"))
         }
-
         terminalOutput = TextView(this).apply {
-            text            = ""
-            textSize        = 13f
+            text             = ""
+            textSize         = 13f
             setTextColor(Color.parseColor("#c8c8e8"))
-            typeface        = Typeface.MONOSPACE
+            typeface         = Typeface.MONOSPACE
             setPadding(14.dp(), 12.dp(), 14.dp(), 12.dp())
-            movementMethod  = ScrollingMovementMethod()
+            movementMethod   = ScrollingMovementMethod()
             isTextSelectable = true
         }
         scrollView.addView(terminalOutput)
         root.addView(scrollView)
 
-        // ── "Continue anyway" button (shown only on non-zero exit) ────────────
+        // "Continue anyway" button
         doneButton = Button(this).apply {
             text      = "Continuar de todas formas"
             textSize  = 14f
             typeface  = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
-                shape        = GradientDrawable.RECTANGLE
+                shape    = GradientDrawable.RECTANGLE
                 setColor(Color.parseColor("#f59e0b"))
             }
             layoutParams = LinearLayout.LayoutParams(-1, 52.dp())
@@ -280,15 +249,13 @@ class OnboardActivity : AppCompatActivity() {
         }
         root.addView(doneButton)
 
-        // ── Input row ─────────────────────────────────────────────────────────
+        // Input row
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity     = Gravity.CENTER_VERTICAL
             setPadding(12.dp(), 8.dp(), 12.dp(), 8.dp())
             setBackgroundColor(Color.parseColor("#0d0d1a"))
         }
-
-        // Prompt label
         inputRow.addView(TextView(this).apply {
             text      = "›"
             textSize  = 18f
@@ -296,8 +263,6 @@ class OnboardActivity : AppCompatActivity() {
             setTextColor(Color.parseColor("#6366f1"))
             layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = 8.dp() }
         })
-
-        // Text input
         inputField = EditText(this).apply {
             hint          = "Escribe tu respuesta..."
             setHintTextColor(Color.parseColor("#444466"))
@@ -309,7 +274,6 @@ class OnboardActivity : AppCompatActivity() {
             imeOptions    = EditorInfo.IME_ACTION_SEND
             setSingleLine(true)
             layoutParams  = LinearLayout.LayoutParams(0, -2, 1f)
-
             setOnEditorActionListener { _, actionId, event ->
                 if (actionId == EditorInfo.IME_ACTION_SEND ||
                     (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
@@ -320,8 +284,6 @@ class OnboardActivity : AppCompatActivity() {
             }
         }
         inputRow.addView(inputField)
-
-        // Send button
         sendButton = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_send)
             imageTintList = ColorStateList.valueOf(Color.parseColor("#6366f1"))
@@ -334,8 +296,8 @@ class OnboardActivity : AppCompatActivity() {
             }
         }
         inputRow.addView(sendButton)
-
         root.addView(inputRow)
+
         return root
     }
 }

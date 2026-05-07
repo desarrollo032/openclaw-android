@@ -47,17 +47,17 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                 put("message", "Starting setup...")
             })
 
-            val success = OpenClawInstaller.installPayload(context) { msg ->
+            val success = OpenClawInstaller.installPayload(context) { msg, pct ->
                 emit("setup_progress", JSONObject().apply {
-                    put("progress", 0.4)
+                    put("progress", if (pct >= 0) pct / 100.0 * 0.8 else 0.4)
                     put("message", msg)
                 })
             }
 
             if (success) {
-                OpenClawInstaller.restoreConfig(context) { msg ->
+                OpenClawInstaller.restoreConfig(context) { msg, pct ->
                     emit("setup_progress", JSONObject().apply {
-                        put("progress", 0.8)
+                        put("progress", if (pct >= 0) 0.8 + pct / 100.0 * 0.2 else 0.9)
                         put("message", msg)
                     })
                 }
