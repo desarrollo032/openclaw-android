@@ -67,10 +67,8 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                     put("message", "Setup complete!")
                 })
 
-                // Notify activity to switch to dashboard
-                if (context is MainActivity) {
-                    context.onSetupComplete()
-                }
+                // Setup complete — InstallationActivity handles the transition now
+                // (bridge-triggered setup is legacy; kept for compatibility)
             } else {
                 emit("setup_progress", JSONObject().apply {
                     put("progress", 0.0)
