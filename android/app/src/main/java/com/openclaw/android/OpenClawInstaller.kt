@@ -76,26 +76,34 @@ object OpenClawInstaller {
     /** Install from bundled APK asset. */
     suspend fun installPayload(
         context: Context,
-        onProgress: (String) -> Unit
+        onProgress: (msg: String, pct: Int) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Preparando directorio...")
+        onProgress("Preparando directorio...", 0)
         val base = getPayloadDir(context)
         base.deleteRecursivelySafe()
         base.mkdirs()
 
-        onProgress("Extrayendo payload.tar.xz (186 MB)...")
-        val ok = context.extractTarXz(PAYLOAD_ASSET, base)
+        onProgress("Extrayendo payload.tar.xz...", 1)
+        val ok = context.extractTarXz(PAYLOAD_ASSET, base) { pct, read, total, _ ->
+            val label = if (total > 0)
+                "Extrayendo... ${formatBytes(read)} / ${formatBytes(total)}"
+            else
+                "Extrayendo... ${formatBytes(read)}"
+            // pct here is 0-100 of the compressed stream; scale to 1-85 of overall
+            val overall = if (pct >= 0) 1 + (pct * 84 / 100) else -1
+            onProgress(label, overall)
+        }
         if (!ok) {
-            onProgress("Error al extraer payload.")
+            onProgress("Error al extraer payload.", -1)
             return@withContext false
         }
 
-        onProgress("Aplicando permisos...")
+        onProgress("Aplicando permisos...", 86)
         fixPermissions(base)
 
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
-        onProgress("Payload instalado correctamente.")
+        onProgress("Payload instalado.", 90)
         true
     }
 
@@ -103,29 +111,44 @@ object OpenClawInstaller {
     suspend fun installPayloadFromUri(
         context: Context,
         uri: Uri,
-        onProgress: (String) -> Unit
+        onProgress: (msg: String, pct: Int) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Preparando directorio...")
+        onProgress("Preparando directorio...", 0)
         val base = getPayloadDir(context)
         base.deleteRecursivelySafe()
         base.mkdirs()
 
-        onProgress("Extrayendo payload desde archivo seleccionado...")
-        val stream = context.contentResolver.openInputStream(uri)
-            ?: run { onProgress("No se pudo abrir el archivo."); return@withContext false }
+        // Try to get file size for progress
+        val total = try {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+        } catch (e: Exception) { -1L }
 
-        val ok = stream.use { extractTarXzFromStream(it, base) }
+        onProgress("Extrayendo payload desde archivo...", 1)
+        val stream = context.contentResolver.openInputStream(uri)
+            ?: run { onProgress("No se pudo abrir el archivo.", -1); return@withContext false }
+
+        val tracked = ProgressInputStream(stream, total) { read, tot ->
+            val pct = if (tot > 0) ((read * 100) / tot).toInt() else -1
+            val label = if (tot > 0)
+                "Extrayendo... ${formatBytes(read)} / ${formatBytes(tot)}"
+            else
+                "Extrayendo... ${formatBytes(read)}"
+            val overall = if (pct >= 0) 1 + (pct * 84 / 100) else -1
+            onProgress(label, overall)
+        }
+
+        val ok = tracked.use { extractTarXzFromStream(it, base) }
         if (!ok) {
-            onProgress("Error al extraer payload.")
+            onProgress("Error al extraer payload.", -1)
             return@withContext false
         }
 
-        onProgress("Aplicando permisos...")
+        onProgress("Aplicando permisos...", 86)
         fixPermissions(base)
 
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
-        onProgress("Payload instalado correctamente.")
+        onProgress("Payload instalado.", 90)
         true
     }
 
@@ -134,18 +157,24 @@ object OpenClawInstaller {
     /** Restore config from bundled APK asset. */
     suspend fun restoreConfig(
         context: Context,
-        onProgress: (String) -> Unit
+        onProgress: (msg: String, pct: Int) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Restaurando configuración...")
-        // Config tar extracts to filesDir/ so that .openclaw/ lands at filesDir/.openclaw/
-        val ok = context.extractTarGz(CONFIG_ASSET, context.filesDir)
+        onProgress("Restaurando configuración...", 91)
+        val ok = context.extractTarGz(CONFIG_ASSET, context.filesDir) { pct, read, total, _ ->
+            val label = if (total > 0)
+                "Config... ${formatBytes(read)} / ${formatBytes(total)}"
+            else
+                "Config... ${formatBytes(read)}"
+            val overall = if (pct >= 0) 91 + (pct * 7 / 100) else -1
+            onProgress(label, overall)
+        }
         if (!ok) {
-            onProgress("Error al restaurar configuración.")
+            onProgress("Error al restaurar configuración.", -1)
             return@withContext false
         }
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
-        onProgress("Configuración restaurada.")
+        onProgress("Configuración restaurada.", 99)
         true
     }
 
@@ -153,20 +182,20 @@ object OpenClawInstaller {
     suspend fun restoreConfigFromUri(
         context: Context,
         uri: Uri,
-        onProgress: (String) -> Unit
+        onProgress: (msg: String, pct: Int) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Restaurando configuración desde archivo...")
+        onProgress("Restaurando configuración desde archivo...", 91)
         val stream = context.contentResolver.openInputStream(uri)
-            ?: run { onProgress("No se pudo abrir el archivo."); return@withContext false }
+            ?: run { onProgress("No se pudo abrir el archivo.", -1); return@withContext false }
 
         val ok = stream.use { extractTarGzFromStream(it, context.filesDir) }
         if (!ok) {
-            onProgress("Error al restaurar configuración.")
+            onProgress("Error al restaurar configuración.", -1)
             return@withContext false
         }
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
-        onProgress("Configuración restaurada.")
+        onProgress("Configuración restaurada.", 99)
         true
     }
 
@@ -207,6 +236,25 @@ object OpenClawInstaller {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().clear().apply()
         Log.i(TAG, "Uninstalled.")
+    }
+
+    // ── Onboard check ─────────────────────────────────────────────────────────
+
+    /**
+     * Returns true when openclaw has been configured via `openclaw onboard`.
+     * We check for the presence of at least one configured provider/agent key
+     * inside openclaw.json. A freshly-restored config has no providers set.
+     */
+    fun isOnboardComplete(context: Context): Boolean {
+        val json = File(getConfigDir(context), "openclaw.json")
+        if (!json.exists()) return false
+        return try {
+            val text = json.readText()
+            // onboard writes agents.defaults.model.primary or models.providers
+            text.contains("\"primary\"") || text.contains("\"providers\"") ||
+            text.contains("\"openai\"")  || text.contains("\"anthropic\"") ||
+            text.contains("\"google\"")  || text.contains("\"ollama\"")
+        } catch (e: Exception) { false }
     }
 
     // ── Version ───────────────────────────────────────────────────────────────

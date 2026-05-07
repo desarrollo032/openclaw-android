@@ -5,6 +5,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -12,7 +13,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -24,9 +24,11 @@ private const val TAG = "InstallActivity"
 class InstallationActivity : AppCompatActivity() {
 
     // ── Views ─────────────────────────────────────────────────────────────────
-    private lateinit var progressBar:    ProgressBar
-    private lateinit var statusText:     TextView
-    private lateinit var errorText:      TextView   // red error line below status
+    private lateinit var progressBar:    ProgressBar   // determinate 0-100
+    private lateinit var pctText:        TextView      // "42%"
+    private lateinit var statusText:     TextView      // current operation
+    private lateinit var bytesText:      TextView      // "87.3 MB / 186 MB"
+    private lateinit var errorText:      TextView
     private lateinit var modeCard:       LinearLayout
     private lateinit var btnPickPayload: Button
     private lateinit var btnPickConfig:  Button
@@ -45,8 +47,7 @@ class InstallationActivity : AppCompatActivity() {
         pickedPayloadUri = uri
         btnPickPayload.text = "✓  payload.tar.xz seleccionado"
         btnPickPayload.setTextColor(Color.parseColor("#4ade80"))
-        clearError()
-        checkManualReady()
+        clearError(); checkManualReady()
     }
 
     private val pickConfig = registerForActivityResult(
@@ -56,8 +57,7 @@ class InstallationActivity : AppCompatActivity() {
         pickedConfigUri = uri
         btnPickConfig.text = "✓  openclaw-apk-migration.tar.gz seleccionado"
         btnPickConfig.setTextColor(Color.parseColor("#4ade80"))
-        clearError()
-        checkManualReady()
+        clearError(); checkManualReady()
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -65,26 +65,21 @@ class InstallationActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ── Guard: if already fully installed, skip straight to dashboard ──
         if (OpenClawInstaller.isPayloadReady(this) && OpenClawInstaller.isConfigRestored(this)) {
-            Log.i(TAG, "Already installed — going to dashboard")
-            launchDashboard()
+            Log.i(TAG, "Already installed — routing past installer")
+            launchNext()
             return
         }
 
-        val root = buildLayout()
-        setContentView(root)
+        setContentView(buildLayout())
 
         hasBundled = OpenClawInstaller.hasBundledAssets(this)
-
         if (hasBundled) {
-            // Mode A: assets bundled in APK
             modeCard.visibility   = View.GONE
             btnInstall.visibility = View.VISIBLE
             btnInstall.text       = "Instalar OpenClaw"
             btnInstall.setOnClickListener { runInstallFromAssets() }
         } else {
-            // Mode B: no bundled assets — user must pick files
             modeCard.visibility   = View.VISIBLE
             btnInstall.visibility = View.GONE
             statusText.text       = "Selecciona los archivos para continuar"
@@ -97,24 +92,18 @@ class InstallationActivity : AppCompatActivity() {
         setInstalling(true)
         lifecycleScope.launch {
             val payloadOk = withContext(Dispatchers.IO) {
-                OpenClawInstaller.installPayload(this@InstallationActivity) { msg ->
-                    runOnUiThread { statusText.text = msg }
+                OpenClawInstaller.installPayload(this@InstallationActivity) { msg, pct ->
+                    runOnUiThread { updateProgress(msg, pct) }
                 }
             }
-            if (!payloadOk) {
-                onInstallFailed("Falló la extracción del payload.\nVerifica que el APK no esté corrupto.")
-                return@launch
-            }
+            if (!payloadOk) { onInstallFailed("Falló la extracción del payload."); return@launch }
 
             val configOk = withContext(Dispatchers.IO) {
-                OpenClawInstaller.restoreConfig(this@InstallationActivity) { msg ->
-                    runOnUiThread { statusText.text = msg }
+                OpenClawInstaller.restoreConfig(this@InstallationActivity) { msg, pct ->
+                    runOnUiThread { updateProgress(msg, pct) }
                 }
             }
-            if (!configOk) {
-                onInstallFailed("Falló la restauración de la configuración.")
-                return@launch
-            }
+            if (!configOk) { onInstallFailed("Falló la restauración de la configuración."); return@launch }
 
             onInstallSuccess()
         }
@@ -125,28 +114,21 @@ class InstallationActivity : AppCompatActivity() {
     private fun runInstallFromFiles() {
         val payloadUri = pickedPayloadUri ?: return
         val configUri  = pickedConfigUri  ?: return
-
         setInstalling(true)
         lifecycleScope.launch {
             val payloadOk = withContext(Dispatchers.IO) {
-                OpenClawInstaller.installPayloadFromUri(
-                    this@InstallationActivity, payloadUri
-                ) { msg -> runOnUiThread { statusText.text = msg } }
+                OpenClawInstaller.installPayloadFromUri(this@InstallationActivity, payloadUri) { msg, pct ->
+                    runOnUiThread { updateProgress(msg, pct) }
+                }
             }
-            if (!payloadOk) {
-                onInstallFailed("Falló la extracción del payload.\nAsegúrate de que el archivo sea payload.tar.xz correcto.")
-                return@launch
-            }
+            if (!payloadOk) { onInstallFailed("Falló la extracción del payload."); return@launch }
 
             val configOk = withContext(Dispatchers.IO) {
-                OpenClawInstaller.restoreConfigFromUri(
-                    this@InstallationActivity, configUri
-                ) { msg -> runOnUiThread { statusText.text = msg } }
+                OpenClawInstaller.restoreConfigFromUri(this@InstallationActivity, configUri) { msg, pct ->
+                    runOnUiThread { updateProgress(msg, pct) }
+                }
             }
-            if (!configOk) {
-                onInstallFailed("Falló la restauración de la configuración.\nAsegúrate de que el archivo sea openclaw-apk-migration.tar.gz correcto.")
-                return@launch
-            }
+            if (!configOk) { onInstallFailed("Falló la restauración de la configuración."); return@launch }
 
             onInstallSuccess()
         }
@@ -155,44 +137,42 @@ class InstallationActivity : AppCompatActivity() {
     // ── Result handlers ───────────────────────────────────────────────────────
 
     private fun onInstallSuccess() {
-        Log.i(TAG, "Installation successful")
-        progressBar.visibility = View.GONE
-        statusText.text        = "✓  Instalación completa"
+        updateProgress("✓  Instalación completa", 100)
         statusText.setTextColor(Color.parseColor("#4ade80"))
+        pctText.setTextColor(Color.parseColor("#4ade80"))
         clearError()
-        launchDashboard()
+        launchNext()
     }
 
     private fun onInstallFailed(reason: String) {
-        Log.e(TAG, "Installation failed: $reason")
+        Log.e(TAG, "Install failed: $reason")
         setInstalling(false)
-
-        // Show error inline — no dialog, user sees it immediately
         showError(reason)
-
-        // Restore pickers in manual mode so user can retry with different files
         if (!hasBundled) {
-            modeCard.visibility = View.VISIBLE
-            // Reset picked state so user must re-pick
-            pickedPayloadUri = null
-            pickedConfigUri  = null
-            btnPickPayload.text = "📦  Seleccionar  payload.tar.xz  (~186 MB)"
+            modeCard.visibility   = View.VISIBLE
+            pickedPayloadUri      = null
+            pickedConfigUri       = null
+            btnPickPayload.text   = "📦  Seleccionar  payload.tar.xz  (~186 MB)"
             btnPickPayload.setTextColor(Color.parseColor("#a0a0c0"))
-            btnPickConfig.text  = "⚙️  Seleccionar  openclaw-apk-migration.tar.gz"
+            btnPickConfig.text    = "⚙️  Seleccionar  openclaw-apk-migration.tar.gz"
             btnPickConfig.setTextColor(Color.parseColor("#a0a0c0"))
             btnInstall.visibility = View.GONE
         } else {
-            // Bundled mode: show retry button
             btnInstall.visibility = View.VISIBLE
             btnInstall.text       = "Reintentar instalación"
             btnInstall.setOnClickListener { clearError(); runInstallFromAssets() }
         }
     }
 
-    private fun launchDashboard() {
-        OpenClawGatewayService.start(this)
+    private fun launchNext() {
+        val next = if (OpenClawInstaller.isOnboardComplete(this)) {
+            OpenClawGatewayService.start(this)
+            OpenClawDashboardActivity::class.java
+        } else {
+            OnboardActivity::class.java
+        }
         startActivity(
-            Intent(this, OpenClawDashboardActivity::class.java)
+            Intent(this, next)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         )
         finish()
@@ -200,15 +180,31 @@ class InstallationActivity : AppCompatActivity() {
 
     // ── UI helpers ────────────────────────────────────────────────────────────
 
+    /**
+     * Update the progress bar, percentage label, and status text.
+     * @param pct  0-100 for determinate; -1 to keep indeterminate animation
+     */
+    private fun updateProgress(msg: String, pct: Int) {
+        statusText.text = msg
+        if (pct in 0..100) {
+            progressBar.isIndeterminate = false
+            progressBar.progress        = pct
+            pctText.text                = "$pct%"
+            pctText.visibility          = View.VISIBLE
+        } else {
+            // -1 = unknown size, keep spinner
+            progressBar.isIndeterminate = true
+            pctText.visibility          = View.GONE
+        }
+    }
+
     private fun setInstalling(on: Boolean) {
         progressBar.visibility   = if (on) View.VISIBLE else View.GONE
+        pctText.visibility       = if (on) View.VISIBLE else View.GONE
         btnInstall.isEnabled     = !on
         btnPickPayload.isEnabled = !on
         btnPickConfig.isEnabled  = !on
-        if (on) {
-            modeCard.visibility = View.GONE
-            clearError()
-        }
+        if (on) { modeCard.visibility = View.GONE; clearError() }
     }
 
     private fun checkManualReady() {
@@ -274,26 +270,56 @@ class InstallationActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 36.dp() }
         })
 
-        // Progress bar (indeterminate, hidden until installing)
-        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate       = true
-            indeterminateTintList = ColorStateList.valueOf(Color.parseColor("#6366f1"))
-            visibility            = View.GONE
-            layoutParams = LinearLayout.LayoutParams(-1, 6.dp()).apply { bottomMargin = 12.dp() }
-        }
-        container.addView(progressBar)
-
-        // Status text (progress messages)
-        statusText = TextView(this).apply {
-            text      = "Listo para instalar"
-            textSize  = 14f
-            setTextColor(Color.parseColor("#a0a0c0"))
-            gravity   = Gravity.CENTER
+        // ── Progress section ──────────────────────────────────────────────────
+        val progressSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility  = View.GONE   // shown by setInstalling(true)
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8.dp() }
         }
-        container.addView(statusText)
+        // Bind progressBar here so setInstalling can toggle its parent
+        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max             = 100
+            progress        = 0
+            isIndeterminate = false
+            progressTintList = ColorStateList.valueOf(Color.parseColor("#6366f1"))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#22223a"))
+            layoutParams = LinearLayout.LayoutParams(-1, 10.dp()).apply { bottomMargin = 6.dp() }
+        }
+        progressSection.addView(progressBar)
 
-        // Error text (shown only on failure, inline — no dialog)
+        // Row: status text (left) + percentage (right)
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity     = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 4.dp() }
+        }
+        statusText = TextView(this).apply {
+            text      = ""
+            textSize  = 13f
+            setTextColor(Color.parseColor("#a0a0c0"))
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        }
+        pctText = TextView(this).apply {
+            text      = "0%"
+            textSize  = 15f
+            typeface  = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#6366f1"))
+            gravity   = Gravity.END
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(-2, -2)
+        }
+        statusRow.addView(statusText)
+        statusRow.addView(pctText)
+        progressSection.addView(statusRow)
+
+        container.addView(progressSection)
+
+        // Override setInstalling to also toggle progressSection
+        // (we do this by keeping a reference and toggling in setInstalling)
+        // Store reference for use in setInstalling
+        progressBar.tag = progressSection
+
+        // ── Error text ────────────────────────────────────────────────────────
         errorText = TextView(this).apply {
             text      = ""
             textSize  = 13f
@@ -301,13 +327,12 @@ class InstallationActivity : AppCompatActivity() {
             gravity   = Gravity.CENTER
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
-                bottomMargin = 20.dp()
-                topMargin    = 4.dp()
+                bottomMargin = 16.dp(); topMargin = 4.dp()
             }
         }
         container.addView(errorText)
 
-        // ── Mode B card: manual file pickers ──────────────────────────────────
+        // ── Mode B card ───────────────────────────────────────────────────────
         modeCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20.dp(), 20.dp(), 20.dp(), 20.dp())
@@ -329,7 +354,6 @@ class InstallationActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 4.dp() }
         })
-
         modeCard.addView(TextView(this).apply {
             text      = "El APK no incluye los archivos de payload. Selecciónalos desde tu almacenamiento."
             textSize  = 12f
@@ -345,7 +369,7 @@ class InstallationActivity : AppCompatActivity() {
         btnPickConfig.setOnClickListener { pickConfig.launch("*/*") }
         modeCard.addView(btnPickConfig)
 
-        // ── Primary install / retry button ────────────────────────────────────
+        // ── Install button ────────────────────────────────────────────────────
         btnInstall = Button(this).apply {
             text      = "Instalar"
             textSize  = 16f
@@ -362,6 +386,20 @@ class InstallationActivity : AppCompatActivity() {
         container.addView(btnInstall)
 
         return root
+    }
+
+    // Override setInstalling to also show/hide the progress section
+    private fun setInstalling(on: Boolean) {
+        val progressSection = progressBar.tag as? View
+        progressSection?.visibility = if (on) View.VISIBLE else View.GONE
+        btnInstall.isEnabled     = !on
+        btnPickPayload.isEnabled = !on
+        btnPickConfig.isEnabled  = !on
+        if (on) { modeCard.visibility = View.GONE; clearError() }
+        if (!on) {
+            progressBar.progress = 0
+            pctText.visibility   = View.GONE
+        }
     }
 
     private fun pickerButton(label: String): Button {

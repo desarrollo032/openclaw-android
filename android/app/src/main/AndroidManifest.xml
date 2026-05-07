@@ -33,6 +33,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Onboard wizard: runs `openclaw onboard` interactively -->
+        <activity
+            android:name=".OnboardActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Installer: two modes (bundled assets or manual file pick) -->
         <activity
             android:name=".InstallationActivity"
