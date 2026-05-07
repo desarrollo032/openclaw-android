@@ -175,18 +175,41 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
     }
 
     @JavascriptInterface
-    fun openSystemSettings(type: String) {
-        val intent = when(type) {
-            "app_info" -> android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = android.net.Uri.fromParts("package", context.packageName, null)
+    fun requestBatteryOptimizationExclusion() {
+        val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = android.net.Uri.parse("package:${context.packageName}")
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback to battery settings
+            val fallback = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            "developer" -> android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-            else -> null
+            context.startActivity(fallback)
         }
-        intent?.let { 
-            it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(it) 
+    }
+
+    @JavascriptInterface
+    fun copyToClipboard(text: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("OpenClaw", text)
+        clipboard.setPrimaryClip(clip)
+    }
+
+    @JavascriptInterface
+    fun clearCache() {
+        context.cacheDir.deleteRecursively()
+        context.externalCacheDir?.deleteRecursively()
+    }
+
+    @JavascriptInterface
+    fun openUrl(url: String) {
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        context.startActivity(intent)
     }
 
     private fun getDirSize(dir: java.io.File): Long {

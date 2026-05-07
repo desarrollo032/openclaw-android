@@ -1,12 +1,37 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
-import { t } from '../i18n'
+import { bridge } from '../lib/bridge'
+
+interface Health {
+  status: string
+  uptime?: string
+}
+
+interface Skill {
+  id: string
+  name: string
+  active: boolean
+}
+
+interface StorageInfo {
+  totalBytes: number
+  freeBytes: number
+  bootstrapBytes: number
+  wwwBytes: number
+}
+
+interface Versions {
+  node: string
+  npm: string
+  openclaw: string
+  glibc: string
+}
 
 export function Dashboard() {
-  const [health, setHealth] = useState<any>(null)
-  const [skills, setSkills] = useState<any[]>([])
-  const [storage, setStorage] = useState<any>(null)
-  const [versions, setVersions] = useState<any>({
+  const [health, setHealth] = useState<Health | null>(null)
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [storage, setStorage] = useState<StorageInfo | null>(null)
+  const [versions, setVersions] = useState<Versions>({
     node: '...',
     npm: '...',
     openclaw: '...',
@@ -19,40 +44,47 @@ export function Dashboard() {
   })
 
   const loadData = async () => {
-    const h = await api.getHealth()
-    setHealth(h)
-    
-    const s = await api.getSkills()
-    setSkills(s || [])
+    try {
+      const h = await api.getHealth()
+      setHealth(h)
+      
+      const s = await api.getSkills()
+      setSkills(s || [])
 
-    const config = await api.getConfig()
-    if (config) {
-      setStats({
-        model: config.default_model || 'gpt-4o',
-        context: `124 / ${config.context_size || 4096}`,
-        uptime: h.uptime || '2h 14m'
+      const config = await api.getConfig()
+      if (config) {
+        setStats({
+          model: config.default_model || 'gpt-4o',
+          context: `124 / ${config.context_size || 4096}`,
+          uptime: h.uptime || '2h 14m'
+        })
+      }
+
+      // Fetch bridge data
+      const storageInfo = bridge.callJson<StorageInfo>('getStorageInfo')
+      if (storageInfo) setStorage(storageInfo)
+
+      const vNode = bridge.callJson<{ stdout: string }>('runCommand', 'node -v')
+      const vNpm = bridge.callJson<{ stdout: string }>('runCommand', 'npm -v')
+      const vOC = bridge.callJson<{ stdout: string }>('runCommand', 'openclaw --version')
+      const vGlibc = bridge.callJson<{ stdout: string }>('runCommand', 'ldd --version')
+
+      setVersions({
+        node: vNode?.stdout || 'No instalado',
+        npm: vNpm?.stdout || 'No instalado',
+        openclaw: vOC?.stdout || 'No instalado',
+        glibc: vGlibc?.stdout || 'No instalado'
       })
+    } catch (e) {
+      console.error('Failed to load dashboard data', e)
     }
-
-    // Fetch bridge data
-    const storageInfo = bridge.callJson<any>('getStorageInfo')
-    if (storageInfo) setStorage(storageInfo)
-
-    const vNode = bridge.callJson<any>('runCommand', 'node -v')
-    const vNpm = bridge.callJson<any>('runCommand', 'npm -v')
-    const vOC = bridge.callJson<any>('runCommand', 'openclaw --version')
-    const vGlibc = bridge.callJson<any>('runCommand', 'ldd --version')
-
-    setVersions({
-      node: vNode?.stdout || 'No instalado',
-      npm: vNpm?.stdout || 'No instalado',
-      openclaw: vOC?.stdout || 'No instalado',
-      glibc: vGlibc?.stdout || 'No instalado'
-    })
   }
 
   useEffect(() => {
-    loadData()
+    const init = async () => {
+      await loadData()
+    }
+    init()
   }, [])
 
   const formatSize = (bytes: number) => {
@@ -86,11 +118,11 @@ export function Dashboard() {
         {storage && (
           <>
             <div style={{ height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden', margin: '8px 0' }}>
-              <div style={{ width: `${storage.percent}%`, height: '100%', background: 'var(--primary)' }} />
+              <div style={{ width: `${Math.round(((storage.totalBytes - storage.freeBytes) / storage.totalBytes) * 100)}%`, height: '100%', background: 'var(--primary)' }} />
             </div>
             <div className="info-row">
-              <span className="label">Uso: {storage.percent}%</span>
-              <span>{formatSize(storage.used)} / {formatSize(storage.total)}</span>
+              <span className="label">Uso: {Math.round(((storage.totalBytes - storage.freeBytes) / storage.totalBytes) * 100)}%</span>
+              <span>{formatSize(storage.totalBytes - storage.freeBytes)} / {formatSize(storage.totalBytes)}</span>
             </div>
           </>
         )}
