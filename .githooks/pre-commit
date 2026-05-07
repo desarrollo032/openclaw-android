@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs code quality checks on staged files
+# Enable with: git config core.hooksPath .githooks
+
+set -e
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+ANDROID_DIR="$ROOT_DIR/android"
+
+# --- Kotlin checks (ktlint + detekt) ---
+
+STAGED_KT=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.kts?$' || true)
+
+if [ -n "$STAGED_KT" ]; then
+    echo "Running ktlint check..."
+    if ! (cd "$ANDROID_DIR" && ./gradlew ktlintCheck --daemon -q 2>/dev/null); then
+        echo ""
+        echo "ktlint check failed. Run './gradlew ktlintFormat' to auto-fix."
+        exit 1
+    fi
+
+    echo "Running detekt..."
+    if ! (cd "$ANDROID_DIR" && ./gradlew detekt --daemon -q 2>/dev/null); then
+        echo ""
+        echo "detekt check failed. Fix the issues above before committing."
+        exit 1
+    fi
+fi
+
+# --- Shell script checks (shellcheck) ---
+
+STAGED_SH=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.sh$' || true)
+
+if [ -n "$STAGED_SH" ]; then
+    if command -v shellcheck >/dev/null 2>&1; then
+        echo "Running shellcheck..."
+        FAILED=0
+        for file in $STAGED_SH; do
+            # Skip build artifacts
+            case "$file" in
+                android/app/build/*) continue ;;
+            esac
+            if [ -f "$ROOT_DIR/$file" ]; then
+                if ! shellcheck "$ROOT_DIR/$file"; then
+                    FAILED=1
+                fi
+            fi
+        done
+        if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "shellcheck failed. Fix the issues above before committing."
+            exit 1
+        fi
+    else
+        echo "Warning: shellcheck not installed. Skipping shell script lint."
+        echo "Install with: sudo apt-get install shellcheck"
+    fi
+fi
+
+# --- Markdown lint ---
+
+STAGED_MD=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.md$' || true)
+
+if [ -n "$STAGED_MD" ]; then
+    if command -v markdownlint-cli2 >/dev/null 2>&1; then
+        echo "Running markdownlint..."
+        if ! markdownlint-cli2 $STAGED_MD 2>&1; then
+            echo ""
+            echo "markdownlint failed. Fix the issues above before committing."
+            exit 1
+        fi
+    else
+        echo "Warning: markdownlint-cli2 not installed. Skipping markdown lint."
+    fi
+fi
+
+# --- WebView/React lint (www/) ---
+
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM | grep -E 'android/www/.*\.(ts|tsx)$' || true)
+
+if [ -n "$STAGED_TS" ]; then
+    if [ -f "$ANDROID_DIR/www/node_modules/.bin/eslint" ]; then
+        echo "Running ESLint on www/..."
+        STAGED_TS_REL=$(echo "$STAGED_TS" | sed 's|^android/www/||')
+        if ! (cd "$ANDROID_DIR/www" && npx eslint $STAGED_TS_REL 2>&1); then
+            echo ""
+            echo "ESLint failed. Fix the issues above before committing."
+            exit 1
+        fi
+    else
+        echo "Warning: www/node_modules not found. Run 'cd android/www && npm install'."
+    fi
+fi
+
+# --- Script sync check (post-setup.sh) ---
+
+ROOT_POST_SETUP="$ROOT_DIR/post-setup.sh"
+APP_POST_SETUP="$ROOT_DIR/android/app/src/main/assets/post-setup.sh"
+
+STAGED_SYNC=$(git diff --cached --name-only | grep -E '(^post-setup\.sh$|android/app/src/main/assets/post-setup\.sh)' || true)
+
+if [ -n "$STAGED_SYNC" ]; then
+    if [ -f "$ROOT_POST_SETUP" ] && [ -f "$APP_POST_SETUP" ]; then
+        if ! diff -q "$ROOT_POST_SETUP" "$APP_POST_SETUP" >/dev/null 2>&1; then
+            echo ""
+            echo "ERROR: post-setup.sh sync mismatch!"
+            echo "  Root:  post-setup.sh"
+            echo "  App:   android/app/src/main/assets/post-setup.sh"
+            echo ""
+            echo "Both files must have identical content."
+            echo "Copy one to the other and stage both before committing."
+            exit 1
+        fi
+    fi
+fi
+
+echo "All checks passed."

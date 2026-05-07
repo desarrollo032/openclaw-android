@@ -1,0 +1,187 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: |
+          find . -name '*.sh' \
+            -not -path './android/app/build/*' \
+            -not -path './node_modules/*' \
+            -not -path './.agent/*' \
+            -print0 | xargs -0 --no-run-if-empty shellcheck --format=gcc
+
+  script-sync:
+    name: Script Sync Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify post-setup.sh sync
+        run: |
+          if ! diff -q post-setup.sh android/app/src/main/assets/post-setup.sh; then
+            echo "ERROR: post-setup.sh files are out of sync!"
+            echo "  Root:  post-setup.sh"
+            echo "  App:   android/app/src/main/assets/post-setup.sh"
+            echo "Both files must have identical content."
+            exit 1
+          fi
+          echo "post-setup.sh files are in sync."
+
+  markdownlint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install markdownlint-cli2
+        run: npm install -g markdownlint-cli2
+
+      - name: Run markdownlint
+        run: markdownlint-cli2 '**/*.md' '!node_modules' '!android/www/node_modules' '!android/www/dist' '!android/app/build'
+
+  doc-freshness:
+    name: Document Freshness
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check document freshness
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+          WARN=0
+
+          check_doc() {
+            local pattern="$1"
+            local doc="$2"
+            local label="$3"
+            if echo "$CHANGED" | grep -qE "$pattern"; then
+              if ! echo "$CHANGED" | grep -qE "$doc"; then
+                echo "Warning: $label code changed but $doc was not updated."
+                WARN=1
+              fi
+            fi
+          }
+
+          check_doc '^install\.sh$' '^README\.md$' 'install.sh'
+          check_doc '^oa\.sh$' '^README\.md$' 'oa.sh'
+          check_doc '^(update\.sh|update-core\.sh)$' '^(README\.md|CHANGELOG\.md)$' 'update scripts'
+          check_doc '^bootstrap\.sh$' '^README\.md$' 'bootstrap.sh'
+          check_doc '^scripts/install-' '^README\.md$' 'install scripts'
+          check_doc '^platforms/openclaw/' '^README\.md$' 'platform scripts'
+
+          # Check 3-language sync for docs/ files
+          for doc in $(echo "$CHANGED" | grep -E '^docs/.*\.md$' | grep -v '\.(ko|zh)\.md$'); do
+            ko_doc="${doc%.md}.ko.md"
+            zh_doc="${doc%.md}.zh.md"
+            if [ -f "$ko_doc" ] && ! echo "$CHANGED" | grep -qF "$ko_doc"; then
+              echo "Warning: $doc changed but Korean version $ko_doc was not updated."
+              WARN=1
+            fi
+            if [ -f "$zh_doc" ] && ! echo "$CHANGED" | grep -qF "$zh_doc"; then
+              echo "Warning: $doc changed but Chinese version $zh_doc was not updated."
+              WARN=1
+            fi
+          done
+
+          # Check 3-language sync for README
+          if echo "$CHANGED" | grep -qE '^README\.md$'; then
+            if ! echo "$CHANGED" | grep -qE '^README\.ko\.md$'; then
+              echo "Warning: README.md changed but README.ko.md was not updated."
+              WARN=1
+            fi
+            if ! echo "$CHANGED" | grep -qE '^README\.zh\.md$'; then
+              echo "Warning: README.md changed but README.zh.md was not updated."
+              WARN=1
+            fi
+          fi
+
+          if [ "$WARN" -eq 1 ]; then
+            echo ""
+            echo "Document freshness check: some docs may need updating."
+          else
+            echo "Document freshness check passed."
+          fi
+
+  kotlin-lint:
+    name: Kotlin Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/libs.versions.toml') }}
+          restore-keys: gradle-
+
+      - name: Run ktlint
+        run: ./gradlew ktlintCheck
+
+      - name: Run detekt
+        run: ./gradlew detekt
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/libs.versions.toml') }}
+          restore-keys: gradle-
+
+      - name: Run unit tests
+        run: ./gradlew test
