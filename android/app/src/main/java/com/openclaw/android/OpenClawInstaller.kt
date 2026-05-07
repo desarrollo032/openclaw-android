@@ -29,24 +29,40 @@ object OpenClawInstaller {
     // ── Readiness checks ──────────────────────────────────────────────────────
 
     /**
-     * True only when all three critical files exist AND the prefs flag is set.
-     * Checks the exact paths required by the ProcessBuilder chain.
+     * True when all three critical files exist.
+     * Also auto-repairs the SharedPreferences flag if files exist but flag was lost
+     * (e.g. after APK reinstall without clearing data).
      */
     fun isPayloadReady(context: Context): Boolean {
         val base = getPayloadDir(context)
         val filesExist = File(base, "glibc/lib/ld-linux-aarch64.so.1").exists()
                       && File(base, "node/bin/node.real").exists()
                       && File(base, "lib/node_modules/openclaw/openclaw.mjs").exists()
-        val flagSet = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                             .getBoolean(KEY_PAYLOAD_INSTALLED, false)
-        return filesExist && flagSet
+
+        if (filesExist) {
+            // Auto-repair flag if files are present but prefs were cleared
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (!prefs.getBoolean(KEY_PAYLOAD_INSTALLED, false)) {
+                Log.i(TAG, "Files exist but flag missing — auto-repairing prefs")
+                prefs.edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
+            }
+            return true
+        }
+        return false
     }
 
     fun isConfigRestored(context: Context): Boolean {
         val jsonExists = File(getConfigDir(context), "openclaw.json").exists()
-        val flagSet = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                             .getBoolean(KEY_CONFIG_RESTORED, false)
-        return jsonExists && flagSet
+
+        if (jsonExists) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (!prefs.getBoolean(KEY_CONFIG_RESTORED, false)) {
+                Log.i(TAG, "Config exists but flag missing — auto-repairing prefs")
+                prefs.edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
+            }
+            return true
+        }
+        return false
     }
 
     /** True when both asset files are bundled in the APK. */

@@ -1,6 +1,5 @@
 package com.openclaw.android
 
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -8,21 +7,26 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val TAG = "InstallActivity"
+
 class InstallationActivity : AppCompatActivity() {
 
     // ── Views ─────────────────────────────────────────────────────────────────
     private lateinit var progressBar:    ProgressBar
     private lateinit var statusText:     TextView
+    private lateinit var errorText:      TextView   // red error line below status
     private lateinit var modeCard:       LinearLayout
     private lateinit var btnPickPayload: Button
     private lateinit var btnPickConfig:  Button
@@ -31,6 +35,7 @@ class InstallationActivity : AppCompatActivity() {
     // ── State ─────────────────────────────────────────────────────────────────
     private var pickedPayloadUri: Uri? = null
     private var pickedConfigUri:  Uri? = null
+    private var hasBundled       = false
 
     // ── SAF launchers ─────────────────────────────────────────────────────────
     private val pickPayload = registerForActivityResult(
@@ -40,6 +45,7 @@ class InstallationActivity : AppCompatActivity() {
         pickedPayloadUri = uri
         btnPickPayload.text = "✓  payload.tar.xz seleccionado"
         btnPickPayload.setTextColor(Color.parseColor("#4ade80"))
+        clearError()
         checkManualReady()
     }
 
@@ -50,6 +56,7 @@ class InstallationActivity : AppCompatActivity() {
         pickedConfigUri = uri
         btnPickConfig.text = "✓  openclaw-apk-migration.tar.gz seleccionado"
         btnPickConfig.setTextColor(Color.parseColor("#4ade80"))
+        clearError()
         checkManualReady()
     }
 
@@ -58,21 +65,29 @@ class InstallationActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Build layout first — this assigns all lateinit vars
+        // ── Guard: if already fully installed, skip straight to dashboard ──
+        if (OpenClawInstaller.isPayloadReady(this) && OpenClawInstaller.isConfigRestored(this)) {
+            Log.i(TAG, "Already installed — going to dashboard")
+            launchDashboard()
+            return
+        }
+
         val root = buildLayout()
         setContentView(root)
 
-        // Now configure visibility based on whether assets are bundled
-        if (OpenClawInstaller.hasBundledAssets(this)) {
-            // Mode A: assets in APK — show one-tap install button
-            modeCard.visibility  = View.GONE
+        hasBundled = OpenClawInstaller.hasBundledAssets(this)
+
+        if (hasBundled) {
+            // Mode A: assets bundled in APK
+            modeCard.visibility   = View.GONE
             btnInstall.visibility = View.VISIBLE
-            btnInstall.text      = "Instalar OpenClaw"
+            btnInstall.text       = "Instalar OpenClaw"
             btnInstall.setOnClickListener { runInstallFromAssets() }
         } else {
-            // Mode B: no bundled assets — show file pickers, install button hidden until both picked
-            modeCard.visibility  = View.VISIBLE
+            // Mode B: no bundled assets — user must pick files
+            modeCard.visibility   = View.VISIBLE
             btnInstall.visibility = View.GONE
+            statusText.text       = "Selecciona los archivos para continuar"
         }
     }
 
@@ -86,14 +101,20 @@ class InstallationActivity : AppCompatActivity() {
                     runOnUiThread { statusText.text = msg }
                 }
             }
-            if (!payloadOk) { showError("Error instalando payload."); return@launch }
+            if (!payloadOk) {
+                onInstallFailed("Falló la extracción del payload.\nVerifica que el APK no esté corrupto.")
+                return@launch
+            }
 
             val configOk = withContext(Dispatchers.IO) {
                 OpenClawInstaller.restoreConfig(this@InstallationActivity) { msg ->
                     runOnUiThread { statusText.text = msg }
                 }
             }
-            if (!configOk) { showError("Error restaurando configuración."); return@launch }
+            if (!configOk) {
+                onInstallFailed("Falló la restauración de la configuración.")
+                return@launch
+            }
 
             onInstallSuccess()
         }
@@ -112,34 +133,82 @@ class InstallationActivity : AppCompatActivity() {
                     this@InstallationActivity, payloadUri
                 ) { msg -> runOnUiThread { statusText.text = msg } }
             }
-            if (!payloadOk) { showError("Error instalando payload."); return@launch }
+            if (!payloadOk) {
+                onInstallFailed("Falló la extracción del payload.\nAsegúrate de que el archivo sea payload.tar.xz correcto.")
+                return@launch
+            }
 
             val configOk = withContext(Dispatchers.IO) {
                 OpenClawInstaller.restoreConfigFromUri(
                     this@InstallationActivity, configUri
                 ) { msg -> runOnUiThread { statusText.text = msg } }
             }
-            if (!configOk) { showError("Error restaurando configuración."); return@launch }
+            if (!configOk) {
+                onInstallFailed("Falló la restauración de la configuración.\nAsegúrate de que el archivo sea openclaw-apk-migration.tar.gz correcto.")
+                return@launch
+            }
 
             onInstallSuccess()
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Result handlers ───────────────────────────────────────────────────────
 
     private fun onInstallSuccess() {
-        statusText.text = "¡Instalación completa! Iniciando..."
+        Log.i(TAG, "Installation successful")
+        progressBar.visibility = View.GONE
+        statusText.text        = "✓  Instalación completa"
+        statusText.setTextColor(Color.parseColor("#4ade80"))
+        clearError()
+        launchDashboard()
+    }
+
+    private fun onInstallFailed(reason: String) {
+        Log.e(TAG, "Installation failed: $reason")
+        setInstalling(false)
+
+        // Show error inline — no dialog, user sees it immediately
+        showError(reason)
+
+        // Restore pickers in manual mode so user can retry with different files
+        if (!hasBundled) {
+            modeCard.visibility = View.VISIBLE
+            // Reset picked state so user must re-pick
+            pickedPayloadUri = null
+            pickedConfigUri  = null
+            btnPickPayload.text = "📦  Seleccionar  payload.tar.xz  (~186 MB)"
+            btnPickPayload.setTextColor(Color.parseColor("#a0a0c0"))
+            btnPickConfig.text  = "⚙️  Seleccionar  openclaw-apk-migration.tar.gz"
+            btnPickConfig.setTextColor(Color.parseColor("#a0a0c0"))
+            btnInstall.visibility = View.GONE
+        } else {
+            // Bundled mode: show retry button
+            btnInstall.visibility = View.VISIBLE
+            btnInstall.text       = "Reintentar instalación"
+            btnInstall.setOnClickListener { clearError(); runInstallFromAssets() }
+        }
+    }
+
+    private fun launchDashboard() {
         OpenClawGatewayService.start(this)
-        startActivity(Intent(this, OpenClawDashboardActivity::class.java))
+        startActivity(
+            Intent(this, OpenClawDashboardActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        )
         finish()
     }
+
+    // ── UI helpers ────────────────────────────────────────────────────────────
 
     private fun setInstalling(on: Boolean) {
         progressBar.visibility   = if (on) View.VISIBLE else View.GONE
         btnInstall.isEnabled     = !on
         btnPickPayload.isEnabled = !on
         btnPickConfig.isEnabled  = !on
-        if (on) modeCard.visibility = View.GONE
+        if (on) {
+            modeCard.visibility = View.GONE
+            clearError()
+        }
     }
 
     private fun checkManualReady() {
@@ -151,29 +220,21 @@ class InstallationActivity : AppCompatActivity() {
     }
 
     private fun showError(msg: String) {
-        setInstalling(false)
-        // Restore pickers if in manual mode
-        if (!OpenClawInstaller.hasBundledAssets(this)) {
-            modeCard.visibility = View.VISIBLE
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Error de instalación")
-            .setMessage(msg)
-            .setPositiveButton("Salir")    { _, _ -> finish() }
-            .setNegativeButton("Reintentar") { d, _ -> d.dismiss() }
-            .setCancelable(false)
-            .show()
+        errorText.text       = "⚠  $msg"
+        errorText.visibility = View.VISIBLE
     }
 
-    // ── Layout builder ────────────────────────────────────────────────────────
-    // IMPORTANT: all lateinit vars are assigned here, then setContentView is
-    // called with the returned view — never call buildLayout() twice.
+    private fun clearError() {
+        errorText.text       = ""
+        errorText.visibility = View.GONE
+    }
+
+    // ── Layout ────────────────────────────────────────────────────────────────
 
     private fun buildLayout(): ScrollView {
         val d = resources.displayMetrics.density
         fun Int.dp() = (this * d).toInt()
 
-        // ── Root scroll ───────────────────────────────────────────────────────
         val root = ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#0d0d12"))
             layoutParams = FrameLayout.LayoutParams(-1, -1)
@@ -183,11 +244,10 @@ class InstallationActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             gravity     = Gravity.CENTER_HORIZONTAL
             setPadding(24.dp(), 56.dp(), 24.dp(), 48.dp())
-            layoutParams = FrameLayout.LayoutParams(-1, -2)
         }
         root.addView(container)
 
-        // ── Logo ──────────────────────────────────────────────────────────────
+        // Logo
         container.addView(TextView(this).apply {
             text      = "🦀"
             textSize  = 72f
@@ -195,7 +255,7 @@ class InstallationActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 12.dp() }
         })
 
-        // ── Title ─────────────────────────────────────────────────────────────
+        // Title
         container.addView(TextView(this).apply {
             text      = "OpenClaw"
             textSize  = 30f
@@ -205,35 +265,49 @@ class InstallationActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6.dp() }
         })
 
-        // ── Subtitle ──────────────────────────────────────────────────────────
+        // Subtitle
         container.addView(TextView(this).apply {
             text      = "Instalación del entorno"
             textSize  = 14f
             setTextColor(Color.parseColor("#8888aa"))
             gravity   = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 40.dp() }
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 36.dp() }
         })
 
-        // ── Progress bar ──────────────────────────────────────────────────────
+        // Progress bar (indeterminate, hidden until installing)
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate       = true
             indeterminateTintList = ColorStateList.valueOf(Color.parseColor("#6366f1"))
             visibility            = View.GONE
-            layoutParams = LinearLayout.LayoutParams(-1, 6.dp()).apply { bottomMargin = 14.dp() }
+            layoutParams = LinearLayout.LayoutParams(-1, 6.dp()).apply { bottomMargin = 12.dp() }
         }
         container.addView(progressBar)
 
-        // ── Status text ───────────────────────────────────────────────────────
+        // Status text (progress messages)
         statusText = TextView(this).apply {
             text      = "Listo para instalar"
             textSize  = 14f
             setTextColor(Color.parseColor("#a0a0c0"))
             gravity   = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 32.dp() }
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8.dp() }
         }
         container.addView(statusText)
 
-        // ── Mode B card (manual file pickers) ─────────────────────────────────
+        // Error text (shown only on failure, inline — no dialog)
+        errorText = TextView(this).apply {
+            text      = ""
+            textSize  = 13f
+            setTextColor(Color.parseColor("#f87171"))
+            gravity   = Gravity.CENTER
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = 20.dp()
+                topMargin    = 4.dp()
+            }
+        }
+        container.addView(errorText)
+
+        // ── Mode B card: manual file pickers ──────────────────────────────────
         modeCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(20.dp(), 20.dp(), 20.dp(), 20.dp())
@@ -244,7 +318,7 @@ class InstallationActivity : AppCompatActivity() {
                 setStroke(1.dp(), Color.parseColor("#2d2d4e"))
             }
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 24.dp() }
-            visibility   = View.GONE   // shown only when no bundled assets
+            visibility   = View.GONE
         }
         container.addView(modeCard)
 
@@ -263,17 +337,15 @@ class InstallationActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 20.dp() }
         })
 
-        // Payload picker button
         btnPickPayload = pickerButton("📦  Seleccionar  payload.tar.xz  (~186 MB)")
         btnPickPayload.setOnClickListener { pickPayload.launch("*/*") }
         modeCard.addView(btnPickPayload)
 
-        // Config picker button
         btnPickConfig = pickerButton("⚙️  Seleccionar  openclaw-apk-migration.tar.gz")
         btnPickConfig.setOnClickListener { pickConfig.launch("*/*") }
         modeCard.addView(btnPickConfig)
 
-        // ── Primary install button ─────────────────────────────────────────────
+        // ── Primary install / retry button ────────────────────────────────────
         btnInstall = Button(this).apply {
             text      = "Instalar"
             textSize  = 16f
@@ -285,7 +357,7 @@ class InstallationActivity : AppCompatActivity() {
                 setColor(Color.parseColor("#6366f1"))
             }
             layoutParams = LinearLayout.LayoutParams(-1, 56.dp()).apply { bottomMargin = 16.dp() }
-            visibility   = View.GONE   // shown after mode is determined in onCreate
+            visibility   = View.GONE
         }
         container.addView(btnInstall)
 

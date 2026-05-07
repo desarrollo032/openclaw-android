@@ -5,21 +5,24 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * Splash/router activity — never shows UI.
- * Decides immediately whether to install or launch the dashboard.
+ * Entry point — routes to installer or dashboard.
+ * Never shows its own UI.
  */
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!OpenClawInstaller.isPayloadReady(this)) {
-            // First run or corrupted install → go to installer
-            startActivity(Intent(this, InstallationActivity::class.java))
-        } else {
-            // Already installed → start gateway and open dashboard
+        val payloadReady = OpenClawInstaller.isPayloadReady(this)
+        val configReady  = OpenClawInstaller.isConfigRestored(this)
+
+        if (payloadReady && configReady) {
+            // Fully installed → launch gateway + dashboard
             OpenClawGatewayService.start(this)
             startActivity(Intent(this, OpenClawDashboardActivity::class.java))
+        } else {
+            // Not installed (or partial) → go to installer
+            startActivity(Intent(this, InstallationActivity::class.java))
         }
 
         finish()
