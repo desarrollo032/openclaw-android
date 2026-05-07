@@ -122,24 +122,13 @@ class OpenClawGatewayService : Service() {
     private fun startProcess() {
         try {
             val base      = OpenClawInstaller.getPayloadDir(this)
-            // Use the loader copy in nativeLibraryDir — SELinux allows exec there
-            val loader    = OpenClawInstaller.getLoaderPath(this)
-            // node binary may be "node" or "node.real" depending on the payload build
-            val nodeBin   = File(base, "node/bin")
-            val nodeExec  = listOf("node.real", "node").map { File(nodeBin, it) }
-                                .firstOrNull { it.exists() }
-                                ?: run {
-                                    Log.e(TAG, "No node binary found in $nodeBin")
-                                    _state.value = GatewayState.FAILED
-                                    updateNotification("Error: no se encontró node binary")
-                                    return
-                                }
+            val loader    = OpenClawInstaller.getLoaderFile(base)
+            val nodeExec  = OpenClawInstaller.getNodeFile(base)
             val libs      = File(base, "glibc/lib").absolutePath
             val openclaw  = File(base, "lib/node_modules/openclaw/openclaw.mjs")
             val tmpDir    = File(cacheDir, "tmp").apply { mkdirs() }
             val configDir = OpenClawInstaller.getConfigDir(this)
 
-            // Validate critical files
             listOf(loader, nodeExec, openclaw).forEach { f ->
                 if (!f.exists()) {
                     Log.e(TAG, "Missing: ${f.absolutePath}")
