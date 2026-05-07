@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Required for SAF file picker (manual install mode) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
         android:allowBackup="true"
@@ -19,10 +22,10 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
+        <!-- Router: decides install vs launch, never shows UI -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:windowSoftInputMode="adjustResize"
             android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -30,16 +33,26 @@
             </intent-filter>
         </activity>
 
+        <!-- Installer: two modes (bundled assets or manual file pick) -->
+        <activity
+            android:name=".InstallationActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Dashboard: WebView wrapper for the gateway UI -->
         <activity
             android:name=".OpenClawDashboardActivity"
+            android:exported="false"
             android:configChanges="orientation|screenSize"
-            android:label="OpenClaw Dashboard"
-            android:exported="false" />
+            android:windowSoftInputMode="adjustResize" />
 
+        <!-- Gateway foreground service -->
         <service
             android:name=".OpenClawGatewayService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
 
     </application>
 

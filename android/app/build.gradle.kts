@@ -20,6 +20,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Prevent aapt from compressing binary archives — critical for large assets
+    androidResources {
+        noCompress += listOf("xz", "tar", "gz")
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

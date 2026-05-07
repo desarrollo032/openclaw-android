@@ -26,7 +26,7 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
     @JavascriptInterface
     fun getSetupStatus(): String {
         val obj = JSONObject()
-        obj.put("bootstrapInstalled", OpenClawInstaller.isPayloadInstalled(context))
+        obj.put("bootstrapInstalled", OpenClawInstaller.isPayloadReady(context))
         obj.put("platformInstalled", OpenClawInstaller.isConfigRestored(context))
         return obj.toString()
     }
@@ -34,7 +34,7 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
     @JavascriptInterface
     fun getBootstrapStatus(): String {
         val obj = JSONObject()
-        obj.put("installed", OpenClawInstaller.isPayloadInstalled(context))
+        obj.put("installed", OpenClawInstaller.isPayloadReady(context))
         obj.put("prefixPath", OpenClawInstaller.getPayloadDir(context).absolutePath)
         return obj.toString()
     }
@@ -47,7 +47,7 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                 put("message", "Starting setup...")
             })
 
-            val success = OpenClawInstaller.installPayloadFromAsset(context) { msg ->
+            val success = OpenClawInstaller.installPayload(context) { msg ->
                 emit("setup_progress", JSONObject().apply {
                     put("progress", 0.4)
                     put("message", msg)
@@ -55,13 +55,13 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
             }
 
             if (success) {
-                OpenClawInstaller.restoreConfigFromAsset(context) { msg ->
+                OpenClawInstaller.restoreConfig(context) { msg ->
                     emit("setup_progress", JSONObject().apply {
                         put("progress", 0.8)
                         put("message", msg)
                     })
                 }
-                
+
                 emit("setup_progress", JSONObject().apply {
                     put("progress", 1.0)
                     put("message", "Setup complete!")

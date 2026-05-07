@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 import { bridge } from '../lib/bridge'
 import { useRoute } from '../lib/router'
+import { fetchGatewayConfig, getProviderMeta } from '../lib/gateway'
 
 /* ── Types ─────────────────────────────────────────────── */
 interface Health { status: string; uptime?: string; version?: string }
@@ -58,10 +59,20 @@ export function Dashboard() {
       const h = await api.getHealth().catch(() => ({ status: 'offline' }))
       setHealth(h)
 
-      // Config
-      const cfg = await api.getConfig().catch(() => null)
+      // Config — try gateway WS first, fallback to HTTP
+      let cfg = null
+      try {
+        const gwCfg = await fetchGatewayConfig()
+        if (gwCfg?.agents?.defaults) {
+          cfg = {
+            default_model: gwCfg.agents.defaults.model?.primary,
+            temperature: gwCfg.agents.defaults.temperature,
+            context_size: (gwCfg.agents.defaults as Record<string, unknown>)['contextTokens'] as number,
+          }
+        }
+      } catch { /* ignore */ }
+      if (!cfg) cfg = await api.getConfig().catch(() => null)
       if (cfg) setConfig(cfg)
-
       // Skills
       const sk = await api.getSkills().catch(() => [])
       setSkills(sk || [])
@@ -160,11 +171,21 @@ export function Dashboard() {
       {/* ── Quick stats grid ── */}
       <div className="stat-grid">
         <div className="stat-tile">
-          <span className="stat-icon">🤖</span>
-          <span className="stat-value" style={{ fontSize: 14, fontWeight: 700 }}>
-            {config?.default_model || '—'}
+          <span className="stat-icon">
+            {config?.default_model
+              ? getProviderMeta(config.default_model.split('/')[0]).icon
+              : '🤖'}
           </span>
-          <span className="stat-label">Modelo activo</span>
+          <span className="stat-value" style={{ fontSize: 13, fontWeight: 700 }}>
+            {config?.default_model
+              ? (config.default_model.split('/').slice(1).join('/') || config.default_model)
+              : '—'}
+          </span>
+          <span className="stat-label">
+            {config?.default_model
+              ? getProviderMeta(config.default_model.split('/')[0]).label
+              : 'Modelo activo'}
+          </span>
         </div>
         <div className="stat-tile">
           <span className="stat-icon">⚡</span>

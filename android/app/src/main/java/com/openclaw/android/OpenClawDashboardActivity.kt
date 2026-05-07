@@ -4,278 +4,270 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
 import android.webkit.*
-import android.widget.Button
-import android.widget.ProgressBar
-import android.widget.TextView
+import android.widget.*
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
-import java.net.HttpURLConnection
-import java.net.URL
 
 class OpenClawDashboardActivity : AppCompatActivity() {
 
-    private lateinit var webView: WebView
-    private lateinit var progressBar: ProgressBar
-    private lateinit var errorLayout: View
-    private lateinit var errorText: TextView
-    private lateinit var retryButton: Button
+    private lateinit var webView:          WebView
+    private lateinit var progressBar:      ProgressBar
+    private lateinit var statusCard:       View
+    private lateinit var statusText:       TextView
+    private lateinit var retryButton:      Button
     private lateinit var openBrowserButton: Button
-    
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
+
     private val DASHBOARD_URL = "http://127.0.0.1:18789"
+    private var waitJob: Job? = null
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(createLayout())
-        
+        setContentView(buildLayout())
         setupWebView()
-        waitForGateway()
+
+        // Observe gateway state from the service
+        lifecycleScope.launch {
+            OpenClawGatewayService.state.collect { state ->
+                when (state) {
+                    GatewayState.STARTING,
+                    GatewayState.RESTARTING -> showLoading(
+                        if (state == GatewayState.RESTARTING) "Reiniciando gateway..." else "Iniciando gateway..."
+                    )
+                    GatewayState.READY      -> loadDashboard()
+                    GatewayState.FAILED     -> showError("El gateway falló. Verifica la notificación.")
+                }
+            }
+        }
+
+        // Also poll directly — covers the case where service was already running
+        startPolling()
     }
+
+    override fun onDestroy() {
+        waitJob?.cancel()
+        super.onDestroy()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        AlertDialog.Builder(this)
+            .setTitle("¿Salir?")
+            .setMessage("El gateway seguirá corriendo en segundo plano.")
+            .setPositiveButton("Salir") { _, _ -> finish() }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    // ── Gateway polling ───────────────────────────────────────────────────────
+
+    private fun startPolling() {
+        waitJob?.cancel()
+        showLoading("Iniciando gateway...")
+
+        waitJob = lifecycleScope.launch {
+            val maxRetries = 30   // 60 seconds (30 × 2s)
+            for (i in 1..maxRetries) {
+                val alive = withContext(Dispatchers.IO) { isGatewayAlive() }
+                if (alive) {
+                    loadDashboard()
+                    return@launch
+                }
+                val elapsed = i * 2
+                val msg = when {
+                    elapsed < 10 -> "Iniciando gateway..."
+                    elapsed < 30 -> "Cargando Node.js... (${elapsed}s)"
+                    else         -> "Casi listo... (${elapsed}s)"
+                }
+                showLoading(msg)
+                delay(2_000)
+            }
+            // Timeout
+            showError("El gateway tardó demasiado. Revisa la notificación.")
+        }
+    }
+
+    // ── WebView ───────────────────────────────────────────────────────────────
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         webView.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            databaseEnabled = true
-            loadWithOverviewMode = true
-            useWideViewPort = true
+            javaScriptEnabled     = true
+            domStorageEnabled     = true
+            @Suppress("DEPRECATION")
+            databaseEnabled       = true
+            loadWithOverviewMode  = true
+            useWideViewPort       = true
+            displayZoomControls   = false
+            builtInZoomControls   = false
         }
-
         webView.addJavascriptInterface(OpenClawBridge(this, webView), "OpenClaw")
-        
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 progressBar.visibility = View.GONE
+                statusCard.visibility  = View.GONE
+                webView.visibility     = View.VISIBLE
             }
-
             override fun onReceivedError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?
+                view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
-                showError("Error loading dashboard: ${error?.description}")
+                showError("Error cargando dashboard: ${error?.description}")
             }
         }
-        
         webView.webChromeClient = WebChromeClient()
     }
 
-    private fun waitForGateway() {
+    private fun loadDashboard() {
+        waitJob?.cancel()
         progressBar.visibility = View.VISIBLE
-        errorLayout.visibility = View.GONE
-        webView.visibility = View.GONE
-
-        activityScope.launch {
-            var ready = false
-            val maxRetries = 45 // 90 seconds (45 * 2s) — Node.js can take time on first boot
-            
-            for (i in 1..maxRetries) {
-                if (checkGatewayReady()) {
-                    ready = true
-                    break
-                }
-                // Update status text with elapsed time
-                val elapsed = i * 2
-                val statusMsg = when {
-                    elapsed < 10 -> "Iniciando OpenClaw..."
-                    elapsed < 30 -> "Cargando entorno Node.js... (${elapsed}s)"
-                    elapsed < 60 -> "Esto puede tardar un momento... (${elapsed}s)"
-                    else -> "Casi listo... (${elapsed}s)"
-                }
-                withContext(Dispatchers.Main) {
-                    errorText.text = statusMsg
-                    errorLayout.visibility = View.VISIBLE
-                    progressBar.visibility = View.VISIBLE
-                    retryButton.visibility = View.GONE
-                    openBrowserButton.visibility = View.GONE
-                }
-                delay(2000)
-            }
-
-            if (ready) {
-                errorLayout.visibility = View.GONE
-                progressBar.visibility = View.GONE
-                webView.visibility = View.VISIBLE
-                webView.loadUrl(DASHBOARD_URL)
-            } else {
-                retryButton.visibility = View.VISIBLE
-                openBrowserButton.visibility = View.VISIBLE
-                showError("El gateway tardó demasiado en iniciar. Revisa la notificación para ver el estado.")
-            }
-        }
+        statusCard.visibility  = View.GONE
+        webView.visibility     = View.GONE
+        webView.loadUrl(DASHBOARD_URL)
     }
 
-    private suspend fun checkGatewayReady(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val connection = URL("$DASHBOARD_URL/health").openConnection() as HttpURLConnection
-            connection.connectTimeout = 1000
-            connection.readTimeout = 1000
-            connection.responseCode == 200
-        } catch (e: Exception) {
-            false
-        }
+    // ── UI state helpers ──────────────────────────────────────────────────────
+
+    private fun showLoading(msg: String) {
+        progressBar.visibility      = View.VISIBLE
+        statusCard.visibility       = View.VISIBLE
+        webView.visibility          = View.GONE
+        statusText.text             = msg
+        retryButton.visibility      = View.GONE
+        openBrowserButton.visibility = View.GONE
     }
 
-    private fun showError(message: String) {
-        progressBar.visibility = View.GONE
-        webView.visibility = View.GONE
-        errorLayout.visibility = View.VISIBLE
-        errorText.text = message
-        retryButton.visibility = View.VISIBLE
+    private fun showError(msg: String) {
+        progressBar.visibility      = View.GONE
+        statusCard.visibility       = View.VISIBLE
+        webView.visibility          = View.GONE
+        statusText.text             = msg
+        retryButton.visibility      = View.VISIBLE
         openBrowserButton.visibility = View.VISIBLE
     }
 
-    private fun createLayout(): View {
-        // Full-screen frame: WebView fills it, loading overlay sits on top
-        val frame = android.widget.FrameLayout(this).apply {
-            layoutParams = android.widget.FrameLayout.LayoutParams(-1, -1)
-            setBackgroundColor(android.graphics.Color.parseColor("#0d0d0f"))
+    // ── Layout ────────────────────────────────────────────────────────────────
+
+    private fun buildLayout(): View {
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        // Root frame: WebView fills it, overlay on top
+        val frame = FrameLayout(this).apply {
+            setBackgroundColor(android.graphics.Color.parseColor("#0d0d12"))
         }
 
+        // WebView (full screen, hidden until ready)
         webView = WebView(this).apply {
-            layoutParams = android.widget.FrameLayout.LayoutParams(-1, -1)
-            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(-1, -1)
+            visibility   = View.GONE
+        }
+        frame.addView(webView)
+
+        // Overlay: centered card
+        val overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity     = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(-1, -1)
+            setPadding(32.dp(), 32.dp(), 32.dp(), 32.dp())
         }
 
-        // Loading / status overlay (centered card)
-        val overlayRoot = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            layoutParams = android.widget.FrameLayout.LayoutParams(-1, -1)
-            gravity = android.view.Gravity.CENTER
-            setPadding(dpToPx(40), dpToPx(40), dpToPx(40), dpToPx(40))
-        }
-
-        // Card container
-        val card = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            gravity = android.view.Gravity.CENTER
-            setPadding(dpToPx(32), dpToPx(40), dpToPx(32), dpToPx(40))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(24).toFloat()
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity     = Gravity.CENTER
+            setPadding(28.dp(), 36.dp(), 28.dp(), 36.dp())
+            background  = android.graphics.drawable.GradientDrawable().apply {
+                shape        = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 24.dp().toFloat()
                 setColor(android.graphics.Color.parseColor("#1a1a2e"))
-                setStroke(dpToPx(1), android.graphics.Color.parseColor("#2d2d4e"))
+                setStroke(1.dp(), android.graphics.Color.parseColor("#2d2d4e"))
             }
         }
 
-        // Logo / icon area
-        val logoText = TextView(this).apply {
-            text = "🦀"
-            textSize = 56f
-            gravity = android.view.Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(-2, -2).apply {
-                bottomMargin = dpToPx(16)
-            }
-        }
+        // Logo
+        card.addView(TextView(this).apply {
+            text     = "🦀"
+            textSize = 52f
+            gravity  = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = 14.dp() }
+        })
 
-        val titleText = TextView(this).apply {
-            text = "OpenClaw"
-            textSize = 26f
+        // Title
+        card.addView(TextView(this).apply {
+            text     = "OpenClaw"
+            textSize = 24f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setTextColor(android.graphics.Color.WHITE)
-            gravity = android.view.Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(-2, -2).apply {
-                bottomMargin = dpToPx(8)
-            }
-        }
-
-        val subtitleText = TextView(this).apply {
-            text = "Iniciando gateway..."
-            textSize = 13f
-            setTextColor(android.graphics.Color.parseColor("#8888aa"))
-            gravity = android.view.Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(-2, -2).apply {
-                bottomMargin = dpToPx(32)
-            }
-        }
+            gravity  = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = 28.dp() }
+        })
 
         // Spinner
         progressBar = ProgressBar(this).apply {
-            layoutParams = android.widget.LinearLayout.LayoutParams(dpToPx(48), dpToPx(48)).apply {
-                gravity = android.view.Gravity.CENTER_HORIZONTAL
-                bottomMargin = dpToPx(24)
+            layoutParams = LinearLayout.LayoutParams(44.dp(), 44.dp()).apply {
+                gravity      = Gravity.CENTER_HORIZONTAL
+                bottomMargin = 20.dp()
             }
             indeterminateTintList = android.content.res.ColorStateList.valueOf(
                 android.graphics.Color.parseColor("#6366f1")
             )
         }
+        card.addView(progressBar)
 
-        // Status message (shown while waiting)
-        errorText = TextView(this).apply {
-            text = "Iniciando OpenClaw..."
+        // Status text
+        statusText = TextView(this).apply {
+            text     = "Iniciando gateway..."
             textSize = 14f
             setTextColor(android.graphics.Color.parseColor("#a0a0c0"))
-            gravity = android.view.Gravity.CENTER
-            layoutParams = android.widget.LinearLayout.LayoutParams(-1, -2).apply {
-                bottomMargin = dpToPx(24)
-            }
+            gravity  = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 20.dp() }
         }
+        card.addView(statusText)
 
-        // Error-only buttons (hidden during normal loading)
-        errorLayout = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            layoutParams = android.widget.LinearLayout.LayoutParams(-1, -2)
-            gravity = android.view.Gravity.CENTER
-            visibility = View.GONE
-        }
+        // Status card (wraps text + buttons)
+        statusCard = card
 
+        // Retry button
         retryButton = Button(this).apply {
-            text = "Reintentar"
+            text     = "Reintentar"
             textSize = 15f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setTextColor(android.graphics.Color.WHITE)
             background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(12).toFloat()
+                shape        = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 12.dp().toFloat()
                 setColor(android.graphics.Color.parseColor("#6366f1"))
             }
-            layoutParams = android.widget.LinearLayout.LayoutParams(-1, dpToPx(52)).apply {
-                bottomMargin = dpToPx(12)
+            layoutParams = LinearLayout.LayoutParams(-1, 52.dp()).apply { bottomMargin = 10.dp() }
+            visibility   = View.GONE
+            setOnClickListener {
+                OpenClawGatewayService.start(this@OpenClawDashboardActivity)
+                startPolling()
             }
-            visibility = View.GONE
-            setOnClickListener { waitForGateway() }
         }
+        card.addView(retryButton)
 
+        // Open in browser button
         openBrowserButton = Button(this).apply {
-            text = "Abrir en Navegador Externo"
+            text     = "Abrir en navegador externo"
             textSize = 13f
             setTextColor(android.graphics.Color.parseColor("#6366f1"))
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            layoutParams = android.widget.LinearLayout.LayoutParams(-1, dpToPx(44))
-            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(-1, 44.dp())
+            visibility   = View.GONE
             setOnClickListener {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DASHBOARD_URL)))
             }
         }
+        card.addView(openBrowserButton)
 
-        (errorLayout as android.view.ViewGroup).addView(retryButton)
-        (errorLayout as android.view.ViewGroup).addView(openBrowserButton)
-
-        (card as android.view.ViewGroup).addView(logoText)
-        (card as android.view.ViewGroup).addView(titleText)
-        (card as android.view.ViewGroup).addView(subtitleText)
-        (card as android.view.ViewGroup).addView(progressBar)
-        (card as android.view.ViewGroup).addView(errorText)
-        (card as android.view.ViewGroup).addView(errorLayout)
-
-        (overlayRoot as android.view.ViewGroup).addView(card)
-
-        (frame as android.view.ViewGroup).addView(webView)
-        (frame as android.view.ViewGroup).addView(overlayRoot)
-
+        overlay.addView(card)
+        frame.addView(overlay)
         return frame
-    }
-
-    private fun dpToPx(dp: Int): Int {
-        return (dp * resources.displayMetrics.density).toInt()
-    }
-
-
-    override fun onDestroy() {
-        activityScope.cancel()
-        super.onDestroy()
     }
 }
