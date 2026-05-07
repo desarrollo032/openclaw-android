@@ -5,7 +5,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
 import android.util.Log
@@ -14,6 +14,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.*
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
@@ -39,12 +40,15 @@ class OnboardActivity : AppCompatActivity() {
     private var stdinWriter: PrintWriter? = null
     private var ioJob:       Job?         = null
 
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildLayout())
         startOnboard()
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onDestroy() {
         ioJob?.cancel()
         process?.destroyForcibly()
@@ -154,7 +158,7 @@ class OnboardActivity : AppCompatActivity() {
             appendOutput("Puedes continuar de todas formas o reintentar.\n")
             setStatus("Onboard finalizado (código $code)", Color.parseColor("#f87171"))
             doneButton.visibility = View.VISIBLE
-            doneButton.text       = "Continuar de todas formas"
+            doneButton.setText("Continuar de todas formas")
             doneButton.setOnClickListener { launchDashboard() }
         }
     }
@@ -174,130 +178,139 @@ class OnboardActivity : AppCompatActivity() {
     }
 
     private fun setStatus(msg: String, color: Int) {
-        statusBar.text = msg
+        statusBar.setText(msg)
         statusBar.setTextColor(color)
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
 
     private fun buildLayout(): View {
-        val d = resources.displayMetrics.density
-        fun Int.dp() = (this * d).toInt()
+        val density = resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).toInt()
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#080810"))
-            layoutParams = FrameLayout.LayoutParams(-1, -1)
-        }
+        // ── Root ──────────────────────────────────────────────────────────────
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.setBackgroundColor(Color.parseColor("#080810"))
+        root.layoutParams = FrameLayout.LayoutParams(-1, -1)
 
-        // Header
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity     = Gravity.CENTER_VERTICAL
-            setPadding(16.dp(), 12.dp(), 16.dp(), 12.dp())
-            setBackgroundColor(Color.parseColor("#0d0d1a"))
-        }
-        header.addView(TextView(this).apply {
-            text     = "🦀"
-            textSize = 20f
-            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = 10.dp() }
-        })
-        headerInfo.addView(TextView(this).apply {
-            text     = "OpenClaw Onboard"
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-        })
-        statusBar = TextView(this).apply {
-            text     = "Iniciando..."
-            textSize = 11f
-            setTextColor(Color.parseColor("#a0a0c0"))
-        }
+        // ── Header ────────────────────────────────────────────────────────────
+        val header = LinearLayout(this)
+        header.orientation = LinearLayout.HORIZONTAL
+        header.gravity     = Gravity.CENTER_VERTICAL
+        header.setPadding(dp(16), dp(12), dp(16), dp(12))
+        header.setBackgroundColor(Color.parseColor("#0d0d1a"))
+
+        val logoView = TextView(this)
+        logoView.setText("🦀")
+        logoView.textSize = 20f
+        val logoLp = LinearLayout.LayoutParams(-2, -2)
+        logoLp.rightMargin = dp(10)
+        logoView.layoutParams = logoLp
+        header.addView(logoView)
+
+        val headerInfo = LinearLayout(this)
+        headerInfo.orientation = LinearLayout.VERTICAL
+        headerInfo.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+
+        val titleView = TextView(this)
+        titleView.setText("OpenClaw Onboard")
+        titleView.textSize = 15f
+        titleView.typeface = Typeface.DEFAULT_BOLD
+        titleView.setTextColor(Color.WHITE)
+        headerInfo.addView(titleView)
+
+        statusBar = TextView(this)
+        statusBar.setText("Iniciando...")
+        statusBar.textSize = 11f
+        statusBar.setTextColor(Color.parseColor("#a0a0c0"))
         headerInfo.addView(statusBar)
+
         header.addView(headerInfo)
         root.addView(header)
 
-        // Terminal output
-        scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
-            setBackgroundColor(Color.parseColor("#080810"))
-        }
-        terminalOutput = TextView(this).apply {
-            text             = ""
-            textSize         = 13f
-            setTextColor(Color.parseColor("#c8c8e8"))
-            typeface         = Typeface.MONOSPACE
-            setPadding(14.dp(), 12.dp(), 14.dp(), 12.dp())
-            movementMethod   = ScrollingMovementMethod()
-            isTextSelectable = true
-        }
+        // ── Terminal output ───────────────────────────────────────────────────
+        scrollView = ScrollView(this)
+        scrollView.layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+        scrollView.setBackgroundColor(Color.parseColor("#080810"))
+
+        terminalOutput = TextView(this)
+        terminalOutput.setText("")
+        terminalOutput.textSize = 13f
+        terminalOutput.setTextColor(Color.parseColor("#c8c8e8"))
+        terminalOutput.typeface = Typeface.MONOSPACE
+        terminalOutput.setPadding(dp(14), dp(12), dp(14), dp(12))
+        terminalOutput.movementMethod = ScrollingMovementMethod()
+        terminalOutput.setTextIsSelectable(true)
+
         scrollView.addView(terminalOutput)
         root.addView(scrollView)
 
-        // "Continue anyway" button
-        doneButton = Button(this).apply {
-            text      = "Continuar de todas formas"
-            textSize  = 14f
-            typeface  = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                shape    = GradientDrawable.RECTANGLE
-                setColor(Color.parseColor("#f59e0b"))
-            }
-            layoutParams = LinearLayout.LayoutParams(-1, 52.dp())
-            visibility   = View.GONE
-        }
+        // ── "Continue anyway" button ──────────────────────────────────────────
+        doneButton = Button(this)
+        doneButton.setText("Continuar de todas formas")
+        doneButton.textSize = 14f
+        doneButton.typeface = Typeface.DEFAULT_BOLD
+        doneButton.setTextColor(Color.WHITE)
+        val doneBg = GradientDrawable()
+        doneBg.shape = GradientDrawable.RECTANGLE
+        doneBg.setColor(Color.parseColor("#f59e0b"))
+        doneButton.background = doneBg
+        doneButton.layoutParams = LinearLayout.LayoutParams(-1, dp(52))
+        doneButton.visibility = View.GONE
         root.addView(doneButton)
 
-        // Input row
-        val inputRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity     = Gravity.CENTER_VERTICAL
-            setPadding(12.dp(), 8.dp(), 12.dp(), 8.dp())
-            setBackgroundColor(Color.parseColor("#0d0d1a"))
-        }
-        inputRow.addView(TextView(this).apply {
-            text      = "›"
-            textSize  = 18f
-            typeface  = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#6366f1"))
-            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = 8.dp() }
-        })
-        inputField = EditText(this).apply {
-            hint          = "Escribe tu respuesta..."
-            setHintTextColor(Color.parseColor("#444466"))
-            setTextColor(Color.WHITE)
-            textSize      = 14f
-            typeface      = Typeface.MONOSPACE
-            background    = null
-            isEnabled     = false
-            imeOptions    = EditorInfo.IME_ACTION_SEND
-            setSingleLine(true)
-            layoutParams  = LinearLayout.LayoutParams(0, -2, 1f)
-            setOnEditorActionListener { _, actionId, event ->
-                if (actionId == EditorInfo.IME_ACTION_SEND ||
-                    (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
-                    val txt = text.toString().trim()
-                    if (txt.isNotEmpty()) sendInput(txt)
-                    true
-                } else false
-            }
-        }
-        inputRow.addView(inputField)
-        sendButton = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_send)
-            imageTintList = ColorStateList.valueOf(Color.parseColor("#6366f1"))
-            background    = null
-            isEnabled     = false
-            layoutParams  = LinearLayout.LayoutParams(44.dp(), 44.dp())
-            setOnClickListener {
+        // ── Input row ─────────────────────────────────────────────────────────
+        val inputRow = LinearLayout(this)
+        inputRow.orientation = LinearLayout.HORIZONTAL
+        inputRow.gravity     = Gravity.CENTER_VERTICAL
+        inputRow.setPadding(dp(12), dp(8), dp(12), dp(8))
+        inputRow.setBackgroundColor(Color.parseColor("#0d0d1a"))
+
+        val promptView = TextView(this)
+        promptView.setText("›")
+        promptView.textSize = 18f
+        promptView.typeface = Typeface.DEFAULT_BOLD
+        promptView.setTextColor(Color.parseColor("#6366f1"))
+        val promptLp = LinearLayout.LayoutParams(-2, -2)
+        promptLp.rightMargin = dp(8)
+        promptView.layoutParams = promptLp
+        inputRow.addView(promptView)
+
+        inputField = EditText(this)
+        inputField.hint = "Escribe tu respuesta..."
+        inputField.setHintTextColor(Color.parseColor("#444466"))
+        inputField.setTextColor(Color.WHITE)
+        inputField.textSize = 14f
+        inputField.typeface = Typeface.MONOSPACE
+        inputField.background = null
+        inputField.isEnabled = false
+        inputField.imeOptions = EditorInfo.IME_ACTION_SEND
+        inputField.setSingleLine(true)
+        inputField.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        inputField.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_SEND ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
                 val txt = inputField.text.toString().trim()
                 if (txt.isNotEmpty()) sendInput(txt)
-            }
+                true
+            } else false
+        }
+        inputRow.addView(inputField)
+
+        sendButton = ImageButton(this)
+        sendButton.setImageResource(android.R.drawable.ic_menu_send)
+        sendButton.imageTintList = ColorStateList.valueOf(Color.parseColor("#6366f1"))
+        sendButton.background = null
+        sendButton.isEnabled = false
+        sendButton.layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+        sendButton.setOnClickListener {
+            val txt = inputField.text.toString().trim()
+            if (txt.isNotEmpty()) sendInput(txt)
         }
         inputRow.addView(sendButton)
-        root.addView(inputRow)
 
+        root.addView(inputRow)
         return root
     }
 }
