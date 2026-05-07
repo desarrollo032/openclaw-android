@@ -26,6 +26,22 @@ object OpenClawInstaller {
     fun getPayloadDir(context: Context): File = context.getDir("payload", Context.MODE_PRIVATE)
     fun getConfigDir(context: Context):  File = File(context.filesDir, ".openclaw")
 
+    /**
+     * Returns the path to ld-linux that SELinux will actually allow to execute.
+     *
+     * Android 10+ enforces W^X: binaries extracted to app_payload are blocked by
+     * SELinux even with 0777 permissions (error=13 from forkAndExec).
+     * The only directories with the correct SELinux context for execution are:
+     *   - /system/... (not writable)
+     *   - nativeLibraryDir  ← set by the system, always executable
+     *
+     * We copy the loader there once after extraction and use that copy to launch.
+     */
+    fun getLoaderPath(context: Context): File {
+        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
+        return File(nativeDir, "libloader.so")  // .so extension required by the linker dir
+    }
+
     // ── Readiness checks ──────────────────────────────────────────────────────
 
     /**
@@ -100,6 +116,7 @@ object OpenClawInstaller {
 
         onProgress("Aplicando permisos...", 86)
         fixPermissions(base)
+        copyLoaderToNativeDir(context, base)
 
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
@@ -145,6 +162,7 @@ object OpenClawInstaller {
 
         onProgress("Aplicando permisos...", 86)
         fixPermissions(base)
+        copyLoaderToNativeDir(context, base)
 
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
@@ -202,32 +220,68 @@ object OpenClawInstaller {
     // ── Permissions ───────────────────────────────────────────────────────────
 
     /**
+     * Copy ld-linux loader to nativeLibraryDir which has the correct SELinux
+     * context (system_file or apk_data_file with exec permission).
+     * app_payload is labeled with a context that Android 10+ blocks for exec.
+     */
+    private fun copyLoaderToNativeDir(context: Context, base: File) {
+        val src = File(base, "glibc/lib/ld-linux-aarch64.so.1")
+        val dst = getLoaderPath(context)
+        try {
+            if (!src.exists()) { Log.e(TAG, "copyLoader: src missing $src"); return }
+            dst.parentFile?.mkdirs()
+            src.copyTo(dst, overwrite = true)
+            dst.setExecutable(true, false)
+            dst.setReadable(true, false)
+            Log.i(TAG, "copyLoader: ${src.absolutePath} → ${dst.absolutePath} canExec=${dst.canExecute()}")
+        } catch (e: Exception) {
+            Log.e(TAG, "copyLoader failed", e)
+        }
+    }
+
+    /**
      * Apply 0755 to every file that must be executable.
-     * Uses system chmod binary — Os.chmod() is blocked by SELinux on Android 12+.
+     * Primary mechanism: setExecutable() called immediately after extraction.
+     * This pass is a safety net for the critical binaries.
      */
     suspend fun fixPermissions(base: File) = withContext(Dispatchers.IO) {
-        // Ensure the base directory itself is traversable
-        base.chmodWithOs(493) // 0755
+        base.setExecutable(true, false)
+        base.setReadable(true, false)
 
-        val critical = listOf(
+        // node.real may be named differently — find the actual node binary
+        val nodeBin = File(base, "node/bin")
+        val nodeExec = listOf("node.real", "node").map { File(nodeBin, it) }.firstOrNull { it.exists() }
+        if (nodeExec == null) Log.e(TAG, "fixPermissions: no node binary found in $nodeBin")
+
+        val critical = listOfNotNull(
             File(base, "glibc/lib/ld-linux-aarch64.so.1"),
-            File(base, "node/bin/node.real"),
+            nodeExec,
             File(base, "lib/node_modules/openclaw/openclaw.mjs"),
         )
         critical.forEach { f ->
-            if (f.exists()) f.chmodWithOs(493) // 0755
-            else Log.w(TAG, "fixPermissions: missing ${f.absolutePath}")
+            if (f.exists()) {
+                val rx = f.setReadable(true, false)
+                val wx = f.setWritable(true, false)
+                val ex = f.setExecutable(true, false)
+                Log.i(TAG, "chmod ${f.name}: r=$rx w=$wx x=$ex canExec=${f.canExecute()} path=${f.absolutePath}")
+            } else {
+                Log.e(TAG, "fixPermissions: MISSING ${f.absolutePath}")
+            }
         }
 
-        // chmod all .so files in glibc/lib/
-        File(base, "glibc/lib").walkTopDown()
-            .filter { it.isFile }
-            .forEach { it.chmodWithOs(493) }
+        listOf(File(base, "glibc/lib"), nodeBin).forEach { dir ->
+            dir.walkTopDown().filter { it.isFile }.forEach { f ->
+                f.setReadable(true, false)
+                f.setExecutable(true, false)
+            }
+        }
 
-        // chmod all files in node/bin/
-        File(base, "node/bin").walkTopDown()
-            .filter { it.isFile }
-            .forEach { it.chmodWithOs(493) }
+        base.walkTopDown().filter { it.isDirectory }.forEach { d ->
+            d.setExecutable(true, false)
+            d.setReadable(true, false)
+        }
+
+        Log.i(TAG, "fixPermissions done. base=${base.absolutePath}")
     }
 
     // ── Uninstall ─────────────────────────────────────────────────────────────

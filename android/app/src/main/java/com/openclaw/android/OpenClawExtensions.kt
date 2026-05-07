@@ -145,14 +145,20 @@ fun extractTarXzFromStream(
                 val outFile = File(targetDir, name)
                 if (entry.isDirectory) {
                     outFile.mkdirs()
+                    outFile.setExecutable(true, false)
+                    outFile.setReadable(true, false)
                 } else {
                     outFile.parentFile?.mkdirs()
                     FileOutputStream(outFile).use { fos ->
                         tarIn.copyTo(fos, bufferSize = 65536)
                     }
-                    if (entry.mode and 0b001_000_000 != 0) {
-                        outFile.chmodWithOs(493)
-                    }
+                    // Apply permissions immediately after write, in the same process.
+                    // setExecutable() on the owning process works on Android 12+ where
+                    // Os.chmod() and /system/bin/chmod are blocked by SELinux.
+                    val isExec = entry.mode and 0b001_000_000 != 0
+                    outFile.setReadable(true, false)
+                    outFile.setWritable(true, false)
+                    if (isExec) outFile.setExecutable(true, false)
                 }
                 @Suppress("DEPRECATION")
                 entry = tarIn.nextTarEntry
@@ -185,11 +191,16 @@ fun extractTarGzFromStream(
                 val outFile = File(targetDir, name)
                 if (entry.isDirectory) {
                     outFile.mkdirs()
+                    outFile.setExecutable(true, false)
+                    outFile.setReadable(true, false)
                 } else {
                     outFile.parentFile?.mkdirs()
                     FileOutputStream(outFile).use { fos ->
                         tarIn.copyTo(fos, bufferSize = 65536)
                     }
+                    outFile.setReadable(true, false)
+                    outFile.setWritable(true, false)
+                    if (entry.mode and 0b001_000_000 != 0) outFile.setExecutable(true, false)
                 }
                 @Suppress("DEPRECATION")
                 entry = tarIn.nextTarEntry
@@ -205,28 +216,18 @@ fun extractTarGzFromStream(
 // ── Permissions ───────────────────────────────────────────────────────────────
 
 /**
- * Apply executable permissions using the system chmod binary.
- * Os.chmod() is silently blocked by SELinux on Android 12+ even in app_payload.
- * Calling /system/bin/chmod directly bypasses that restriction.
+ * Best-effort chmod. On Android 12+ SELinux blocks Os.chmod() and even
+ * /system/bin/chmod from the app process. The primary mechanism is
+ * setExecutable() called immediately after file creation (in extractTarXzFromStream).
+ * This function is a secondary pass for safety.
  */
 fun File.chmodWithOs(mode: Int = 493) {
-    // Convert numeric mode to octal string (e.g. 493 → "755")
-    val octal = mode.toString(8)
-    try {
-        val result = ProcessBuilder("/system/bin/chmod", octal, absolutePath)
-            .redirectErrorStream(true)
-            .start()
-            .waitFor()
-        if (result != 0) {
-            Log.w(TAG, "chmod $octal $absolutePath → exit $result, falling back to Os.chmod")
-            Os.chmod(absolutePath, mode)
-        }
-    } catch (e: Exception) {
-        Log.w(TAG, "chmod($absolutePath, $octal) failed: ${e.message} — trying Os.chmod")
-        try { Os.chmod(absolutePath, mode) } catch (e2: Exception) {
-            Log.e(TAG, "Os.chmod also failed: ${e2.message}")
-        }
-    }
+    // setExecutable/setReadable work on files owned by this process
+    setReadable(true, false)
+    setWritable(true, false)
+    if (mode and 0b001_000_000 != 0) setExecutable(true, false)
+    // Also try Os.chmod as a best-effort fallback
+    try { Os.chmod(absolutePath, mode) } catch (_: Exception) {}
 }
 
 // ── Health check ──────────────────────────────────────────────────────────────

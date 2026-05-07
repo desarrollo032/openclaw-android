@@ -6,6 +6,23 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// ── Dynamic versioning from git ───────────────────────────────────────────────
+
+fun runGit(vararg args: String): String = try {
+    ProcessBuilder("git", *args)
+        .directory(rootProject.projectDir)
+        .redirectErrorStream(true)
+        .start()
+        .inputStream.bufferedReader().readText().trim()
+} catch (e: Exception) { "" }
+
+// versionCode: total commit count — increments automatically on every commit
+val gitVersionCode: Int = runGit("rev-list", "--count", "HEAD").toIntOrNull() ?: 1
+
+// versionName: nearest tag (e.g. "1.2.0"), or "1.0-<short-hash>" if no tag exists
+val gitVersionName: String = runGit("describe", "--tags", "--always", "--dirty=-dev")
+    .ifEmpty { "1.0-${runGit("rev-parse", "--short", "HEAD").ifEmpty { "unknown" }}" }
+
 android {
     namespace = "com.openclaw.android"
     compileSdk = 35
@@ -14,8 +31,8 @@ android {
         applicationId = "com.openclaw.android"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = gitVersionCode
+        versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -66,17 +66,33 @@ class OnboardActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val base      = OpenClawInstaller.getPayloadDir(this@OnboardActivity)
-                val loader    = File(base, "glibc/lib/ld-linux-aarch64.so.1")
-                val nodeReal  = File(base, "node/bin/node.real")
+                // Use the loader copy in nativeLibraryDir — SELinux allows exec there
+                val loader    = OpenClawInstaller.getLoaderPath(this@OnboardActivity)
+                // node binary may be "node" or "node.real" depending on the payload build
+                val nodeBin   = File(base, "node/bin")
+                val nodeExec  = listOf("node.real", "node").map { File(nodeBin, it) }
+                                    .firstOrNull { it.exists() }
+                                    ?: File(nodeBin, "node.real") // fallback for error msg
                 val libs      = File(base, "glibc/lib").absolutePath
                 val openclaw  = File(base, "lib/node_modules/openclaw/openclaw.mjs")
                 val tmpDir    = File(cacheDir, "tmp").apply { mkdirs() }
                 val configDir = OpenClawInstaller.getConfigDir(this@OnboardActivity)
 
+                // ── Diagnostic: log file state before exec ────────────────
+                listOf(loader, nodeExec).forEach { f ->
+                    Log.i(TAG, "PRE-EXEC ${f.name}: exists=${f.exists()} canExec=${f.canExecute()} canRead=${f.canRead()} path=${f.absolutePath}")
+                    try {
+                        val stat = android.system.Os.stat(f.absolutePath)
+                        Log.i(TAG, "  stat mode=0${stat.st_mode.toString(8)} uid=${stat.st_uid}")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "  stat failed: ${e.message}")
+                    }
+                }
+
                 val pb = ProcessBuilder(
                     loader.absolutePath,
                     "--library-path", libs,
-                    nodeReal.absolutePath,
+                    nodeExec.absolutePath,
                     openclaw.absolutePath,
                     "onboard"
                 ).apply {
