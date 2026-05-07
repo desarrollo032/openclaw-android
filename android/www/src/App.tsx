@@ -14,116 +14,112 @@ import { Terminal } from './screens/Terminal'
 import { SettingsStorage } from './screens/SettingsStorage'
 import { SettingsPlatforms } from './screens/SettingsPlatforms'
 
-type Tab = 'chat' | 'dashboard' | 'skills' | 'memory' | 'logs' | 'settings' | 'terminal'
+type Tab = 'chat' | 'dashboard' | 'terminal' | 'skills' | 'memory' | 'logs' | 'settings'
+
+const TABS: { id: Tab; icon: string; label: string; path: string }[] = [
+  { id: 'chat', icon: '💬', label: 'Chat', path: '/chat' },
+  { id: 'dashboard', icon: '🏠', label: 'Inicio', path: '/dashboard' },
+  { id: 'terminal', icon: '💻', label: 'Terminal', path: '/terminal' },
+  { id: 'skills', icon: '⚡', label: 'Skills', path: '/skills' },
+  { id: 'memory', icon: '🧠', label: 'Memoria', path: '/memory' },
+]
 
 export function App() {
   const { path, navigate } = useRoute()
   const [online, setOnline] = useState(false)
   const [setupDone, setSetupDone] = useState<boolean | null>(null)
 
+  // Gateway health polling
   useEffect(() => {
-    // Check gateway health
-    const checkHealth = async () => {
-      const health = await api.getHealth()
-      setOnline(health.status === 'ok' || health.status === 'online')
+    const check = async () => {
+      const h = await api.getHealth()
+      setOnline(h.status === 'ok' || h.status === 'online')
     }
-    checkHealth()
-    const interval = setInterval(checkHealth, 10000)
-    return () => clearInterval(interval)
+    check()
+    const id = setInterval(check, 10_000)
+    return () => clearInterval(id)
   }, [])
 
+  // Setup status
   useEffect(() => {
-    const fetchStatus = () => {
-      const status = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string }>(
-        'getSetupStatus'
-      )
-      if (status) {
-        setSetupDone(!!status.bootstrapInstalled && !!status.platformInstalled)
-      } else {
-        setSetupDone(true) // dev mode
-      }
+    const status = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string }>('getSetupStatus')
+    if (status) {
+      setSetupDone(!!status.bootstrapInstalled && !!status.platformInstalled)
+    } else {
+      setSetupDone(true) // dev / browser mode
     }
-    fetchStatus()
   }, [])
 
-  // Determine active tab
   const activeTab: Tab = path.startsWith('/chat') ? 'chat'
     : path.startsWith('/dashboard') ? 'dashboard'
-    : path.startsWith('/terminal') ? 'terminal'
-    : path.startsWith('/skills') ? 'skills'
-    : path.startsWith('/memory') ? 'memory'
-    : path.startsWith('/logs') ? 'logs'
-    : 'settings'
+      : path.startsWith('/terminal') ? 'terminal'
+        : path.startsWith('/skills') ? 'skills'
+          : path.startsWith('/memory') ? 'memory'
+            : path.startsWith('/logs') ? 'logs'
+              : 'settings'
 
-  if (setupDone === null) return null
+  if (setupDone === null) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0d0d12' }}>
+      <div style={{ width: 36, height: 36, border: '3px solid #22223a', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+    </div>
+  )
+
   if (!setupDone && !path.startsWith('/setup')) {
     navigate('/setup')
   }
 
+  const isSetup = path.startsWith('/setup')
+
   return (
     <div className="app-container">
-      {/* Header */}
-      <header className="app-header">
-        <div className={`status-indicator ${online ? 'online' : 'offline'}`} />
-        <div className="title">OpenClaw</div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button className="action-btn" onClick={() => navigate('/logs')}>📝</button>
-          <button className="action-btn" onClick={() => navigate('/settings')}>⚙️</button>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="content">
+      {/* ── Header (hidden on setup) ── */}
+      {!isSetup && (
+        <header className="app-header">
+          <div className={`status-dot ${online ? 'online' : 'offline'}`} />
+          <div className="title">OpenClaw</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="header-btn" onClick={() => navigate('/logs')} title="Logs">📝</button>
+            <button className="header-btn" onClick={() => navigate('/settings')} title="Ajustes">⚙️</button>
+          </div>
+        </header>
+      )}
+
+      {/* ── Content ── */}
+      <main className="content" style={isSetup ? { paddingTop: 0, paddingBottom: 0 } : undefined}>
         <Route path="/setup">
-          <Setup onComplete={() => { setSetupDone(true); navigate('/chat') }} />
+          <Setup onComplete={() => { setSetupDone(true); navigate('/dashboard') }} />
         </Route>
-        <Route path="/chat">
-          <Chat />
-        </Route>
-        <Route path="/dashboard">
-          <Dashboard />
-        </Route>
-        <Route path="/terminal">
-          <Terminal />
-        </Route>
-        <Route path="/skills">
-          <Skills />
-        </Route>
-        <Route path="/memory">
-          <Memory />
-        </Route>
-        <Route path="/logs">
-          <Logs />
-        </Route>
-        <Route path="/settings">
-          <SettingsRouter />
-        </Route>
+        <Route path="/chat">      <Chat />      </Route>
+        <Route path="/dashboard"> <Dashboard /> </Route>
+        <Route path="/terminal">  <Terminal />  </Route>
+        <Route path="/skills">    <Skills />    </Route>
+        <Route path="/memory">    <Memory />    </Route>
+        <Route path="/logs">      <Logs />      </Route>
+        <Route path="/settings">  <SettingsRouter /> </Route>
       </main>
 
-      {/* Bottom Navigation */}
-      <nav className="tab-bar">
-        <TabItem icon="💬" label="Chat" active={activeTab === 'chat'} onClick={() => navigate('/chat')} />
-        <TabItem icon="📊" label="Home" active={activeTab === 'dashboard'} onClick={() => navigate('/dashboard')} />
-        <TabItem icon="💻" label="Terminal" active={activeTab === 'terminal'} onClick={() => navigate('/terminal')} />
-        <TabItem icon="⚡" label="Skills" active={activeTab === 'skills'} onClick={() => navigate('/skills')} />
-        <TabItem icon="🧠" label="Memoria" active={activeTab === 'memory'} onClick={() => navigate('/memory')} />
-      </nav>
+      {/* ── Bottom nav (hidden on setup) ── */}
+      {!isSetup && (
+        <nav className="tab-bar">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              className={`tab-bar-item ${activeTab === t.id ? 'active' : ''}`}
+              onClick={() => navigate(t.path)}
+            >
+              <span className="icon">{t.icon}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
-  )
-}
-
-function TabItem({ icon, label, active, onClick }: { icon: string, label: string, active: boolean, onClick: () => void }) {
-  return (
-    <button className={`tab-bar-item ${active ? 'active' : ''}`} onClick={onClick}>
-      <span className="icon">{icon}</span>
-      <span>{label}</span>
-    </button>
   )
 }
 
 function SettingsRouter() {
   const { path } = useRoute()
-  if (path === '/settings') return <Settings />
   if (path === '/settings/storage') return <SettingsStorage />
   if (path === '/settings/platforms') return <SettingsPlatforms />
   return <Settings />

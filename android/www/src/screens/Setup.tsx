@@ -1,261 +1,470 @@
-import { useState, useCallback, useEffect, Fragment } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { bridge } from '../lib/bridge'
 import { useNativeEvent } from '../lib/useNativeEvent'
-import { t } from '../i18n'
 
 interface Props {
   onComplete: () => void
 }
 
-type SetupPhase = 'platform-select' | 'tool-select' | 'installing' | 'done'
+type SetupPhase = 'welcome' | 'installing' | 'done'
 
-interface Platform {
-  id: string
-  name: string
-  icon: string
-  desc: string
-}
-
-function getOptionalTools() {
-  return [
-    { id: 'tmux', name: 'tmux', desc: t('tool_tmux'), icon: '🪟' },
-    { id: 'ttyd', name: 'ttyd', desc: t('tool_ttyd'), icon: '🌐' },
-    { id: 'dufs', name: 'dufs', desc: t('tool_dufs'), icon: '📁' },
-    { id: 'code-server', name: 'code-server', desc: t('tool_code_server'), icon: '💻' },
-    { id: 'claude-code', name: 'Claude Code', desc: t('tool_claude_code'), icon: '🤖' },
-    { id: 'gemini-cli', name: 'Gemini CLI', desc: t('tool_gemini_cli'), icon: '✨' },
-    { id: 'codex-cli', name: 'Codex CLI', desc: t('tool_codex_cli'), icon: '🧠' },
-  ]
-}
-
-function getTips() {
-  return [
-    t('tip_1'),
-    t('tip_2'),
-    t('tip_3'),
-    t('tip_4'),
-  ]
+interface LogLine {
+  id: number
+  text: string
+  type: 'info' | 'success' | 'warn'
 }
 
 export function Setup({ onComplete }: Props) {
-  const [phase, setPhase] = useState<SetupPhase>('platform-select')
-  const [platforms, setPlatforms] = useState<Platform[]>([])
-  const [selectedPlatform, setSelectedPlatform] = useState('')
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
+  const [phase, setPhase] = useState<SetupPhase>('welcome')
   const [progress, setProgress] = useState(0)
-  const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
-  const [tipIndex, setTipIndex] = useState(0)
+  const [logs, setLogs] = useState<LogLine[]>([])
+  const [dots, setDots] = useState('')
+  const logRef = useRef<HTMLDivElement>(null)
+  const logCounter = useRef(0)
 
-  // Load available platforms
+  // Animated dots for loading text
   useEffect(() => {
-    const data = bridge.callJson<Platform[]>('getAvailablePlatforms')
-    if (data) {
-      setPlatforms(data)
-    } else {
-      setPlatforms([
-        { id: 'openclaw', name: 'OpenClaw', icon: '🦀', desc: 'AI agent platform' },
-      ])
+    if (phase !== 'installing') return
+    const id = setInterval(() => {
+      setDots(d => d.length >= 3 ? '' : d + '.')
+    }, 400)
+    return () => clearInterval(id)
+  }, [phase])
+
+  // Auto-scroll logs
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
     }
+  }, [logs])
+
+  const addLog = useCallback((text: string, type: LogLine['type'] = 'info') => {
+    setLogs(prev => [...prev.slice(-40), { id: logCounter.current++, text, type }])
   }, [])
 
   const onProgress = useCallback((data: unknown) => {
     const d = data as { progress?: number; message?: string }
     if (d.progress !== undefined) setProgress(d.progress)
-    if (d.message) setMessage(d.message)
-    if (d.progress !== undefined && d.progress >= 1) {
-      setPhase('done')
+    if (d.message) {
+      const type = d.progress === 1.0 ? 'success' : d.progress === 0.0 ? 'warn' : 'info'
+      addLog(d.message, type)
     }
-    setTipIndex(i => (i + 1) % getTips().length)
-  }, [])
+    if (d.progress !== undefined && d.progress >= 1) {
+      setTimeout(() => setPhase('done'), 1200)
+    }
+  }, [addLog])
 
   useNativeEvent('setup_progress', onProgress)
 
-  function handleSelectPlatform(id: string) {
-    setSelectedPlatform(id)
-    setPhase('tool-select')
-  }
-
-  function toggleTool(id: string) {
-    setSelectedTools(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function handleStartSetup() {
-    // Save tool selections
-    const selections: Record<string, boolean> = {}
-    getOptionalTools().forEach(tool => {
-      selections[tool.id] = selectedTools.has(tool.id)
-    })
-    bridge.call('saveToolSelections', JSON.stringify(selections))
-
-    // Start bootstrap setup
+  const handleStart = () => {
     setPhase('installing')
-    setProgress(0)
-    setMessage(t('setup_preparing'))
-    setError('')
+    setProgress(0.05)
+    addLog('▶ Iniciando instalación de OpenClaw...', 'info')
     bridge.call('startSetup')
   }
 
-  // --- Stepper ---
-  const currentStep = phase === 'platform-select' ? 0
-    : phase === 'tool-select' ? 1
-    : phase === 'installing' ? 2 : 3
+  const pct = Math.round(progress * 100)
 
-  const STEPS = [t('step_platform'), t('step_tools'), t('step_setup')]
+  return (
+    <div style={styles.root}>
+      {/* Background gradient blobs */}
+      <div style={styles.blob1} />
+      <div style={styles.blob2} />
 
-  function renderStepper() {
-    return (
-      <div className="stepper" style={{ marginBottom: 32 }}>
-        {STEPS.map((label, i) => (
-          <Fragment key={label}>
-            {i > 0 && <div className={`step-line${i <= currentStep ? ' done' : ''}`} />}
-            <div className={`step${i < currentStep ? ' done' : i === currentStep ? ' active' : ''}`}>
-              <span className="step-icon">{i < currentStep ? '✓' : i === currentStep ? '●' : '○'}</span>
-              <span>{label}</span>
+      <div style={styles.card}>
+
+        {/* ── WELCOME ── */}
+        {phase === 'welcome' && (
+          <div style={styles.fadeIn}>
+            <div style={styles.logoWrap}>
+              <span style={styles.logoEmoji}>🦀</span>
+              <div style={styles.logoPulse} />
             </div>
-          </Fragment>
-        ))}
-      </div>
-    )
-  }
+            <h1 style={styles.title}>OpenClaw</h1>
+            <p style={styles.subtitle}>
+              Tu asistente de IA autónomo para Android.
+              <br />Vamos a configurar tu entorno.
+            </p>
 
-  // --- Platform Select ---
-  if (phase === 'platform-select') {
-    return (
-      <div className="setup-container">
-        {renderStepper()}
-        <div className="setup-title">{t('setup_choose_platform')}</div>
-        <div className="setup-subtitle" style={{ marginBottom: 32 }}>
-          {t('setup_more_platforms')}
-        </div>
-
-        <div className="settings-list" style={{ width: '100%', maxWidth: 360 }}>
-          {platforms.map(p => (
-            <div
-              key={p.id}
-              className="settings-item"
-              onClick={() => handleSelectPlatform(p.id)}
-            >
-              <div className="card-icon">
-                {p.icon.startsWith('/') ? (
-                  <img src={p.icon.replace(/^\//, './')} alt={p.name} style={{ width: 32, height: 32 }} />
-                ) : p.icon}
-              </div>
-              <div className="card-content">
-                <div className="card-label">{p.name}</div>
-                <div className="card-desc">{p.desc}</div>
-              </div>
-              <div className="card-chevron">›</div>
+            <div style={styles.featureList}>
+              {[
+                { icon: '⚡', text: 'Gateway Node.js nativo' },
+                { icon: '🧠', text: 'IA autónoma sin nube' },
+                { icon: '🔒', text: 'Privado y local' },
+              ].map(f => (
+                <div key={f.icon} style={styles.featureItem}>
+                  <span style={styles.featureIcon}>{f.icon}</span>
+                  <span style={styles.featureText}>{f.text}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
 
-  // --- Tool Select ---
-  if (phase === 'tool-select') {
-    return (
-      <div className="setup-container" style={{ justifyContent: 'flex-start', paddingTop: 64 }}>
-        {renderStepper()}
-
-        <div className="setup-title">{t('setup_optional_tools')}</div>
-        <div className="setup-subtitle">
-          {t('setup_tools_desc', { platform: selectedPlatform })}
-        </div>
-
-        <div className="settings-list" style={{ width: '100%', maxWidth: 360, marginBottom: 24 }}>
-          {getOptionalTools().map(tool => {
-            const isSelected = selectedTools.has(tool.id)
-            return (
-              <div
-                key={tool.id}
-                className="settings-item"
-                onClick={() => toggleTool(tool.id)}
-              >
-                <div className="card-icon">{tool.icon}</div>
-                <div className="card-content">
-                  <div className="card-label">{tool.name}</div>
-                  <div className="card-desc">{tool.desc}</div>
-                </div>
-                <div
-                  style={{
-                    width: 44, height: 24, borderRadius: 12,
-                    backgroundColor: isSelected ? 'var(--accent)' : 'var(--bg-tertiary)',
-                    position: 'relative', flexShrink: 0,
-                    transition: 'background-color 0.2s',
-                  }}
-                >
-                  <div style={{
-                    width: 20, height: 20, borderRadius: 10,
-                    backgroundColor: '#fff', position: 'absolute', top: 2,
-                    left: isSelected ? 22 : 2,
-                    transition: 'left 0.2s',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                  }} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <button className="btn btn-primary" onClick={handleStartSetup}>
-          {t('setup_start')}
-        </button>
-      </div>
-    )
-  }
-
-  // --- Installing ---
-  if (phase === 'installing') {
-    const pct = Math.round(progress * 100)
-    return (
-      <div className="setup-container">
-        {renderStepper()}
-        <div className="setup-title">{t('setup_setting_up')}</div>
-
-        <div style={{ width: '100%', maxWidth: 320, margin: '24px 0' }}>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${pct}%` }} />
+            <button style={styles.btnPrimary} onClick={handleStart}>
+              <span>Instalar ahora</span>
+              <span style={{ marginLeft: 8 }}>→</span>
+            </button>
           </div>
-          <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, marginTop: 12 }}>
-            {pct}%
-          </div>
-          <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-            {message}
-          </div>
-        </div>
-
-        {error && (
-          <div style={{ color: 'var(--error)', fontSize: 14, textAlign: 'center', marginBottom: 16 }}>{error}</div>
         )}
 
-        <div className="tip-card">💡 {getTips()[tipIndex]}</div>
-      </div>
-    )
-  }
+        {/* ── INSTALLING ── */}
+        {phase === 'installing' && (
+          <div style={styles.fadeIn}>
+            <div style={styles.spinnerWrap}>
+              <div style={styles.spinnerRing} />
+              <span style={styles.spinnerEmoji}>🦀</span>
+            </div>
 
-  // --- Done ---
-  return (
-    <div className="setup-container">
-      {renderStepper()}
-      <div className="setup-logo">✅</div>
-      <div className="setup-title">{t('setup_done_title')}</div>
-      <div className="setup-subtitle" style={{ marginBottom: 32 }}>
-        {t('setup_done_desc')}
+            <h2 style={styles.installTitle}>Instalando{dots}</h2>
+
+            {/* Progress bar */}
+            <div style={styles.progressTrack}>
+              <div style={{ ...styles.progressFill, width: `${pct}%` }} />
+            </div>
+            <div style={styles.progressLabel}>{pct}%</div>
+
+            {/* Live log terminal */}
+            <div style={styles.terminal} ref={logRef}>
+              {logs.map(l => (
+                <div key={l.id} style={{
+                  ...styles.logLine,
+                  color: l.type === 'success' ? '#4ade80'
+                    : l.type === 'warn' ? '#facc15'
+                      : '#a5b4fc'
+                }}>
+                  <span style={styles.logPrefix}>
+                    {l.type === 'success' ? '✓' : l.type === 'warn' ? '!' : '›'}
+                  </span>
+                  {l.text}
+                </div>
+              ))}
+              {logs.length === 0 && (
+                <div style={{ ...styles.logLine, color: '#555' }}>Esperando salida...</div>
+              )}
+            </div>
+
+            <p style={styles.hint}>No cierres la app durante la instalación</p>
+          </div>
+        )}
+
+        {/* ── DONE ── */}
+        {phase === 'done' && (
+          <div style={styles.fadeIn}>
+            <div style={styles.doneIcon}>
+              <span style={{ fontSize: 64 }}>🚀</span>
+              <div style={styles.doneRing} />
+            </div>
+            <h2 style={styles.doneTitle}>¡Listo!</h2>
+            <p style={styles.doneSubtitle}>
+              OpenClaw instalado correctamente.
+              <br />El dashboard iniciará en segundos.
+            </p>
+
+            {/* Success checklist */}
+            <div style={styles.checkList}>
+              {['Payload instalado', 'Configuración restaurada', 'Gateway listo'].map(item => (
+                <div key={item} style={styles.checkItem}>
+                  <span style={styles.checkMark}>✓</span>
+                  <span style={styles.checkText}>{item}</span>
+                </div>
+              ))}
+            </div>
+
+            <button style={styles.btnPrimary} onClick={onComplete}>
+              <span>Ir al Dashboard</span>
+              <span style={{ marginLeft: 8 }}>→</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      <button className="btn btn-primary" onClick={() => {
-        bridge.call('showTerminal')
-        onComplete()
-      }}>
-        {t('setup_open_terminal')}
-      </button>
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(24px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); opacity: 0.4; }
+          50%       { transform: scale(1.15); opacity: 0.15; }
+        }
+        @keyframes blobFloat {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50%       { transform: translateY(-20px) scale(1.05); }
+        }
+        @keyframes doneRingPop {
+          0%   { transform: scale(0.6); opacity: 0; }
+          60%  { transform: scale(1.1); opacity: 0.6; }
+          100% { transform: scale(1); opacity: 0; }
+        }
+      `}} />
     </div>
   )
+}
+
+// ── Styles ──────────────────────────────────────────────────────────────────
+
+const styles: Record<string, React.CSSProperties> = {
+  root: {
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '100vh',
+    background: '#08080f',
+    overflow: 'hidden',
+    padding: '24px 20px',
+  },
+  blob1: {
+    position: 'absolute',
+    top: '-80px',
+    right: '-80px',
+    width: 280,
+    height: 280,
+    borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(99,102,241,0.25) 0%, transparent 70%)',
+    animation: 'blobFloat 6s ease-in-out infinite',
+    pointerEvents: 'none',
+  },
+  blob2: {
+    position: 'absolute',
+    bottom: '-60px',
+    left: '-60px',
+    width: 220,
+    height: 220,
+    borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(168,85,247,0.2) 0%, transparent 70%)',
+    animation: 'blobFloat 8s ease-in-out infinite reverse',
+    pointerEvents: 'none',
+  },
+  card: {
+    position: 'relative',
+    zIndex: 1,
+    width: '100%',
+    maxWidth: 400,
+    background: 'rgba(18,18,30,0.92)',
+    border: '1px solid rgba(99,102,241,0.2)',
+    borderRadius: 28,
+    padding: '36px 28px',
+    backdropFilter: 'blur(20px)',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+  },
+  fadeIn: {
+    animation: 'fadeUp 0.5s ease-out',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+  },
+
+  // Welcome
+  logoWrap: {
+    position: 'relative',
+    marginBottom: 20,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoEmoji: {
+    fontSize: 72,
+    lineHeight: 1,
+    position: 'relative',
+    zIndex: 1,
+  },
+  logoPulse: {
+    position: 'absolute',
+    inset: -16,
+    borderRadius: '50%',
+    background: 'rgba(99,102,241,0.15)',
+    animation: 'pulse 2.5s ease-in-out infinite',
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 800,
+    color: '#fff',
+    margin: '0 0 10px',
+    letterSpacing: '-0.5px',
+  },
+  subtitle: {
+    fontSize: 15,
+    color: '#8888aa',
+    lineHeight: 1.6,
+    margin: '0 0 28px',
+  },
+  featureList: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    marginBottom: 32,
+  },
+  featureItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    background: 'rgba(99,102,241,0.08)',
+    border: '1px solid rgba(99,102,241,0.15)',
+    borderRadius: 12,
+    padding: '12px 16px',
+    textAlign: 'left',
+  },
+  featureIcon: { fontSize: 20 },
+  featureText: { fontSize: 14, color: '#c4c4e0', fontWeight: 500 },
+
+  btnPrimary: {
+    width: '100%',
+    padding: '16px 24px',
+    borderRadius: 16,
+    border: 'none',
+    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: 700,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 8px 24px rgba(99,102,241,0.4)',
+    letterSpacing: '0.2px',
+  },
+
+  // Installing
+  spinnerWrap: {
+    position: 'relative',
+    width: 88,
+    height: 88,
+    marginBottom: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spinnerRing: {
+    position: 'absolute',
+    inset: 0,
+    borderRadius: '50%',
+    border: '4px solid rgba(99,102,241,0.15)',
+    borderTopColor: '#6366f1',
+    animation: 'spin 0.9s linear infinite',
+  },
+  spinnerEmoji: {
+    fontSize: 36,
+    position: 'relative',
+    zIndex: 1,
+  },
+  installTitle: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: '#fff',
+    margin: '0 0 20px',
+    minWidth: 180,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 8,
+    background: 'rgba(99,102,241,0.15)',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    background: 'linear-gradient(90deg, #6366f1, #a78bfa)',
+    borderRadius: 4,
+    transition: 'width 0.5s cubic-bezier(0.4,0,0.2,1)',
+    boxShadow: '0 0 12px rgba(99,102,241,0.6)',
+  },
+  progressLabel: {
+    fontSize: 13,
+    color: '#6366f1',
+    fontWeight: 700,
+    marginBottom: 16,
+    alignSelf: 'flex-end',
+  },
+  terminal: {
+    width: '100%',
+    height: 140,
+    background: 'rgba(0,0,0,0.5)',
+    border: '1px solid rgba(99,102,241,0.15)',
+    borderRadius: 12,
+    padding: '10px 12px',
+    overflowY: 'auto',
+    fontFamily: 'monospace',
+    fontSize: 12,
+    textAlign: 'left',
+    marginBottom: 14,
+    scrollBehavior: 'smooth',
+  },
+  logLine: {
+    display: 'flex',
+    gap: 6,
+    lineHeight: 1.6,
+    wordBreak: 'break-all',
+  },
+  logPrefix: {
+    flexShrink: 0,
+    width: 14,
+  },
+  hint: {
+    fontSize: 12,
+    color: '#555',
+    margin: 0,
+  },
+
+  // Done
+  doneIcon: {
+    position: 'relative',
+    marginBottom: 20,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doneRing: {
+    position: 'absolute',
+    inset: -20,
+    borderRadius: '50%',
+    border: '3px solid #4ade80',
+    animation: 'doneRingPop 1s ease-out forwards',
+  },
+  doneTitle: {
+    fontSize: 30,
+    fontWeight: 800,
+    color: '#fff',
+    margin: '0 0 10px',
+  },
+  doneSubtitle: {
+    fontSize: 15,
+    color: '#8888aa',
+    lineHeight: 1.6,
+    margin: '0 0 24px',
+  },
+  checkList: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    marginBottom: 28,
+  },
+  checkItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: 'rgba(74,222,128,0.07)',
+    border: '1px solid rgba(74,222,128,0.2)',
+    borderRadius: 10,
+    padding: '10px 14px',
+    textAlign: 'left',
+  },
+  checkMark: {
+    color: '#4ade80',
+    fontWeight: 700,
+    fontSize: 16,
+  },
+  checkText: {
+    fontSize: 14,
+    color: '#c4e0c4',
+    fontWeight: 500,
+  },
 }

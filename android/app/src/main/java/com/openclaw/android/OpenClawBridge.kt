@@ -66,6 +66,11 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                     put("progress", 1.0)
                     put("message", "Setup complete!")
                 })
+
+                // Notify activity to switch to dashboard
+                if (context is MainActivity) {
+                    context.onSetupComplete()
+                }
             } else {
                 emit("setup_progress", JSONObject().apply {
                     put("progress", 0.0)
