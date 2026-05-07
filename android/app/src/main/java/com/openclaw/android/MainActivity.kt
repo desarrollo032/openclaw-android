@@ -79,7 +79,7 @@ class MainActivity : AppCompatActivity() {
             buttonContainer.addView(this)
         }
 
-        val installBtn = Button(this).apply {
+        Button(this).apply {
             id = View.generateViewId()
             text = "Start Installation"
             visibility = View.GONE
