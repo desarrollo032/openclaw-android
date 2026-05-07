@@ -3,9 +3,19 @@ import { useRoute } from '../lib/router'
 import { t, getLocale, setLocale, availableLocales } from '../i18n'
 import { api } from '../lib/api'
 
+interface Config {
+  openai_key: string
+  anthropic_key: string
+  default_model: string
+  context_size: number
+  temperature: number
+  notifications: boolean
+  theme: 'light' | 'dark' | 'system'
+}
+
 export function Settings() {
   const { navigate } = useRoute()
-  const [config, setConfig] = useState<any>({
+  const [config, setConfig] = useState<Config>({
     openai_key: '',
     anthropic_key: '',
     default_model: 'gpt-4o',
@@ -23,7 +33,7 @@ export function Settings() {
     loadConfig()
   }, [])
 
-  const handleUpdate = (key: string, val: any) => {
+  const handleUpdate = <K extends keyof Config>(key: K, val: Config[K]) => {
     const newConfig = { ...config, [key]: val }
     setConfig(newConfig)
     api.updateConfig(newConfig)

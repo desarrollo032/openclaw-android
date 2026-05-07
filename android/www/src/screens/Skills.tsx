@@ -31,7 +31,7 @@ export function Skills() {
 
   const toggleSkill = async (id: string) => {
     try {
-      const result = await api.toggleSkill(id)
+      await api.toggleSkill(id)
       setSkills(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s))
     } catch (e) {
       console.error(e)
