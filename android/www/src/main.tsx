@@ -5,6 +5,13 @@ import { App } from './App'
 import { LocaleContext, getLocale } from './i18n'
 import './styles/global.css'
 
+// Global event emitter for Kotlin bridge
+window.__oc = {
+  emit: (type: string, data: unknown) => {
+    window.dispatchEvent(new CustomEvent('native:' + type, { detail: data }))
+  }
+}
+
 function Root() {
   const [locale] = useState(getLocale)
   return (

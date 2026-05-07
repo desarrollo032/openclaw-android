@@ -1,8 +1,8 @@
 export const en = {
   // App tab bar
-  tab_terminal: '🖥 Terminal',
-  tab_dashboard: '📊 Dashboard',
-  tab_settings: '⚙ Settings',
+  tab_terminal: 'Terminal',
+  tab_dashboard: 'Dashboard',
+  tab_settings: 'Settings',
 
   // Setup - steps
   step_platform: 'Platform',

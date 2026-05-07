@@ -43,6 +43,8 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             loadWithOverviewMode = true
             useWideViewPort = true
         }
+
+        webView.addJavascriptInterface(OpenClawBridge(this, webView), "OpenClaw")
         
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {

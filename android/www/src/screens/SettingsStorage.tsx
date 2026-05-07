@@ -29,8 +29,11 @@ export function SettingsStorage() {
   const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
-    const data = bridge.callJson<StorageInfo>('getStorageInfo')
-    if (data) setInfo(data)
+    const fetchStorage = () => {
+      const data = bridge.callJson<StorageInfo>('getStorageInfo')
+      if (data) setInfo(data)
+    }
+    fetchStorage()
   }, [])
 
   function handleClearCache() {

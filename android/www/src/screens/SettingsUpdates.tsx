@@ -18,9 +18,12 @@ export function SettingsUpdates() {
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    const data = bridge.callJson<UpdateItem[]>('checkForUpdates')
-    setUpdates(data || [])
-    setChecking(false)
+    const fetchUpdates = () => {
+      const data = bridge.callJson<UpdateItem[]>('checkForUpdates')
+      setUpdates(data || [])
+      setChecking(false)
+    }
+    fetchUpdates()
   }, [])
 
   const onProgress = useCallback((data: unknown) => {

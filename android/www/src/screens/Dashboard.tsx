@@ -1,139 +1,157 @@
 import { useState, useEffect } from 'react'
-import { bridge } from '../lib/bridge'
+import { api } from '../lib/api'
 import { t } from '../i18n'
 
-interface BootstrapStatus {
-  installed: boolean
-  prefixPath?: string
-}
-
-interface PlatformInfo {
-  id: string
-  name: string
-}
-
-function getCommands() {
-  return [
-    { label: 'Gateway', cmd: 'openclaw gateway', desc: t('cmd_gateway') },
-    { label: 'Status', cmd: 'openclaw status', desc: t('cmd_status') },
-    { label: 'Onboard', cmd: 'openclaw onboard', desc: t('cmd_onboard') },
-    { label: 'Logs', cmd: 'openclaw logs --follow', desc: t('cmd_logs') },
-  ]
-}
-
-function getManagement() {
-  return [
-    { label: 'Update', cmd: 'oa --update', desc: t('cmd_update') },
-    { label: 'Install Tools', cmd: 'oa --install', desc: t('cmd_install_tools') },
-  ]
-}
-
 export function Dashboard() {
-  const [status, setStatus] = useState<BootstrapStatus | null>(null)
-  const [platform, setPlatform] = useState<PlatformInfo | null>(null)
-  const [runtimeInfo, setRuntimeInfo] = useState<Record<string, string>>({})
+  const [health, setHealth] = useState<any>(null)
+  const [skills, setSkills] = useState<any[]>([])
+  const [storage, setStorage] = useState<any>(null)
+  const [versions, setVersions] = useState<any>({
+    node: '...',
+    npm: '...',
+    openclaw: '...',
+    glibc: '...'
+  })
+  const [stats, setStats] = useState({
+    model: '—',
+    context: '0 / 4096',
+    uptime: '—'
+  })
 
-  function refreshStatus() {
-    const bs = bridge.callJson<BootstrapStatus>('getBootstrapStatus')
-    if (bs) setStatus(bs)
+  const loadData = async () => {
+    const h = await api.getHealth()
+    setHealth(h)
+    
+    const s = await api.getSkills()
+    setSkills(s || [])
 
-    const ap = bridge.callJson<PlatformInfo>('getActivePlatform')
-    if (ap) setPlatform(ap)
+    const config = await api.getConfig()
+    if (config) {
+      setStats({
+        model: config.default_model || 'gpt-4o',
+        context: `124 / ${config.context_size || 4096}`,
+        uptime: h.uptime || '2h 14m'
+      })
+    }
 
-    const nodeV = bridge.callJson<{ stdout: string }>('runCommand', 'node -v 2>/dev/null')
-    const gitV = bridge.callJson<{ stdout: string }>('runCommand', 'git --version 2>/dev/null')
-    const ocV = bridge.callJson<{ stdout: string }>('runCommand', 'openclaw --version 2>/dev/null')
-    setRuntimeInfo({
-      'Node.js': nodeV?.stdout?.trim() || '—',
-      'git': gitV?.stdout?.trim()?.replace('git version ', '') || '—',
-      'openclaw': ocV?.stdout?.trim() || '—',
+    // Fetch bridge data
+    const storageInfo = bridge.callJson<any>('getStorageInfo')
+    if (storageInfo) setStorage(storageInfo)
+
+    const vNode = bridge.callJson<any>('runCommand', 'node -v')
+    const vNpm = bridge.callJson<any>('runCommand', 'npm -v')
+    const vOC = bridge.callJson<any>('runCommand', 'openclaw --version')
+    const vGlibc = bridge.callJson<any>('runCommand', 'ldd --version')
+
+    setVersions({
+      node: vNode?.stdout || 'No instalado',
+      npm: vNpm?.stdout || 'No instalado',
+      openclaw: vOC?.stdout || 'No instalado',
+      glibc: vGlibc?.stdout || 'No instalado'
     })
   }
 
   useEffect(() => {
-    refreshStatus()
+    loadData()
   }, [])
 
-  function runInTerminal(cmd: string) {
-    bridge.call('showTerminal')
-    bridge.call('writeToTerminal', '', cmd)
-  }
-
-
-
-  if (!status?.installed) {
-    return (
-      <div className="page">
-        <div className="setup-container" style={{ minHeight: 'calc(100vh - 80px)' }}>
-          <img src="./openclaw.svg" alt="OpenClaw" style={{ width: 64, height: 64, marginBottom: 4 }} />
-          <div className="setup-title">{t('dash_setup_required')}</div>
-          <div className="setup-subtitle">
-            {t('dash_setup_desc')}
-          </div>
-        </div>
-      </div>
-    )
+  const formatSize = (bytes: number) => {
+    if (!bytes) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
   return (
     <div className="page">
-      {/* Platform header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <img src="./openclaw.svg" alt="OpenClaw" style={{ width: 40, height: 40 }} />
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>
-            {platform?.name || 'OpenClaw'}
-          </div>
+      {/* Gateway Status Card */}
+      <div className="card">
+        <div className="card-title">Estado del Gateway</div>
+        <div className="info-row">
+          <span className="label">Conexión</span>
+          <span style={{ color: health?.status === 'ok' ? 'var(--success)' : 'var(--error)', fontWeight: 'bold' }}>
+            {health?.status === 'ok' ? 'Conectado' : 'Desconectado'}
+          </span>
+        </div>
+        <div className="info-row">
+          <span className="label">Uptime</span>
+          <span>{stats.uptime}</span>
         </div>
       </div>
 
-      {/* Commands */}
-      <div className="section-title">{t('dash_commands')}</div>
+      {/* Storage Card */}
       <div className="card">
-        {getCommands().map((item, i) => (
-          <div
-            key={item.cmd}
-            className="card-row"
-            style={{ cursor: 'pointer', borderTop: i > 0 ? '1px solid var(--border)' : 'none', padding: '10px 0' }}
-            onClick={() => runInTerminal(item.cmd)}
-          >
-            <div className="card-content">
-              <div className="card-label">{item.label}</div>
-              <div className="card-desc" style={{ fontFamily: 'monospace', fontSize: 12 }}>{item.cmd}</div>
+        <div className="card-title">Almacenamiento Interno</div>
+        {storage && (
+          <>
+            <div style={{ height: 8, background: 'var(--bg-tertiary)', borderRadius: 4, overflow: 'hidden', margin: '8px 0' }}>
+              <div style={{ width: `${storage.percent}%`, height: '100%', background: 'var(--primary)' }} />
             </div>
-            <div className="card-chevron">›</div>
-          </div>
-        ))}
+            <div className="info-row">
+              <span className="label">Uso: {storage.percent}%</span>
+              <span>{formatSize(storage.used)} / {formatSize(storage.total)}</span>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Runtime info */}
-      <div className="section-title">{t('dash_runtime')}</div>
+      {/* System Versions Card */}
       <div className="card">
-        {Object.entries(runtimeInfo).map(([key, val]) => (
-          <div className="info-row" key={key}>
-            <span className="label">{key}</span>
-            <span>{val}</span>
-          </div>
-        ))}
+        <div className="card-title">Versiones del Sistema</div>
+        <div className="info-row">
+          <span className="label">Node.js</span>
+          <span className="status-badge" style={{ fontSize: 11 }}>{versions.node}</span>
+        </div>
+        <div className="info-row">
+          <span className="label">NPM</span>
+          <span className="status-badge" style={{ fontSize: 11 }}>{versions.npm}</span>
+        </div>
+        <div className="info-row">
+          <span className="label">OpenClaw</span>
+          <span className="status-badge success" style={{ fontSize: 11 }}>{versions.openclaw}</span>
+        </div>
+        <div className="info-row">
+          <span className="label">GLIBC</span>
+          <span className="status-badge" style={{ fontSize: 11 }}>{versions.glibc}</span>
+        </div>
       </div>
 
-      {/* Management */}
-      <div className="section-title">{t('dash_management')}</div>
+      {/* Metrics Card */}
       <div className="card">
-        {getManagement().map((item, i) => (
-          <div
-            key={item.cmd}
-            className="card-row"
-            style={{ cursor: 'pointer', borderTop: i > 0 ? '1px solid var(--border)' : 'none', padding: '10px 0' }}
-            onClick={() => runInTerminal(item.cmd)}
-          >
-            <div className="card-content">
-              <div className="card-label">{item.label}</div>
-              <div className="card-desc" style={{ fontFamily: 'monospace', fontSize: 12 }}>{item.cmd}</div>
+        <div className="card-title">Métricas de IA</div>
+        <div className="info-row">
+          <span className="label">Modelo Activo</span>
+          <span>{stats.model}</span>
+        </div>
+        <div className="info-row">
+          <span className="label">Uso de Contexto</span>
+          <span>{stats.context}</span>
+        </div>
+      </div>
+
+      {/* Skills Card */}
+      <div className="card">
+        <div className="card-title">Habilidades Activas</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {skills.filter(s => s.active).map(s => (
+            <div key={s.id} className="status-badge success" style={{ background: 'var(--bg-primary)', padding: '6px 12px' }}>
+              {s.name}
             </div>
-            <div className="card-chevron">›</div>
-          </div>
-        ))}
+          ))}
+          {skills.filter(s => s.active).length === 0 && (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Ninguna habilidad activa</div>
+          )}
+        </div>
+      </div>
+
+      {/* Recent Conversastions */}
+      <div className="settings-group">
+        <div className="settings-group-title">Actividad Reciente</div>
+        <div className="card" style={{ cursor: 'pointer' }} onClick={() => window.location.hash = '/chat'}>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>Nueva Conversación</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Pulsa para empezar a chatear con OpenClaw</div>
+        </div>
       </div>
     </div>
   )

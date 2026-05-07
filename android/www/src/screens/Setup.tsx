@@ -18,13 +18,13 @@ interface Platform {
 
 function getOptionalTools() {
   return [
-    { id: 'tmux', name: 'tmux', desc: t('tool_tmux') },
-    { id: 'ttyd', name: 'ttyd', desc: t('tool_ttyd') },
-    { id: 'dufs', name: 'dufs', desc: t('tool_dufs') },
-    { id: 'code-server', name: 'code-server', desc: t('tool_code_server') },
-    { id: 'claude-code', name: 'Claude Code', desc: t('tool_claude_code') },
-    { id: 'gemini-cli', name: 'Gemini CLI', desc: t('tool_gemini_cli') },
-    { id: 'codex-cli', name: 'Codex CLI', desc: t('tool_codex_cli') },
+    { id: 'tmux', name: 'tmux', desc: t('tool_tmux'), icon: '🪟' },
+    { id: 'ttyd', name: 'ttyd', desc: t('tool_ttyd'), icon: '🌐' },
+    { id: 'dufs', name: 'dufs', desc: t('tool_dufs'), icon: '📁' },
+    { id: 'code-server', name: 'code-server', desc: t('tool_code_server'), icon: '💻' },
+    { id: 'claude-code', name: 'Claude Code', desc: t('tool_claude_code'), icon: '🤖' },
+    { id: 'gemini-cli', name: 'Gemini CLI', desc: t('tool_gemini_cli'), icon: '✨' },
+    { id: 'codex-cli', name: 'Codex CLI', desc: t('tool_codex_cli'), icon: '🧠' },
   ]
 }
 
@@ -54,7 +54,7 @@ export function Setup({ onComplete }: Props) {
       setPlatforms(data)
     } else {
       setPlatforms([
-        { id: 'openclaw', name: 'OpenClaw', icon: '/openclaw.svg', desc: 'AI agent platform' },
+        { id: 'openclaw', name: 'OpenClaw', icon: '🦀', desc: 'AI agent platform' },
       ])
     }
   }, [])
@@ -110,7 +110,7 @@ export function Setup({ onComplete }: Props) {
 
   function renderStepper() {
     return (
-      <div className="stepper">
+      <div className="stepper" style={{ marginBottom: 32 }}>
         {STEPS.map((label, i) => (
           <Fragment key={label}>
             {i > 0 && <div className={`step-line${i <= currentStep ? ' done' : ''}`} />}
@@ -130,27 +130,30 @@ export function Setup({ onComplete }: Props) {
       <div className="setup-container">
         {renderStepper()}
         <div className="setup-title">{t('setup_choose_platform')}</div>
+        <div className="setup-subtitle" style={{ marginBottom: 32 }}>
+          {t('setup_more_platforms')}
+        </div>
 
-        {platforms.map(p => (
-          <div
-            key={p.id}
-            className="card"
-            style={{ maxWidth: 340, width: '100%', cursor: 'pointer' }}
-            onClick={() => handleSelectPlatform(p.id)}
-          >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>
-              {p.icon.startsWith('/') ? (
-                <img src={p.icon.replace(/^\//, './')} alt={p.name} style={{ width: 40, height: 40 }} />
-              ) : p.icon}
+        <div className="settings-list" style={{ width: '100%', maxWidth: 360 }}>
+          {platforms.map(p => (
+            <div
+              key={p.id}
+              className="settings-item"
+              onClick={() => handleSelectPlatform(p.id)}
+            >
+              <div className="card-icon">
+                {p.icon.startsWith('/') ? (
+                  <img src={p.icon.replace(/^\//, './')} alt={p.name} style={{ width: 32, height: 32 }} />
+                ) : p.icon}
+              </div>
+              <div className="card-content">
+                <div className="card-label">{p.name}</div>
+                <div className="card-desc">{p.desc}</div>
+              </div>
+              <div className="card-chevron">›</div>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 600 }}>{p.name}</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-              {p.desc}
-            </div>
-          </div>
-        ))}
-
-        <div className="setup-subtitle">{t('setup_more_platforms')}</div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -158,52 +161,50 @@ export function Setup({ onComplete }: Props) {
   // --- Tool Select ---
   if (phase === 'tool-select') {
     return (
-      <div className="setup-container" style={{ justifyContent: 'flex-start', paddingTop: 48 }}>
+      <div className="setup-container" style={{ justifyContent: 'flex-start', paddingTop: 64 }}>
         {renderStepper()}
 
-        <div className="setup-title" style={{ fontSize: 22 }}>{t('setup_optional_tools')}</div>
+        <div className="setup-title">{t('setup_optional_tools')}</div>
         <div className="setup-subtitle">
           {t('setup_tools_desc', { platform: selectedPlatform })}
         </div>
 
-        <div style={{ width: '100%', maxWidth: 360 }}>
+        <div className="settings-list" style={{ width: '100%', maxWidth: 360, marginBottom: 24 }}>
           {getOptionalTools().map(tool => {
             const isSelected = selectedTools.has(tool.id)
             return (
               <div
                 key={tool.id}
-                className="card"
-                style={{ cursor: 'pointer', marginBottom: 8 }}
+                className="settings-item"
                 onClick={() => toggleTool(tool.id)}
               >
-                <div className="card-row">
-                  <div className="card-content">
-                    <div className="card-label">{tool.name}</div>
-                    <div className="card-desc">{tool.desc}</div>
-                  </div>
-                  <div
-                    style={{
-                      width: 44, height: 24, borderRadius: 12,
-                      backgroundColor: isSelected ? 'var(--accent)' : 'var(--bg-tertiary)',
-                      position: 'relative', flexShrink: 0,
-                      transition: 'background-color 0.2s',
-                    }}
-                  >
-                    <div style={{
-                      width: 20, height: 20, borderRadius: 10,
-                      backgroundColor: '#fff', position: 'absolute', top: 2,
-                      left: isSelected ? 22 : 2,
-                      transition: 'left 0.2s',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                    }} />
-                  </div>
+                <div className="card-icon">{tool.icon}</div>
+                <div className="card-content">
+                  <div className="card-label">{tool.name}</div>
+                  <div className="card-desc">{tool.desc}</div>
+                </div>
+                <div
+                  style={{
+                    width: 44, height: 24, borderRadius: 12,
+                    backgroundColor: isSelected ? 'var(--accent)' : 'var(--bg-tertiary)',
+                    position: 'relative', flexShrink: 0,
+                    transition: 'background-color 0.2s',
+                  }}
+                >
+                  <div style={{
+                    width: 20, height: 20, borderRadius: 10,
+                    backgroundColor: '#fff', position: 'absolute', top: 2,
+                    left: isSelected ? 22 : 2,
+                    transition: 'left 0.2s',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                  }} />
                 </div>
               </div>
             )
           })}
         </div>
 
-        <button className="btn btn-primary" onClick={handleStartSetup} style={{ marginTop: 8 }}>
+        <button className="btn btn-primary" onClick={handleStartSetup}>
           {t('setup_start')}
         </button>
       </div>
@@ -218,20 +219,20 @@ export function Setup({ onComplete }: Props) {
         {renderStepper()}
         <div className="setup-title">{t('setup_setting_up')}</div>
 
-        <div style={{ width: '100%', maxWidth: 320 }}>
+        <div style={{ width: '100%', maxWidth: 320, margin: '24px 0' }}>
           <div className="progress-bar">
             <div className="progress-fill" style={{ width: `${pct}%` }} />
           </div>
-          <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-secondary)', marginTop: 8 }}>
+          <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, marginTop: 12 }}>
             {pct}%
           </div>
-          <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+          <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
             {message}
           </div>
         </div>
 
         {error && (
-          <div style={{ color: 'var(--error)', fontSize: 14, textAlign: 'center' }}>{error}</div>
+          <div style={{ color: 'var(--error)', fontSize: 14, textAlign: 'center', marginBottom: 16 }}>{error}</div>
         )}
 
         <div className="tip-card">💡 {getTips()[tipIndex]}</div>
@@ -245,7 +246,7 @@ export function Setup({ onComplete }: Props) {
       {renderStepper()}
       <div className="setup-logo">✅</div>
       <div className="setup-title">{t('setup_done_title')}</div>
-      <div className="setup-subtitle">
+      <div className="setup-subtitle" style={{ marginBottom: 32 }}>
         {t('setup_done_desc')}
       </div>
 

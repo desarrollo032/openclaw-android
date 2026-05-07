@@ -19,11 +19,14 @@ export function SettingsPlatforms() {
   const [progress, setProgress] = useState(0)
 
   useEffect(() => {
-    const data = bridge.callJson<Platform[]>('getAvailablePlatforms')
-    if (data) setAvailable(data)
+    const fetchPlatforms = () => {
+      const data = bridge.callJson<Platform[]>('getAvailablePlatforms')
+      if (data) setAvailable(data)
 
-    const ap = bridge.callJson<{ id: string }>('getActivePlatform')
-    if (ap) setActive(ap.id)
+      const ap = bridge.callJson<{ id: string }>('getActivePlatform')
+      if (ap) setActive(ap.id)
+    }
+    fetchPlatforms()
   }, [])
 
   const onProgress = useCallback((data: unknown) => {

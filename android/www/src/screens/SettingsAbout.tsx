@@ -18,26 +18,26 @@ export function SettingsAbout() {
   const [apkUpdateAvailable, setApkUpdateAvailable] = useState(false)
 
   useEffect(() => {
-    const info = bridge.callJson<AppInfo>('getAppInfo')
-    if (info) setAppInfo(info)
+    const fetchInfo = () => {
+      const info = bridge.callJson<AppInfo>('getAppInfo')
+      if (info) setAppInfo(info)
 
-
-
-    // Check APK update availability (async, non-blocking)
-    setTimeout(() => {
+      // Check APK update availability
       const apkInfo = bridge.callJson<{ updateAvailable?: boolean }>('getApkUpdateInfo')
       if (apkInfo?.updateAvailable) setApkUpdateAvailable(true)
-    }, 0)
 
-    // Get runtime versions
-    const nodeV = bridge.callJson<{ stdout: string }>('runCommand', 'node -v 2>/dev/null')
-    const gitV = bridge.callJson<{ stdout: string }>('runCommand', 'git --version 2>/dev/null')
-    const oaV = bridge.callJson<{ stdout: string }>('runCommand', 'oa --version 2>/dev/null | head -1')
-    setScriptVersion(oaV?.stdout?.trim() || '—')
-    setRuntimeInfo({
-      'Node.js': nodeV?.stdout?.trim() || '—',
-      'git': gitV?.stdout?.trim()?.replace('git version ', '') || '—',
-    })
+      // Get runtime versions
+      const nodeV = bridge.callJson<{ stdout: string }>('runCommand', 'node -v 2>/dev/null')
+      const gitV = bridge.callJson<{ stdout: string }>('runCommand', 'git --version 2>/dev/null')
+      const oaV = bridge.callJson<{ stdout: string }>('runCommand', 'oa --version 2>/dev/null | head -1')
+      
+      setScriptVersion(oaV?.stdout?.trim() || '—')
+      setRuntimeInfo({
+        'Node.js': nodeV?.stdout?.trim() || '—',
+        'git': gitV?.stdout?.trim()?.replace('git version ', '') || '—',
+      })
+    }
+    fetchInfo()
   }, [])
 
   return (

@@ -9,8 +9,11 @@ export function SettingsKeepAlive() {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    const status = bridge.callJson<{ isIgnoring: boolean }>('getBatteryOptimizationStatus')
-    if (status) setBatteryExcluded(status.isIgnoring)
+    const fetchStatus = () => {
+      const status = bridge.callJson<{ isIgnoring: boolean }>('getBatteryOptimizationStatus')
+      if (status) setBatteryExcluded(status.isIgnoring)
+    }
+    fetchStatus()
   }, [])
 
   const ppkCommand = 'adb shell device_config set_sync_disabled_for_tests activity_manager/max_phantom_processes 2147483647'
