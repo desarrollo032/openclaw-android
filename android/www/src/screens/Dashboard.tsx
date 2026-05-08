@@ -1,280 +1,242 @@
-import { useState, useEffect, useCallback } from 'react'
-import { api } from '../lib/api'
-import { bridge } from '../lib/bridge'
-import { useRoute } from '../lib/router'
+/**
+ * src/screens/Dashboard.tsx — v4
+ * Fiel a la estructura original:
+ *   - Card gateway status
+ *   - ENTORNO DE EJECUCIÓN (Node.js, git, openclaw)
+ *   - COMANDOS (Gateway, Status, Onboard, Logs) — siempre visible
+ *   - GESTIÓN (Update, Configure, Doctor, Skills) — siempre visible
+ *   - Footer con versión del paquete
+ */
 
-/* ── Types ─────────────────────────────────────────────── */
-interface Health { status: string; uptime?: string; version?: string }
+import { useState, useCallback } from 'react'
+import { useRoute } from '../lib/router'
+import { bridge } from '../lib/bridge'
+import { GatewayStatus } from '../components/GatewayStatus'
+import { t } from '../i18n'
+
 interface AppInfo { versionName: string; versionCode: number; packageName: string }
 
-/* ── Component ─────────────────────────────────────────── */
+// ── Icon map con las exactas de la imagen ─────────────────────────────────────
+const CMD_ROWS = [
+  { icon: '▶', bg: '#1b3a5c', col: '#60a5fa', title: 'Gateway',   cmd: 'openclaw gateway',      sub: 'Iniciar el gateway' },
+  { icon: '●', bg: '#14532d', col: '#4ade80', title: 'Status',    cmd: 'openclaw status',       sub: 'Mostrar estado del gateway' },
+  { icon: '★', bg: '#3b2c00', col: '#fbbf24', title: 'Onboard',   cmd: 'openclaw onboard',      sub: 'Asistente de configuración inicial' },
+  { icon: '≡', bg: '#1e1a3e', col: '#a78bfa', title: 'Logs',      cmd: 'openclaw logs --follow', sub: 'Seguir logs en vivo' },
+] as const
+
+const MGMT_ROWS = [
+  { icon: '↑', bg: '#14532d', col: '#4ade80', title: 'Update',    cmd: 'openclaw update',       sub: 'Actualizar OpenClaw y componentes' },
+  { icon: '🔧', bg:'#2d2200', col: '#fb923c', title: 'Configure', cmd: 'openclaw configure',    sub: 'Configurar el entorno' },
+  { icon: '🩺', bg:'#2d1a00', col: '#fb923c', title: 'Doctor',    cmd: 'openclaw doctor',       sub: 'Diagnóstico del sistema' },
+  { icon: '⚡', bg: '#2d2800', col: '#facc15', title: 'Skills',   cmd: 'openclaw skills',       sub: 'Gestionar skills instalados' },
+] as const
+
 export function Dashboard() {
   const { navigate } = useRoute()
-  const [health, setHealth] = useState<Health | null>(null)
-  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
-  const [nodeVer, setNodeVer] = useState('no encontrado')
-  const [gitVer, setGitVer] = useState('no encontrado')
-  const [ocVer, setOcVer] = useState('no encontrado')
-  const [refreshing, setRefreshing] = useState(false)
+  const [nodeVer, setNodeVer] = useState<string | null>(null)
+  const [ocVer,   setOcVer]   = useState<string | null>(null)
+  const [gitVer,  setGitVer]  = useState<string | null>(null)
 
-  const load = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true)
-    try {
-      // Check gateway state via bridge first (most reliable)
-      const bridgeObj = (window as unknown as { OpenClaw?: { getGatewayState?: () => string } }).OpenClaw
-      const bridgeState = bridgeObj?.getGatewayState?.()
+  // Cargar versiones via bridge (primera vez)
+  useState(() => {
+    if (!bridge.isAvailable()) return
+    const vNode = bridge.callJson<{ stdout?: string }>('runCommand', 'node -v')
+    const vOC   = bridge.callJson<{ stdout?: string }>('runCommand', 'openclaw --version')
+    const vGit  = bridge.callJson<{ stdout?: string }>('runCommand', 'git --version')
+    setNodeVer(vNode?.stdout?.trim().split('\n')[0] ?? null)
+    setOcVer(vOC?.stdout?.trim().split('\n')[0] ?? null)
+    setGitVer(vGit?.stdout?.trim().replace('git version ', '') ?? null)
+  })
 
-      const h = await api.getHealth().catch(() => ({ status: 'offline' }))
+  const appInfo = bridge.isAvailable()
+    ? bridge.callJson<AppInfo>('getAppInfo')
+    : null
 
-      // Gateway is online if bridge says READY, or HTTP health check passes
-      if (bridgeState === 'READY' || h.status === 'ok') {
-        setHealth({ status: 'ok' })
-      } else if (bridgeState === 'STARTING' || bridgeState === 'RESTARTING') {
-        setHealth({ status: 'starting' })
-      } else {
-        setHealth(h)
-      }
+  const runInTerminal = useCallback((cmd: string) => {
+    navigate('/terminal')
+    setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: cmd })), 300)
+  }, [navigate])
 
-      const info = bridge.callJson<AppInfo>('getAppInfo')
-      if (info) setAppInfo(info)
-
-      const vNode = bridge.callJson<{ stdout: string }>('runCommand', 'node -v')
-      const vOC = bridge.callJson<{ stdout: string }>('runCommand', 'openclaw --version')
-      setNodeVer(vNode?.stdout?.trim() || 'no encontrado')
-      setGitVer('no incluido')
-      setOcVer(vOC?.stdout?.trim() || 'no encontrado')
-    } finally {
-      setRefreshing(false)
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  const online = health?.status === 'ok' || health?.status === 'online'
-  const starting = health?.status === 'starting'
+  const envTools = [
+    { icon: '⬡',  label: 'Node.js',   value: nodeVer,  color: '#6366f1', installed: !!nodeVer },
+    { icon: '⎇',  label: 'git',       value: gitVer,   color: '#22d3ee', installed: !!gitVer },
+    { icon: '🦀', label: 'openclaw',  value: ocVer,    color: '#f97316', installed: !!ocVer  },
+  ]
 
   return (
-    <div className="page" style={{ paddingBottom: 32 }}>
+    <div style={S.page}>
 
-      {/* ── Header card ── */}
-      <div style={S.headerCard}>
-        <div style={S.headerLeft}>
-          <div style={S.logoBox}>
-            <span style={{ fontSize: 28 }}>🦀</span>
-          </div>
-          <div>
-            <div style={S.headerTitle}>Openclaw</div>
-            <div style={S.statusRow}>
-              <span style={{ ...S.dot, background: online ? '#4ade80' : starting ? '#fbbf24' : '#f87171' }} />
-              <span style={{ ...S.statusText, color: online ? '#4ade80' : starting ? '#fbbf24' : '#f87171' }}>
-                {online ? 'Activa' : starting ? 'Iniciando...' : 'Inactiva'}
-              </span>
-            </div>
-          </div>
-        </div>
-        <button
-          style={S.refreshBtn}
-          onClick={() => load(true)}
-        >
-          <span style={{ display: 'inline-block', animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }}>↻</span>
-        </button>
-      </div>
+      {/* ── 1. Gateway status card ── */}
+      <GatewayStatus />
 
-      {/* ── Entorno de ejecución ── */}
-      <div style={S.sectionLabel}>ENTORNO DE EJECUCIÓN</div>
+      {/* ── 2. ENTORNO DE EJECUCIÓN ── */}
+      <div style={S.sectionLabel}>{t('dash_section_env')}</div>
       <div style={S.envCard}>
-        <EnvItem icon="⬡" label="Node.js" version={nodeVer} />
-        <div style={S.envDivider} />
-        <EnvItem icon="⎇" label="git" version={gitVer} />
-        <div style={S.envDivider} />
-        <EnvItem icon="🦀" label="openclaw" version={ocVer} />
+        {envTools.map((tool, i) => (
+          <div key={tool.label} style={{ ...S.envTool, borderRight: i < envTools.length - 1 ? '1px solid var(--border)' : 'none' }}>
+            <div style={{ ...S.envIcon, background: `${tool.color}15`, border: `1px solid ${tool.color}25` }}>
+              <span style={{ fontSize: 18 }}>{tool.icon}</span>
+            </div>
+            <span style={S.envLabel}>{tool.label}</span>
+            <span style={{ ...S.envValue, color: tool.installed ? tool.color : 'var(--text4)' }}>
+              {tool.value ?? 'no incluido'}
+            </span>
+            <div style={{ ...S.envDot, background: tool.installed ? '#4ade80' : '#6b7280', boxShadow: tool.installed ? '0 0 5px #4ade80' : 'none' }} />
+          </div>
+        ))}
       </div>
 
-      {/* ── Comandos ── */}
-      <div style={S.sectionLabel}>COMANDOS</div>
-      <div style={S.listCard}>
-        <CmdRow icon="▶" iconBg="#1e3a5f" iconColor="#60a5fa"
-          title="Gateway" sub="openclaw gateway"
-          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw gateway' })), 300) }} />
-        <CmdRow icon="●" iconBg="#14532d" iconColor="#4ade80"
-          title="Status" sub="openclaw status"
-          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw status' })), 300) }} />
-        <CmdRow icon="✦" iconBg="#3b2200" iconColor="#fbbf24"
-          title="Onboard" sub="openclaw onboard"
-          onClick={() => navigate('/terminal')} />
-        <CmdRow icon="≡" iconBg="#1e1e35" iconColor="#a5b4fc"
-          title="Logs" sub="openclaw logs --follow"
-          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw logs' })), 300) }}
-          last />
+      {/* ── 3. COMANDOS ── */}
+      <div style={S.sectionLabel}>{t('dash_section_cmds')}</div>
+      <div style={S.cmdCard}>
+        {CMD_ROWS.map((r, i) => (
+          <CmdRow key={r.cmd}
+            icon={r.icon} bg={r.bg} col={r.col}
+            title={r.title} cmd={r.cmd} sub={r.sub}
+            last={i === CMD_ROWS.length - 1}
+            onClick={() => runInTerminal(r.cmd)} />
+        ))}
       </div>
 
-      {/* ── Gestión ── */}
+      {/* ── 4. GESTIÓN ── */}
       <div style={S.sectionLabel}>GESTIÓN</div>
-      <div style={S.listCard}>
-        <CmdRow icon="↑" iconBg="#14532d" iconColor="#4ade80"
-          title="Update" sub="openclaw update"
-          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw update' })), 300) }} />
-        <CmdRow icon="🔧" iconBg="#1e1e35" iconColor="#a5b4fc"
-          title="Configure" sub="openclaw configure"
-          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw configure' })), 300) }} />
-        <CmdRow icon="🩺" iconBg="#1e1e35" iconColor="#fbbf24"
-          title="Doctor" sub="openclaw doctor"
-          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw doctor' })), 300) }} />
-        <CmdRow icon="🤖" iconBg="#1e1e35" iconColor="#c4b5fd"
-          title="Models" sub="openclaw models"
-          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw models' })), 300) }}
-          last />
+      <div style={S.cmdCard}>
+        {MGMT_ROWS.map((r, i) => (
+          <CmdRow key={r.cmd}
+            icon={r.icon} bg={r.bg} col={r.col}
+            title={r.title} cmd={r.cmd} sub={r.sub}
+            last={i === MGMT_ROWS.length - 1}
+            onClick={() => runInTerminal(r.cmd)} />
+        ))}
       </div>
 
-      {/* ── Quick Actions ── */}
-      <div style={S.sectionLabel}>QUICK ACTIONS</div>
-      <div style={S.quickGrid}>
-        <QuickBtn icon="💬" label="Chat" onClick={() => navigate('/chat')} />
-        <QuickBtn icon="💻" label="Terminal" onClick={() => navigate('/terminal')} />
-        <QuickBtn icon="⚡" label="Skills" onClick={() => navigate('/skills')} />
-        <QuickBtn icon="⚙️" label="Settings" onClick={() => navigate('/settings')} />
-      </div>
-
-      {/* ── App info ── */}
+      {/* ── Footer ── */}
       {appInfo && (
-        <div style={{ textAlign: 'center', marginTop: 16, color: '#444466', fontSize: 11 }}>
-          v{appInfo.versionName} · {appInfo.packageName}
+        <div style={S.footer}>
+          {appInfo.packageName} · v{appInfo.versionName} · build {appInfo.versionCode}
         </div>
       )}
-
     </div>
   )
 }
 
-/* ── Sub-components ─────────────────────────────────────── */
+// ── CmdRow ────────────────────────────────────────────────────────────────────
 
-function EnvItem({ icon, label, version }: { icon: string; label: string; version: string }) {
-  const found = version !== 'no encontrado'
-  return (
-    <div style={S.envItem}>
-      <span style={{ fontSize: 22, marginBottom: 4, color: found ? '#e2e8f0' : '#555' }}>{icon}</span>
-      <span style={{ fontSize: 13, fontWeight: 600, color: found ? '#e2e8f0' : '#555' }}>{label}</span>
-      <span style={{ fontSize: 11, color: found ? '#6366f1' : '#555', marginTop: 2 }}>{version}</span>
-      <span style={{ ...S.dot, background: found ? '#4ade80' : '#f87171', marginTop: 4 }} />
-    </div>
-  )
-}
-
-function CmdRow({
-  icon, iconBg, iconColor, title, sub, onClick, last
-}: {
-  icon: string; iconBg: string; iconColor: string
-  title: string; sub: string; onClick: () => void; last?: boolean
+function CmdRow({ icon, bg, col, title, cmd, sub, onClick, last }: {
+  icon: string
+  bg: string
+  col: string
+  title: string
+  cmd: string
+  sub: string
+  onClick: () => void
+  last?: boolean
 }) {
   return (
     <button
-      style={{ ...S.cmdRow, borderBottom: last ? 'none' : '1px solid #1a1a2e' }}
+      style={{ ...S.cmdRow, borderBottom: last ? 'none' : '1px solid var(--border)' }}
       onClick={onClick}
-      onTouchStart={e => (e.currentTarget.style.background = '#1a1a2e')}
-      onTouchEnd={e => (e.currentTarget.style.background = 'transparent')}
-    >
-      <div style={{ ...S.cmdIcon, background: iconBg, color: iconColor }}>{icon}</div>
-      <div style={S.cmdText}>
-        <span style={S.cmdTitle}>{title}</span>
-        <span style={S.cmdSub}>{sub}</span>
+      onTouchStart={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+      onTouchEnd={e   => { e.currentTarget.style.background = 'transparent' }}>
+      {/* Colored icon tile — exactly like the image */}
+      <div style={{ width: 38, height: 38, borderRadius: 11, background: bg, color: col, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>
+        {icon}
       </div>
-      <span style={S.chevron}>›</span>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{title}</span>
+        <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: "'JetBrains Mono', monospace" }}>{cmd}</span>
+      </div>
+      <span style={{ color: 'var(--text4)', fontSize: 20, lineHeight: 1 }}>›</span>
     </button>
   )
 }
 
-function QuickBtn({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
-  return (
-    <button
-      style={S.quickBtn}
-      onClick={onClick}
-      onTouchStart={e => (e.currentTarget.style.background = '#1a1a2e')}
-      onTouchEnd={e => (e.currentTarget.style.background = '#12122a')}
-    >
-      <span style={{ fontSize: 24 }}>{icon}</span>
-      <span style={{ fontSize: 12, color: '#a0a0c0', marginTop: 4 }}>{label}</span>
-    </button>
-  )
-}
-
-/* ── Styles ─────────────────────────────────────────────── */
+// ── Styles ────────────────────────────────────────────────────────────────────
 const S: Record<string, React.CSSProperties> = {
-  headerCard: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    background: '#12122a',
-    border: '1px solid #1e1e35',
-    borderRadius: 16,
-    padding: '14px 16px',
-    marginBottom: 16,
+  page: {
+    padding: '12px 14px 32px',
+    maxWidth: 600,
+    margin: '0 auto',
+    overflowY: 'auto',
   },
-  headerLeft: { display: 'flex', alignItems: 'center', gap: 12 },
-  logoBox: {
-    width: 48, height: 48, borderRadius: 12,
-    background: '#1e1e35',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  headerTitle: { fontSize: 18, fontWeight: 700, color: '#fff' },
-  statusRow: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 },
-  dot: { width: 8, height: 8, borderRadius: '50%', display: 'inline-block', flexShrink: 0 },
-  statusText: { fontSize: 13, fontWeight: 500 },
-  refreshBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    border: '1px solid #1e1e35',
-    background: '#1a1a2e',
-    color: '#a0a0c0', fontSize: 18,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    cursor: 'pointer',
-  },
+
   sectionLabel: {
-    fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-    color: '#555577', marginBottom: 8, marginTop: 4, paddingLeft: 2,
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    color: 'var(--text3)',
+    marginBottom: 10,
+    marginTop: 22,
+    paddingLeft: 2,
+    textTransform: 'uppercase',
   },
+
+  // Env card — 3 columns like the screenshot
   envCard: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-xl)',
     display: 'flex',
-    background: '#12122a',
-    border: '1px solid #1e1e35',
-    borderRadius: 14,
-    marginBottom: 16,
     overflow: 'hidden',
+    boxShadow: 'var(--sh-inset)',
   },
-  envItem: {
-    flex: 1, display: 'flex', flexDirection: 'column',
-    alignItems: 'center', padding: '14px 8px',
+  envTool: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
+    padding: '14px 8px 12px',
   },
-  envDivider: { width: 1, background: '#1e1e35', margin: '10px 0' },
-  listCard: {
-    background: '#12122a',
-    border: '1px solid #1e1e35',
-    borderRadius: 14,
-    marginBottom: 16,
+  envIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    marginBottom: 2,
+  },
+  envLabel: {
+    fontSize: 11,
+    color: 'var(--text2)',
+    fontWeight: 600,
+  },
+  envValue: {
+    fontSize: 11,
+    fontFamily: "'JetBrains Mono', monospace",
+    fontWeight: 600,
+    textAlign: 'center',
+    wordBreak: 'break-all',
+    lineHeight: 1.3,
+  },
+  envDot: {
+    width: 7, height: 7, borderRadius: '50%',
+    marginTop: 2, transition: 'all 0.4s',
+  },
+
+  // Command rows card
+  cmdCard: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-xl)',
     overflow: 'hidden',
+    marginBottom: 4,
+    boxShadow: 'var(--sh-inset)',
   },
   cmdRow: {
-    width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-    padding: '14px 16px',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    padding: '13px 16px',
     background: 'transparent',
-    border: 'none', cursor: 'pointer',
-    textAlign: 'left',
+    border: 'none',
+    cursor: 'pointer',
+    transition: 'background 0.12s',
   },
-  cmdIcon: {
-    width: 36, height: 36, borderRadius: 10,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: 16, fontWeight: 700, flexShrink: 0,
-  },
-  cmdText: { flex: 1, display: 'flex', flexDirection: 'column', gap: 2 },
-  cmdTitle: { fontSize: 15, fontWeight: 600, color: '#e2e8f0' },
-  cmdSub: { fontSize: 12, color: '#555577', fontFamily: 'monospace' },
-  chevron: { fontSize: 20, color: '#333355' },
-  quickGrid: {
-    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr',
-    gap: 8, marginBottom: 8,
-  },
-  quickBtn: {
-    background: '#12122a',
-    border: '1px solid #1e1e35',
-    borderRadius: 12,
-    padding: '12px 4px',
-    display: 'flex', flexDirection: 'column',
-    alignItems: 'center', cursor: 'pointer',
+
+  footer: {
+    textAlign: 'center',
+    color: 'var(--text4)',
+    fontSize: 11,
+    marginTop: 20,
+    paddingBottom: 8,
   },
 }

@@ -11,10 +11,14 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
+import java.util.UUID
 
-private const val TAG           = "OpenClawGW"
+private const val TAG             = "OpenClawGW"
 private const val NOTIFICATION_ID = 1001
-private const val CHANNEL_ID    = "openclaw_gateway"
+private const val CHANNEL_ID      = "openclaw_gateway"
+
+// Intent action para reiniciar el proceso desde la notificación
+private const val ACTION_RESTART  = "com.openclaw.android.ACTION_RESTART_GATEWAY"
 
 enum class GatewayState { STARTING, READY, RESTARTING, FAILED }
 
@@ -24,15 +28,38 @@ class OpenClawGatewayService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var mainJob: Job? = null
 
+    // Token de autenticación — generado en cada arranque, nunca persiste en disco
+    private var dashboardToken: String = ""
+
+    // Uptime tracking
+    private var processStartTime = 0L
+
+    // Contador de reinicios para la notificación
+    private var restartCount = 0
+
     // ── Companion: static state accessible from Activities ───────────────────
 
     companion object {
         private val _state = MutableStateFlow(GatewayState.STARTING)
         val state: StateFlow<GatewayState> = _state
 
-        fun isRunning(): Boolean = _state.value == GatewayState.READY
+        // Token compartido estáticamente — Activities lo leen ANTES de que el
+        // servicio envíe el Intent (race condition safety)
+        @Volatile private var _currentToken: String = ""
+        val currentToken: String get() = _currentToken
 
+        fun isRunning(): Boolean = _state.value == GatewayState.READY
         fun getState(): GatewayState = _state.value
+
+        // Uptime en segundos desde que el proceso arrancó (0 si no está activo)
+        private var _processStartTime = 0L
+        fun getUptimeSeconds(): Long {
+            if (_processStartTime == 0L) return 0L
+            return (System.currentTimeMillis() - _processStartTime) / 1000L
+        }
+        internal fun markProcessStart() { _processStartTime = System.currentTimeMillis() }
+        internal fun markProcessStop()  { _processStartTime = 0L }
+
 
         fun start(context: Context) {
             val intent = Intent(context, OpenClawGatewayService::class.java)
@@ -52,28 +79,34 @@ class OpenClawGatewayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        OpenClawLogger.init(this)
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification("Iniciando gateway..."))
+        // Manejar acción de reinicio desde la notificación
+        if (intent?.action == ACTION_RESTART) {
+            OpenClawLogger.log(TAG, "Restart requested via notification action")
+            serviceScope.launch { restartProcess() }
+            return START_STICKY
+        }
+
+        startForeground(NOTIFICATION_ID, buildNotification())
 
         if (!OpenClawInstaller.isPayloadReady(this)) {
-            Log.e(TAG, "Payload not ready — cannot start gateway")
+            OpenClawLogger.log(TAG, "Payload not ready — cannot start gateway")
             _state.value = GatewayState.FAILED
-            updateNotification("Error: payload no instalado")
+            updateNotification()
             stopSelf()
             return START_NOT_STICKY
         }
 
         if (mainJob == null || mainJob?.isActive == false) {
-            Log.i(TAG, "Starting gateway main loop")
+            OpenClawLogger.log(TAG, "Starting gateway main loop")
             _state.value = GatewayState.STARTING
-            mainJob = serviceScope.launch {
-                launchGateway()
-            }
+            mainJob = serviceScope.launch { launchGateway() }
         } else {
-            Log.i(TAG, "Gateway loop already running, ignoring start command")
+            OpenClawLogger.log(TAG, "Gateway loop already running, ignoring start command")
         }
 
         return START_STICKY
@@ -86,7 +119,7 @@ class OpenClawGatewayService : Service() {
         gatewayProcess?.destroyForcibly()
         gatewayProcess = null
         _state.value = GatewayState.FAILED
-        Log.i(TAG, "Service destroyed")
+        OpenClawLogger.log(TAG, "Service destroyed")
         super.onDestroy()
     }
 
@@ -95,15 +128,16 @@ class OpenClawGatewayService : Service() {
     private suspend fun launchGateway() {
         startProcess()
 
-        // Health-check loop: poll every 5s, restart if dead
         while (true) {
             delay(5_000)
 
             val alive = gatewayProcess?.isAlive == true
             if (!alive) {
-                Log.w(TAG, "Process died — restarting in 3s")
+                val exit = try { gatewayProcess?.exitValue() } catch (_: Exception) { null }
+                OpenClawLogger.log(TAG, "Process died (exit=$exit) — restarting in 3s")
+                restartCount++
                 _state.value = GatewayState.RESTARTING
-                updateNotification("Reiniciando gateway...")
+                updateNotification()
                 delay(3_000)
                 startProcess()
                 continue
@@ -113,19 +147,37 @@ class OpenClawGatewayService : Service() {
             if (healthy) {
                 if (_state.value != GatewayState.READY) {
                     _state.value = GatewayState.READY
-                    updateNotification("Gateway activo ✓")
-                    Log.i(TAG, "Gateway is READY")
+                    restartCount = 0
+                    updateNotification()
+                    OpenClawLogger.log(TAG, "Gateway is READY")
                 }
             } else {
                 if (_state.value == GatewayState.READY) {
-                    Log.w(TAG, "Health check failed (process still alive)")
-                    updateNotification("Gateway: health check fallido")
+                    OpenClawLogger.log(TAG, "Health check failed (process still alive)")
+                    updateNotification()
                 }
             }
         }
     }
 
+    private suspend fun restartProcess() {
+        gatewayProcess?.destroyForcibly()
+        gatewayProcess = null
+        restartCount++
+        _state.value = GatewayState.RESTARTING
+        updateNotification()
+        delay(1_000)
+        startProcess()
+    }
+
     private fun startProcess() {
+        // Generar nuevo token en cada arranque del proceso
+        dashboardToken = UUID.randomUUID().toString().replace("-", "") +
+                         System.currentTimeMillis().toString()
+        _currentToken = dashboardToken
+        // Registrar en el logger para redacción automática
+        OpenClawLogger.registerSensitiveToken(dashboardToken)
+
         try {
             val base      = OpenClawInstaller.getPayloadDir(this)
             val nativeDir = File(applicationInfo.nativeLibraryDir)
@@ -139,9 +191,9 @@ class OpenClawGatewayService : Service() {
 
             listOf(loader, nodeExec, openclaw).forEach { f ->
                 if (!f.exists()) {
-                    Log.e(TAG, "Missing: ${f.absolutePath}")
+                    OpenClawLogger.log(TAG, "Missing: ${f.absolutePath}")
                     _state.value = GatewayState.FAILED
-                    updateNotification("Error: falta ${f.name}")
+                    updateNotification()
                     return
                 }
             }
@@ -157,7 +209,7 @@ class OpenClawGatewayService : Service() {
                 directory(base)
                 redirectErrorStream(true)
                 environment().apply {
-                    remove("LD_PRELOAD")                          // must remove
+                    remove("LD_PRELOAD")                              // SIEMPRE remover
                     put("LD_LIBRARY_PATH", libs)
                     put("OA_GLIBC",        "1")
                     put("CONTAINER",       "1")
@@ -167,37 +219,51 @@ class OpenClawGatewayService : Service() {
                     put("OPENCLAW_HOME",   configDir.absolutePath)
                     put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")
                     put("PATH",            "${base.absolutePath}/bin:/system/bin")
-                    // Prevent openclaw.mjs from respawning with execArgv flags
-                    // that the ld-linux loader doesn't understand
                     put("NODE_NO_WARNINGS",                          "1")
                     put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
                     put("OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED",   "1")
                     put("NODE_DISABLE_COMPILE_CACHE",                "1")
+                    // Token de autenticación del dashboard — nunca se loguea (redactado)
+                    put("OPENCLAW_DASHBOARD_TOKEN", dashboardToken)
                 }
             }
 
             gatewayProcess = pb.start()
-            Log.i(TAG, "Process started: ${loader.name} → ${nodeExec.name} → openclaw.mjs")
-            updateNotification("Gateway iniciando...")
+            processStartTime = System.currentTimeMillis()
+            val pid = gatewayProcess.hashCode() // Java Process no expone PID en API < 26
+            OpenClawLogger.log(TAG, "Process started [pid~${pid}]: ${loader.name} → ${nodeExec.name} → openclaw.mjs")
+            _state.value = GatewayState.STARTING
+            updateNotification()
 
-            // Capture stdout/stderr in a separate coroutine
+            // Capturar stdout/stderr — SIEMPRE, según reglas críticas
             val proc = gatewayProcess!!
             serviceScope.launch(Dispatchers.IO) {
                 try {
                     proc.inputStream.bufferedReader().forEachLine { line ->
-                        Log.d(TAG, line)
+                        OpenClawLogger.log(TAG, line)
                     }
                     val exit = proc.waitFor()
-                    Log.w(TAG, "Proceso terminó con código: $exit")
+                    OpenClawLogger.log(TAG, "Proceso terminó con código: $exit")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Log reader closed: ${e.message}")
+                    OpenClawLogger.log(TAG, "Log reader closed: ${e.message}")
                 }
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "startProcess failed", e)
+            OpenClawLogger.log(TAG, "startProcess failed: ${e.message}")
             _state.value = GatewayState.FAILED
-            updateNotification("Error al iniciar: ${e.message}")
+            updateNotification()
+        }
+    }
+
+    // ── Uptime ────────────────────────────────────────────────────────────────
+
+    private fun formatUptime(): String {
+        if (processStartTime == 0L) return ""
+        val elapsed = (System.currentTimeMillis() - processStartTime) / 1000
+        return when {
+            elapsed < 3600 -> "${elapsed / 60}m ${elapsed % 60}s"
+            else           -> "${elapsed / 3600}h ${(elapsed % 3600) / 60}m"
         }
     }
 
@@ -215,23 +281,56 @@ class OpenClawGatewayService : Service() {
         }
     }
 
-    private fun buildNotification(text: String): Notification {
-        val pi = PendingIntent.getActivity(
+    private fun buildNotification(): Notification {
+        val (title, text) = when (_state.value) {
+            GatewayState.READY      -> {
+                val uptime = formatUptime()
+                "OpenClaw · Activo" to "127.0.0.1:18789 · uptime $uptime"
+            }
+            GatewayState.RESTARTING ->
+                "OpenClaw · Reiniciando..." to "Intento $restartCount de 3"
+            GatewayState.STARTING   ->
+                "OpenClaw · Iniciando..." to "Arrancando gateway Node.js..."
+            GatewayState.FAILED     ->
+                "OpenClaw · Error" to "Gateway caído — toca para ver logs"
+        }
+
+        // PendingIntent → abrir Dashboard
+        val dashIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, OpenClawDashboardActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+
+        // Action: Restart
+        val restartIntent = PendingIntent.getService(
+            this, 1,
+            Intent(this, OpenClawGatewayService::class.java).apply {
+                action = ACTION_RESTART
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        // Action: Ver logs
+        val logsIntent = PendingIntent.getActivity(
+            this, 2,
+            Intent(this, OpenClawLogsActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("OpenClaw")
+            .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentIntent(pi)
+            .setContentIntent(dashIntent)
             .setOngoing(true)
+            .addAction(0, "Restart", restartIntent)
+            .addAction(0, "Ver logs", logsIntent)
             .build()
     }
 
-    private fun updateNotification(text: String) {
+    private fun updateNotification() {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIFICATION_ID, buildNotification(text))
+        nm.notify(NOTIFICATION_ID, buildNotification())
     }
 }

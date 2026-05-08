@@ -556,6 +556,55 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         context.startActivity(intent)
     }
 
+    @JavascriptInterface
+    fun getGatewayLogs(): String {
+        // Lee las últimas N líneas del log rotativo de OpenClawLogger
+        return try {
+            val logFile = java.io.File(context.filesDir, "logs/openclaw.log")
+            if (!logFile.exists()) return "[]"
+            val lines = logFile.readLines().takeLast(300)
+            val arr = org.json.JSONArray()
+            lines.forEach { line ->
+                if (line.isBlank()) return@forEach
+                // Formato: 2024-01-01 12:00:00.000 [LEVEL] TAG: message
+                val obj = org.json.JSONObject()
+                val level = when {
+                    line.contains("[ERROR]") -> "error"
+                    line.contains("[WARN]")  -> "warn"
+                    line.contains("[DEBUG]") -> "debug"
+                    else                     -> "info"
+                }
+                obj.put("level", level)
+                obj.put("message", line.trim())
+                obj.put("timestamp", System.currentTimeMillis())
+                arr.put(obj)
+            }
+            arr.toString()
+        } catch (e: Exception) {
+            Log.w("OpenClawBridge", "getGatewayLogs failed: ${e.message}")
+            "[]"
+        }
+    }
+
+    @JavascriptInterface
+    fun clearGatewayLogs() {
+        try {
+            val logFile = java.io.File(context.filesDir, "logs/openclaw.log")
+            if (logFile.exists()) logFile.writeText("")
+        } catch (e: Exception) {
+            Log.w("OpenClawBridge", "clearGatewayLogs failed: ${e.message}")
+        }
+    }
+
+    @JavascriptInterface
+    fun getGatewayUptime(): String {
+        // OpenClawGatewayService expone el uptime en segundos
+        return try {
+            val uptime = OpenClawGatewayService.getUptimeSeconds()
+            JSONObject().put("seconds", uptime).toString()
+        } catch (e: Exception) { JSONObject().put("seconds", 0).toString() }
+    }
+
     private fun getDirSize(dir: java.io.File): Long {
         if (!dir.exists()) return 0
         var size: Long = 0

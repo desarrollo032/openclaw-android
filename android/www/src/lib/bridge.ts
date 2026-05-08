@@ -38,7 +38,17 @@ interface OpenClawBridge {
   getStorageInfo(): string
   clearCache(): void
   openUrl(url: string): void
+  // Gateway & logs
+  getGatewayToken(): string
+  getGatewayUrl(): string
+  getGatewayState(): string
+  getGatewayLogs(): string
+  clearGatewayLogs(): void
+  getGatewayUptime(): string
+  // Interactive
+  launchInteractiveCommand(cmd: string): void
 }
+
 
 declare global {
   interface Window {

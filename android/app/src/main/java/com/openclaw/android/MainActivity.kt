@@ -44,7 +44,13 @@ class MainActivity : AppCompatActivity() {
             // Fully set up → go straight to dashboard
             else -> {
                 OpenClawGatewayService.start(this)
-                startActivity(Intent(this, OpenClawDashboardActivity::class.java))
+                startActivity(
+                    Intent(this, OpenClawDashboardActivity::class.java)
+                        .putExtra(
+                            OpenClawDashboardActivity.EXTRA_DASHBOARD_TOKEN,
+                            OpenClawGatewayService.currentToken
+                        )
+                )
             }
         }
 

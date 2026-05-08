@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.webkit.*
@@ -15,6 +16,10 @@ import kotlinx.coroutines.*
 
 class OpenClawDashboardActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_DASHBOARD_TOKEN = "DASHBOARD_TOKEN"
+    }
+
     private lateinit var webView:          WebView
     private lateinit var progressBar:      ProgressBar
     private lateinit var statusCard:       View
@@ -23,6 +28,9 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     private lateinit var openBrowserButton: Button
     private lateinit var terminalButton:   Button
 
+    // Token de autenticación recibido del Intent (o leido del Service companion)
+    private var dashboardToken: String = ""
+
     private val DASHBOARD_URL = "file:///android_asset/www/index.html"
     private var waitJob: Job? = null
 
@@ -30,6 +38,16 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Leer token del Intent; fallback al valor actual del Service companion
+        dashboardToken = intent.getStringExtra(EXTRA_DASHBOARD_TOKEN)
+            ?: OpenClawGatewayService.currentToken
+
+        if (dashboardToken.isEmpty()) {
+            Log.w("OpenClawDash", "Dashboard token is empty — gateway may not be running yet")
+            // No bloqueamos: el token puede llegar cuando el gateway arranque
+        }
+
         setContentView(buildLayout())
         setupWebView()
 
@@ -107,7 +125,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             useWideViewPort       = true
             displayZoomControls   = false
             builtInZoomControls   = false
-            // Allow file:// origin to fetch http://127.0.0.1 (gateway)
             @Suppress("DEPRECATION")
             allowFileAccessFromFileURLs   = true
             @Suppress("DEPRECATION")
@@ -121,13 +138,47 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 progressBar.visibility = View.GONE
                 statusCard.visibility  = View.GONE
                 webView.visibility     = View.VISIBLE
+                // Inyectar token en window.__OPENCLAW_TOKEN para que el frontend lo use
+                if (dashboardToken.isNotEmpty()) {
+                    view?.evaluateJavascript(
+                        "window.__OPENCLAW_TOKEN = '${dashboardToken}';", null
+                    )
+                }
             }
             override fun onReceivedError(
                 view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
-                // Only show error for main frame, not sub-resources
                 if (request?.isForMainFrame == true) {
-                    showError("Error cargando dashboard: ${error?.description}")
+                    showError("Error cargando dashboard: \${error?.description}")
+                }
+            }
+            // Añadir header Authorization en todas las requests al gateway
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val url = request?.url?.toString() ?: return null
+                // Solo interceptar requests al gateway local (no el file:// del HTML)
+                if (!url.startsWith("http://127.0.0.1:18789")) return null
+                if (dashboardToken.isEmpty()) return null
+
+                return try {
+                    val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = request.method ?: "GET"
+                    conn.setRequestProperty("Authorization", "Bearer $dashboardToken")
+                    request.requestHeaders?.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+                    conn.connectTimeout = 5000
+                    conn.readTimeout    = 10000
+                    conn.connect()
+                    val mimeType  = conn.contentType?.substringBefore(";") ?: "application/json"
+                    val encoding  = conn.contentEncoding ?: "utf-8"
+                    val status    = conn.responseCode
+                    val stream    = if (status < 400) conn.inputStream else conn.errorStream
+                    WebResourceResponse(mimeType, encoding, status, "OK",
+                        conn.headerFields.mapValues { it.value.firstOrNull() ?: "" },
+                        stream)
+                } catch (e: Exception) {
+                    null   // Fallback: dejar que el WebView haga la request normal
                 }
             }
         }

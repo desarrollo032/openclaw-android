@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  activity_logs.xml
+  Pantalla de diagnóstico: muestra las últimas N líneas del log persistente.
+  Estética: fondo negro, texto blanco monospace (igual que el terminal).
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0d0d12">
+
+    <!-- Toolbar superior -->
+    <LinearLayout
+        android:id="@+id/logsToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="8dp"
+        android:background="#1a1a2e">
+
+        <!-- Botón atrás -->
+        <TextView
+            android:id="@+id/btnBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="←"
+            android:textSize="22sp"
+            android:textColor="#a0a0c0"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+
+        <!-- Título -->
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Logs del gateway"
+            android:textColor="#ffffff"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+
+        <!-- Info de tamaño -->
+        <TextView
+            android:id="@+id/logSizeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#6366f1"
+            android:textSize="11sp"
+            android:paddingEnd="8dp" />
+
+        <!-- Botón Copiar -->
+        <Button
+            android:id="@+id/btnCopy"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Copiar"
+            android:textSize="12sp"
+            android:textColor="#8be9fd"
+            android:backgroundTint="#1a1a2e"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <!-- Botón Limpiar -->
+        <Button
+            android:id="@+id/btnClear"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Limpiar"
+            android:textSize="12sp"
+            android:textColor="#ff5555"
+            android:backgroundTint="#1a1a2e"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp" />
+
+    </LinearLayout>
+
+    <!-- Área de logs: ScrollView + TextView monospace -->
+    <ScrollView
+        android:id="@+id/logsScrollView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:fadingEdgeLength="0dp">
+
+        <TextView
+            android:id="@+id/logsTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#c0c0d0"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:padding="12dp"
+            android:lineSpacingExtra="2dp"
+            android:textIsSelectable="true"
+            android:background="#0d0d12" />
+
+    </ScrollView>
+
+    <!-- Barra inferior: estado -->
+    <TextView
+        android:id="@+id/logsStatusBar"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:text="Cargando..."
+        android:textColor="#555577"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:background="#111120" />
+
+</LinearLayout>

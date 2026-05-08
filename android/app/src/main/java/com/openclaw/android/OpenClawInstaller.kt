@@ -6,6 +6,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 
 private const val TAG = "OpenClawInstaller"
 
@@ -18,6 +19,16 @@ private const val KEY_ONBOARD_COMPLETE  = "onboard_complete"
 // Asset names
 private const val PAYLOAD_ASSET = "payload-v2.tar.xz"
 private const val CONFIG_ASSET  = "openclaw-apk-migration.tar.gz"
+
+/**
+ * SHA-256 esperado del archivo payload-v2.tar.xz empaquetado en el APK.
+ * REEMPLAZAR con el hash real antes de cada release:
+ *   sha256sum payload-v2.tar.xz   (Linux/Mac)
+ *   Get-FileHash payload-v2.tar.xz -Algorithm SHA256  (Windows PowerShell)
+ *
+ * Mientras sea el placeholder, la verificación se omite con una advertencia.
+ */
+private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
 
 object OpenClawInstaller {
 
@@ -104,6 +115,52 @@ object OpenClawInstaller {
         val list = context.assets.list("") ?: emptyArray()
         list.contains(PAYLOAD_ASSET) && list.contains(CONFIG_ASSET)
     } catch (e: Exception) { false }
+
+    // ── Payload integrity ─────────────────────────────────────────────────────
+
+    /**
+     * Verifica la integridad del payload empaquetado en assets/ calculando su
+     * SHA-256 en streaming (chunks de 8 KB, sin cargar los ~186 MB en RAM).
+     *
+     * Retorna true si:
+     *  - El hash coincide con PAYLOAD_SHA256, O
+     *  - PAYLOAD_SHA256 es el placeholder (skip con advertencia — dev mode)
+     *
+     * Retorna false si el archivo está corrupto o no existe.
+     *
+     * IMPORTANTE: Llamar desde Dispatchers.IO — bloquea varios segundos.
+     */
+    fun verifyPayloadIntegrity(context: Context): Boolean {
+        // Si el hash es el placeholder, omitir verificación con advertencia
+        if (PAYLOAD_SHA256 == "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE") {
+            Log.w(TAG, "SHA-256 verification SKIPPED — placeholder hash detected (dev mode)")
+            return true
+        }
+
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(8 * 1024) // 8 KB chunks
+            context.assets.open(PAYLOAD_ASSET).use { stream ->
+                var read: Int
+                while (stream.read(buffer).also { read = it } != -1) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            val computed = digest.digest().joinToString("") { "%02x".format(it) }
+            val match = computed.equals(PAYLOAD_SHA256, ignoreCase = true)
+            if (!match) {
+                Log.e(TAG, "SHA-256 MISMATCH!")
+                Log.e(TAG, "  Expected: $PAYLOAD_SHA256")
+                Log.e(TAG, "  Computed: $computed")
+            } else {
+                Log.i(TAG, "SHA-256 OK: $computed")
+            }
+            match
+        } catch (e: Exception) {
+            Log.e(TAG, "verifyPayloadIntegrity failed", e)
+            false
+        }
+    }
 
     // ── Payload installation ──────────────────────────────────────────────────
 

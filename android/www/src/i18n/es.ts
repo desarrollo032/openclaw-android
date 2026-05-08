@@ -121,4 +121,62 @@ export const es = {
   platforms_installing: 'Instalando {name}...',
   platforms_active: 'Activo',
   platforms_install: 'Instalar y Cambiar',
+
+  // Chat
+  chat_placeholder: 'Mensaje a OpenClaw...',
+  chat_send: 'Enviar',
+  chat_clear: 'Limpiar chat',
+  chat_offline: 'Gateway inactivo — los mensajes se enviarán al conectar',
+  chat_error: 'Error al enviar. ¿Reintentar?',
+  chat_retry: 'Reintentar',
+  chat_typing: 'Pensando...',
+  chat_empty_title: 'Inicia una conversación',
+  chat_empty_sub: 'Pregunta lo que quieras — OpenClaw corre localmente.',
+  chat_quick_status: '📊 Estado',
+  chat_quick_models: '🤖 Modelos',
+  chat_quick_help: '❓ Ayuda',
+  chat_quick_tasks: '📋 Tareas',
+  chat_copy: 'Copiar',
+  chat_copied: '¡Copiado!',
+
+  // Logs
+  logs_title: 'Logs del sistema',
+  logs_native: 'Nativo',
+  logs_gateway: 'Gateway HTTP',
+  logs_empty: 'Sin logs disponibles',
+  logs_search: 'Buscar logs...',
+  logs_copy_all: 'Copiar todo',
+  logs_clear: 'Limpiar',
+  logs_refresh: 'Actualizar',
+  logs_lines: '{count} líneas',
+
+  // Terminal
+  term_connected: 'Conectado',
+  term_connecting: 'Conectando...',
+  term_disconnected: 'Desconectado',
+  term_reconnect: 'Reconectar',
+  term_clear: 'Limpiar',
+  term_type_hint: 'Toca para escribir...',
+
+  // Dashboard quick
+  dash_quick_chat: 'Chat',
+  dash_quick_terminal: 'Terminal',
+  dash_quick_skills: 'Skills',
+  dash_quick_config: 'Config',
+  dash_section_env: 'ENTORNO',
+  dash_section_quick: 'ACCESO RÁPIDO',
+  dash_section_cmds: 'COMANDOS GATEWAY',
+
+  // Gateway
+  gateway_active: 'Activo',
+  gateway_starting: 'Iniciando',
+  gateway_offline: 'Inactivo',
+  gateway_restart: 'Reiniciar',
+  gateway_restarting: 'Reiniciando...',
+  gateway_uptime: 'Uptime',
+  gateway_memory: 'Memoria',
+  gateway_port: 'Puerto',
+  gateway_pid: 'PID',
+  gateway_version: 'Versión',
+  gateway_restarts: 'Reinicios',
 }

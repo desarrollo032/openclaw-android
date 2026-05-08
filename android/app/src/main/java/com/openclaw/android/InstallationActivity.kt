@@ -99,6 +99,18 @@ class InstallationActivity : AppCompatActivity() {
     private fun runInstallFromAssets() {
         setInstalling(true)
         lifecycleScope.launch {
+            // PASO 0: Verificar integridad SHA-256 del payload antes de extraer
+            updateProgress("Verificando integridad del payload...", 0)
+            val integrityOk = withContext(Dispatchers.IO) {
+                OpenClawInstaller.verifyPayloadIntegrity(this@InstallationActivity)
+            }
+            if (!integrityOk) {
+                onInstallFailed(
+                    "⚠️ Instalación corrupta \u2014 el archivo payload está dañado.\n" +
+                    "Reinstala la app para obtener una copia limpia."
+                )
+                return@launch
+            }
             val payloadOk = withContext(Dispatchers.IO) {
                 OpenClawInstaller.installPayload(this@InstallationActivity) { msg, pct ->
                     runOnUiThread { updateProgress(msg, pct) }
@@ -130,6 +142,10 @@ class InstallationActivity : AppCompatActivity() {
         val payloadUri = pickedPayloadUri ?: return
         val configUri  = pickedConfigUri  ?: return
         setInstalling(true)
+        // NOTA: La verificación SHA-256 no se aplica a archivos externos (URI)
+        // porque el hash se calcula sobre el asset embebido en el APK.
+        // Para archivos de usuario, la validación ocurre durante la extracción
+        // (tar lanza excepción si el archivo está truncado o corrupto).
         lifecycleScope.launch {
             val payloadOk = withContext(Dispatchers.IO) {
                 OpenClawInstaller.installPayloadFromUri(this@InstallationActivity, payloadUri) { msg, pct ->

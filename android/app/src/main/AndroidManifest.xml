@@ -70,6 +70,13 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/AppTheme" />
 
+        <!-- Pantalla de logs del gateway (diagnóstico) -->
+        <activity
+            android:name=".OpenClawLogsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize"
+            android:windowSoftInputMode="adjustNothing" />
+
     </application>
 
 </manifest>

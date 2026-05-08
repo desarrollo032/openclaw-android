@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { bridge } from '../lib/bridge'
+import { t } from '../i18n'
 
 interface HistoryEntry { type: 'cmd' | 'out' | 'err'; text: string }
 interface KeyDef { label: string; flex?: number; bg: string; fg: string; onPress: () => void }
 
-// Openclaw commands for autocomplete
 const OC_COMMANDS = [
   'openclaw gateway', 'openclaw status', 'openclaw health', 'openclaw logs',
   'openclaw onboard', 'openclaw setup', 'openclaw configure', 'openclaw config',
@@ -21,26 +21,27 @@ const OC_COMMANDS = [
   'node -v', 'node --version',
 ]
 
-// Commands that need interactive TTY → launch OnboardActivity natively
 const INTERACTIVE_CMDS = ['gateway', 'onboard', 'configure', 'config', 'logs', 'chat', 'tui', 'browser', 'sandbox']
 
 export function Terminal() {
   const [history, setHistory] = useState<HistoryEntry[]>([
-    { type: 'out', text: 'OpenClaw Terminal' },
-    { type: 'out', text: '↑↓ historial  •  TAB autocompletar  •  ^L limpiar' },
+    { type: 'out', text: '╔══════════════════════════════╗' },
+    { type: 'out', text: '║   OpenClaw Terminal v2       ║' },
+    { type: 'out', text : '╚══════════════════════════════╝' },
+    { type: 'out', text: '↑↓ historial · TAB autocompletar · ^L limpiar' },
+    { type: 'out', text: '' },
   ])
   const [input, setInput] = useState('')
   const [ctrlOn, setCtrlOn] = useState(false)
   const [altOn, setAltOn] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [cmdHistory, setCmdHistory] = useState<string[]>([])
-  const [_histIdx, setHistIdx] = useState(-1)
+  const [, setHistIdx] = useState(-1)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight) }, [history])
 
-  // Listen for terminal:run events from Dashboard shortcuts
   useEffect(() => {
     const h = (e: Event) => { const cmd = (e as CustomEvent<string>).detail; if (cmd) runCmd(cmd) }
     window.addEventListener('terminal:run', h)
@@ -48,7 +49,6 @@ export function Terminal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Autocomplete
   useEffect(() => {
     if (input.length < 2) { setSuggestions([]); return }
     const q = input.toLowerCase()
@@ -105,46 +105,33 @@ export function Terminal() {
   const k = (label: string, bg: string, fg: string, flex: number, onPress: () => void): KeyDef => ({ label, bg, fg, flex, onPress })
 
   const row1: KeyDef[] = [
-    k('ESC', '#7f1d1d', '#fca5a5', 1, () => { setInput(''); setCtrlOn(false); setAltOn(false) }),
-    k('TAB', '#14532d', '#86efac', 1, () => { if (suggestions[0]) { setInput(suggestions[0]); setSuggestions([]) } else typeChar('\t') }),
-    k(ctrlOn ? 'CTRL●' : 'CTRL', ctrlOn ? '#92400e' : '#2d2200', '#fbbf24', 1.4, toggleCtrl),
-    k(altOn ? 'ALT●' : 'ALT', altOn ? '#92400e' : '#2d2200', '#fbbf24', 1.2, toggleAlt),
-    k('HOME', '#1c1c2e', '#c4b5fd', 1, () => setInput('')),
-    k('END', '#1c1c2e', '#c4b5fd', 1, () => inputRef.current?.focus()),
-    k('PGUP', '#1c1c2e', '#c4b5fd', 1, () => scrollRef.current?.scrollBy(0, -200)),
-    k('PGDN', '#1c1c2e', '#c4b5fd', 1, () => scrollRef.current?.scrollBy(0, 200)),
+    k('ESC', 'rgba(248,113,113,0.15)', '#fca5a5', 1, () => { setInput(''); setCtrlOn(false); setAltOn(false) }),
+    k('TAB', 'rgba(74,222,128,0.15)', '#86efac', 1, () => { if (suggestions[0]) { setInput(suggestions[0]); setSuggestions([]) } else typeChar('\t') }),
+    k(ctrlOn ? 'CTRL●' : 'CTRL', ctrlOn ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.1)', '#fbbf24', 1.4, toggleCtrl),
+    k(altOn ? 'ALT●' : 'ALT', altOn ? 'rgba(251,191,36,0.3)' : 'rgba(251,191,36,0.1)', '#fbbf24', 1.2, toggleAlt),
+    k('HOME', 'var(--surface2)', '#c4b5fd', 1, () => setInput('')),
+    k('END', 'var(--surface2)', '#c4b5fd', 1, () => inputRef.current?.focus()),
+    k('PGUP', 'var(--surface2)', '#c4b5fd', 1, () => scrollRef.current?.scrollBy(0, -200)),
+    k('PGDN', 'var(--surface2)', '#c4b5fd', 1, () => scrollRef.current?.scrollBy(0, 200)),
   ]
   const row2: KeyDef[] = [
-    k('←', '#1e2a3e', '#93c5fd', 1, () => setInput(p => p.slice(0, -1))),
-    k('↑', '#1e2a3e', '#93c5fd', 1, histUp),
-    k('↓', '#1e2a3e', '#93c5fd', 1, histDown),
-    k('→', '#1e2a3e', '#93c5fd', 1, () => inputRef.current?.focus()),
-    k('SPACE', '#1e2a3e', '#93c5fd', 1.5, () => typeChar(' ')),
-    k('BKSP', '#7f1d1d', '#fca5a5', 1, () => setInput(p => p.slice(0, -1))),
-    k('DEL', '#7f1d1d', '#fca5a5', 1, () => setInput('')),
+    k('←', 'var(--surface2)', '#93c5fd', 1, () => setInput(p => p.slice(0, -1))),
+    k('↑', 'var(--surface2)', '#93c5fd', 1, histUp),
+    k('↓', 'var(--surface2)', '#93c5fd', 1, histDown),
+    k('→', 'var(--surface2)', '#93c5fd', 1, () => inputRef.current?.focus()),
+    k('SPACE', 'var(--surface2)', '#93c5fd', 1.5, () => typeChar(' ')),
+    k('BKSP', 'rgba(248,113,113,0.15)', '#fca5a5', 1, () => setInput(p => p.slice(0, -1))),
+    k('DEL', 'rgba(248,113,113,0.15)', '#fca5a5', 1, () => setInput('')),
   ]
   const row3: KeyDef[] = [
-    k('↵ ENTER', '#14532d', '#86efac', 2, () => runCmd(input)),
-    k('^C', '#7f1d1d', '#fca5a5', 1, () => { setInput(''); append({ type: 'err', text: '^C' }) }),
-    k('^D', '#3b1f1f', '#fca5a5', 1, () => append({ type: 'out', text: '^D' })),
-    k('^Z', '#2d2200', '#fbbf24', 1, () => append({ type: 'out', text: '^Z' })),
-    k('^L', '#1c1c2e', '#c4b5fd', 1, () => setHistory([])),
-    k('^U', '#1c1c2e', '#c4b5fd', 1, () => setInput('')),
-    k('^K', '#1c1c2e', '#c4b5fd', 1, () => setInput(p => p.slice(0, p.lastIndexOf(' ') + 1))),
-    k('^W', '#1c1c2e', '#c4b5fd', 1, () => setInput(p => p.replace(/\S+\s*$/, ''))),
-  ]
-  // Row 4: quick-run common commands
-  const row4: KeyDef[] = [
-    k('status', '#1c1c2e', '#94a3b8', 1.2, () => runCmd('openclaw status')),
-    k('health', '#1c1c2e', '#94a3b8', 1.2, () => runCmd('openclaw health')),
-    k('models', '#1c1c2e', '#94a3b8', 1.2, () => runCmd('openclaw models')),
-    k('doctor', '#1c1c2e', '#94a3b8', 1.2, () => runCmd('openclaw doctor')),
-    k('version', '#1c1c2e', '#94a3b8', 1.2, () => runCmd('openclaw --version')),
-    k('help', '#1c1c2e', '#94a3b8', 1.2, () => runCmd('openclaw --help')),
-    k('skills', '#1c1c2e', '#94a3b8', 1.2, () => runCmd('openclaw skills')),
-    k('📋', '#1e2d1e', '#86efac', 1.2, () => {
-      try { navigator.clipboard?.readText?.().then(t => { if (t) setInput(p => p + t) }) } catch {/**/ }
-    }),
+    k('↵ ENTER', 'rgba(74,222,128,0.15)', '#86efac', 2, () => runCmd(input)),
+    k('^C', 'rgba(248,113,113,0.15)', '#fca5a5', 1, () => { setInput(''); append({ type: 'err', text: '^C' }) }),
+    k('^D', 'rgba(248,113,113,0.05)', '#fca5a5', 1, () => append({ type: 'out', text: '^D' })),
+    k('^Z', 'rgba(251,191,36,0.15)', '#fbbf24', 1, () => append({ type: 'out', text: '^Z' })),
+    k('^L', 'var(--surface2)', '#c4b5fd', 1, () => setHistory([])),
+    k('^U', 'var(--surface2)', '#c4b5fd', 1, () => setInput('')),
+    k('^K', 'var(--surface2)', '#c4b5fd', 1, () => setInput(p => p.slice(0, p.lastIndexOf(' ') + 1))),
+    k('^W', 'var(--surface2)', '#c4b5fd', 1, () => setInput(p => p.replace(/\S+\s*$/, ''))),
   ]
 
   const renderRow = (keys: KeyDef[]) => (
@@ -161,7 +148,7 @@ export function Terminal() {
   return (
     <div style={S.root}>
       {/* Output */}
-      <div ref={scrollRef} style={S.output}>
+      <div ref={scrollRef} className="no-scrollbar" style={S.output}>
         {history.map((h, i) => (
           <div key={i} style={{ ...S.line, color: h.type === 'cmd' ? '#4ade80' : h.type === 'err' ? '#f87171' : '#e2e8f0', fontWeight: h.type === 'cmd' ? 600 : 400 }}>
             {h.type === 'cmd' && <span style={{ color: '#6366f1' }}>$ </span>}
@@ -170,7 +157,7 @@ export function Terminal() {
         ))}
       </div>
 
-      {/* Autocomplete */}
+      {/* Autocomplete suggestions */}
       {suggestions.length > 0 && (
         <div style={S.suggestions}>
           {suggestions.map((s, i) => (
@@ -182,12 +169,32 @@ export function Terminal() {
         </div>
       )}
 
-      {/* Keyboard */}
-      <div style={S.keyboard}>
-        {renderRow(row1)}
-        {renderRow(row2)}
-        {renderRow(row3)}
-        {renderRow(row4)}
+      {/* Input area & Keyboard */}
+      <div style={S.keyboardArea}>
+        
+        {/* Quick Commands (hidden scrollbar) */}
+        <div className="no-scrollbar" style={S.quickCmds}>
+          {[
+            { label: 'gateway',  cmd: 'openclaw gateway',    color: '#60a5fa' },
+            { label: 'status',   cmd: 'openclaw status',     color: '#4ade80' },
+            { label: 'health',   cmd: 'openclaw health',     color: '#4ade80' },
+            { label: 'models',   cmd: 'openclaw models',     color: '#c4b5fd' },
+            { label: 'doctor',   cmd: 'openclaw doctor',     color: '#fb923c' },
+            { label: 'update',   cmd: 'openclaw update',     color: '#4ade80' },
+            { label: 'skills',   cmd: 'openclaw skills',     color: '#facc15' },
+            { label: 'version',  cmd: 'openclaw --version',  color: '#94a3b8' },
+            { label: 'tasks',    cmd: 'openclaw tasks',      color: '#22d3ee' },
+            { label: 'logs',     cmd: 'openclaw logs',       color: '#94a3b8' },
+            { label: 'node -v',  cmd: 'node -v',             color: '#86efac' },
+          ].map(q => (
+            <button key={q.cmd} style={{ ...S.quickCmdBtn, color: q.color, borderColor: q.color + '30', background: q.color + '10' }}
+              onPointerDown={e => { e.preventDefault(); runCmd(q.cmd) }}>
+              {q.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Input prompt */}
         <div style={S.inputRow}>
           <span style={S.prompt}>$</span>
           <input ref={inputRef} style={S.input}
@@ -199,36 +206,61 @@ export function Terminal() {
               if (e.key === 'ArrowUp') { e.preventDefault(); histUp() }
               if (e.key === 'ArrowDown') { e.preventDefault(); histDown() }
             }}
-            placeholder="Escribe o pega tu respuesta..."
+            placeholder={t('chat_placeholder')}
           />
           <button style={S.sendBtn} onPointerDown={e => { e.preventDefault(); runCmd(input) }}>▶</button>
         </div>
-        <div style={S.quickRow}>
-          <button style={S.quickBtn} onPointerDown={e => {
+
+        {/* Action Row */}
+        <div style={S.actionRow}>
+          <button style={S.actionBtn} onPointerDown={e => {
             e.preventDefault()
-            try { navigator.clipboard?.readText?.().then(t => { if (t) setInput(p => p + t) }) } catch {/**/ }
+            try { navigator.clipboard?.readText?.().then(txt => { if (txt) setInput(p => p + txt) }) } catch {/**/ }
           }}>📋 Pegar</button>
-          <button style={{ ...S.quickBtn, color: '#f87171' }}
+          <button style={{ ...S.actionBtn, color: '#f87171' }}
             onPointerDown={e => { e.preventDefault(); setInput('') }}>✕ Limpiar</button>
         </div>
+
+        {/* Keyboard layout */}
+        <div style={S.keyboard}>
+          {renderRow(row1)}
+          {renderRow(row2)}
+          {renderRow(row3)}
+        </div>
+        
       </div>
+      
+      {/* Hide scrollbars globally for classes that use them */}
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </div>
   )
 }
 
 const S: Record<string, React.CSSProperties> = {
-  root: { display: 'flex', flexDirection: 'column', height: '100%', background: '#080810', overflow: 'hidden' },
-  output: { flex: 1, overflowY: 'auto', padding: '10px 12px', fontFamily: 'monospace', fontSize: 13 },
-  line: { marginBottom: 3, whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.5 },
-  suggestions: { display: 'flex', flexWrap: 'wrap', gap: 4, padding: '4px 8px', background: '#0d0d1a', borderTop: '1px solid #1e1e35' },
-  suggestion: { background: '#1e1e35', border: '1px solid #3d3d6e', borderRadius: 6, color: '#a5b4fc', fontSize: 11, padding: '3px 8px', cursor: 'pointer' },
-  keyboard: { background: '#0a0a18', borderTop: '1px solid #1e1e35', padding: '4px 4px 6px', flexShrink: 0 },
-  kbRow: { display: 'flex', gap: 3, marginBottom: 3 },
-  kbKey: { height: 38, borderRadius: 7, border: '1px solid #2d2d4a', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', userSelect: 'none', WebkitUserSelect: 'none', padding: 0 },
-  inputRow: { display: 'flex', alignItems: 'center', gap: 6, background: '#12122a', borderRadius: 10, border: '1px solid #2d2d4a', padding: '4px 8px', margin: '4px 0' },
-  prompt: { color: '#6366f1', fontWeight: 700, fontSize: 16, fontFamily: 'monospace' },
-  input: { flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontFamily: 'monospace', fontSize: 14, padding: '4px 0' },
-  sendBtn: { background: '#6366f1', border: 'none', borderRadius: 8, color: '#fff', width: 32, height: 32, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  quickRow: { display: 'flex', gap: 8, paddingTop: 2 },
-  quickBtn: { background: 'transparent', border: 'none', color: '#a5b4fc', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '2px 4px' },
+  root:   { display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)', overflow:'hidden' },
+  output: { flex:1, overflowY:'auto', padding:'12px 14px', fontFamily:"'JetBrains Mono','Courier New',monospace", fontSize:12.5, lineHeight:1.6, WebkitOverflowScrolling:'touch' },
+  line:   { marginBottom:4, whiteSpace:'pre-wrap', wordBreak:'break-all' },
+  
+  suggestions: { display:'flex', flexWrap:'wrap', gap:6, padding:'8px 12px', background:'var(--surface)', borderTop:'1px solid var(--border)' },
+  suggestion:  { background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:8, color:'#a5b4fc', fontSize:11, padding:'6px 10px', cursor:'pointer', fontWeight: 600 },
+  
+  keyboardArea: { background:'rgba(8,8,16,0.95)', borderTop:'1px solid var(--border)', backdropFilter:'blur(16px)', flexShrink:0, display: 'flex', flexDirection: 'column' },
+  
+  quickCmds: { display:'flex', gap:6, overflowX:'auto', padding:'10px 12px 6px', WebkitOverflowScrolling:'touch' },
+  quickCmdBtn: { flexShrink:0, padding:'6px 12px', borderRadius:'var(--r-full)', border:'1px solid', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', letterSpacing:'0.3px', transition: 'transform 0.1s' },
+  
+  inputRow: { display:'flex', alignItems:'center', gap:8, background:'var(--surface)', borderRadius:12, border:'1px solid var(--border2)', padding:'6px 12px', margin:'6px 12px', boxShadow: 'var(--sh-inset)' },
+  prompt:   { color:'#6366f1', fontWeight:800, fontSize:15, fontFamily:"'JetBrains Mono',monospace", flexShrink:0 },
+  input:    { flex:1, background:'transparent', border:'none', outline:'none', color:'var(--text)', fontFamily:"'JetBrains Mono',monospace", fontSize:13, padding:'4px 0', caretColor:'#6366f1' },
+  sendBtn:  { background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', borderRadius:'var(--r-full)', color:'#fff', width:34, height:34, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow: '0 4px 12px rgba(99,102,241,0.4)' },
+  
+  actionRow: { display:'flex', gap:12, padding:'0 16px 8px' },
+  actionBtn: { background:'transparent', border:'none', color:'var(--text3)', fontSize:12, fontWeight:700, cursor:'pointer', padding:'4px' },
+  
+  keyboard: { padding:'0 6px 10px' },
+  kbRow:  { display:'flex', gap:4, marginBottom:4 },
+  kbKey:  { height:38, borderRadius:8, border:'1px solid rgba(255,255,255,0.05)', fontSize:11, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', userSelect:'none', WebkitUserSelect:'none', padding:0, letterSpacing:'0.2px' },
 }
