@@ -20,8 +20,20 @@ export function Dashboard() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true)
     try {
+      // Check gateway state via bridge first (most reliable)
+      const bridgeObj = (window as unknown as { OpenClaw?: { getGatewayState?: () => string } }).OpenClaw
+      const bridgeState = bridgeObj?.getGatewayState?.()
+
       const h = await api.getHealth().catch(() => ({ status: 'offline' }))
-      setHealth(h)
+
+      // Gateway is online if bridge says READY, or HTTP health check passes
+      if (bridgeState === 'READY' || h.status === 'ok') {
+        setHealth({ status: 'ok' })
+      } else if (bridgeState === 'STARTING' || bridgeState === 'RESTARTING') {
+        setHealth({ status: 'starting' })
+      } else {
+        setHealth(h)
+      }
 
       const info = bridge.callJson<AppInfo>('getAppInfo')
       if (info) setAppInfo(info)
@@ -39,6 +51,7 @@ export function Dashboard() {
   useEffect(() => { load() }, [load])
 
   const online = health?.status === 'ok' || health?.status === 'online'
+  const starting = health?.status === 'starting'
 
   return (
     <div className="page" style={{ paddingBottom: 32 }}>
@@ -52,9 +65,9 @@ export function Dashboard() {
           <div>
             <div style={S.headerTitle}>Openclaw</div>
             <div style={S.statusRow}>
-              <span style={{ ...S.dot, background: online ? '#4ade80' : '#f87171' }} />
-              <span style={{ ...S.statusText, color: online ? '#4ade80' : '#f87171' }}>
-                {online ? 'Activa' : 'Inactiva'}
+              <span style={{ ...S.dot, background: online ? '#4ade80' : starting ? '#fbbf24' : '#f87171' }} />
+              <span style={{ ...S.statusText, color: online ? '#4ade80' : starting ? '#fbbf24' : '#f87171' }}>
+                {online ? 'Activa' : starting ? 'Iniciando...' : 'Inactiva'}
               </span>
             </div>
           </div>
@@ -80,43 +93,37 @@ export function Dashboard() {
       {/* ── Comandos ── */}
       <div style={S.sectionLabel}>COMANDOS</div>
       <div style={S.listCard}>
-        <CmdRow
-          icon="▶" iconBg="#1e3a5f" iconColor="#60a5fa"
+        <CmdRow icon="▶" iconBg="#1e3a5f" iconColor="#60a5fa"
           title="Gateway" sub="openclaw gateway"
-          onClick={() => navigate('/terminal')}
-        />
-        <CmdRow
-          icon="●" iconBg="#14532d" iconColor="#4ade80"
+          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw gateway' })), 300) }} />
+        <CmdRow icon="●" iconBg="#14532d" iconColor="#4ade80"
           title="Status" sub="openclaw status"
-          onClick={() => navigate('/terminal')}
-        />
-        <CmdRow
-          icon="✦" iconBg="#3b2200" iconColor="#fbbf24"
+          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw status' })), 300) }} />
+        <CmdRow icon="✦" iconBg="#3b2200" iconColor="#fbbf24"
           title="Onboard" sub="openclaw onboard"
-          onClick={() => navigate('/terminal')}
-        />
-        <CmdRow
-          icon="≡" iconBg="#1e1e35" iconColor="#a5b4fc"
+          onClick={() => navigate('/terminal')} />
+        <CmdRow icon="≡" iconBg="#1e1e35" iconColor="#a5b4fc"
           title="Logs" sub="openclaw logs --follow"
-          onClick={() => navigate('/logs')}
-          last
-        />
+          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw logs' })), 300) }}
+          last />
       </div>
 
       {/* ── Gestión ── */}
       <div style={S.sectionLabel}>GESTIÓN</div>
       <div style={S.listCard}>
-        <CmdRow
-          icon="↑" iconBg="#14532d" iconColor="#4ade80"
-          title="Update" sub="oa --update"
-          onClick={() => navigate('/settings')}
-        />
-        <CmdRow
-          icon="+" iconBg="#14532d" iconColor="#4ade80"
-          title="Install Tools" sub="oa --install"
-          onClick={() => navigate('/settings')}
-          last
-        />
+        <CmdRow icon="↑" iconBg="#14532d" iconColor="#4ade80"
+          title="Update" sub="openclaw update"
+          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw update' })), 300) }} />
+        <CmdRow icon="🔧" iconBg="#1e1e35" iconColor="#a5b4fc"
+          title="Configure" sub="openclaw configure"
+          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw configure' })), 300) }} />
+        <CmdRow icon="🩺" iconBg="#1e1e35" iconColor="#fbbf24"
+          title="Doctor" sub="openclaw doctor"
+          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw doctor' })), 300) }} />
+        <CmdRow icon="🤖" iconBg="#1e1e35" iconColor="#c4b5fd"
+          title="Models" sub="openclaw models"
+          onClick={() => { navigate('/terminal'); setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw models' })), 300) }}
+          last />
       </div>
 
       {/* ── Quick Actions ── */}

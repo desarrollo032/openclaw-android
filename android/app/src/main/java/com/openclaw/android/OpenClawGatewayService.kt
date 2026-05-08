@@ -22,6 +22,7 @@ class OpenClawGatewayService : Service() {
 
     private var gatewayProcess: Process? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var mainJob: Job? = null
 
     // ── Companion: static state accessible from Activities ───────────────────
 
@@ -56,7 +57,6 @@ class OpenClawGatewayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification("Iniciando gateway..."))
-        _state.value = GatewayState.STARTING
 
         if (!OpenClawInstaller.isPayloadReady(this)) {
             Log.e(TAG, "Payload not ready — cannot start gateway")
@@ -66,8 +66,14 @@ class OpenClawGatewayService : Service() {
             return START_NOT_STICKY
         }
 
-        serviceScope.launch {
-            launchGateway()
+        if (mainJob == null || mainJob?.isActive == false) {
+            Log.i(TAG, "Starting gateway main loop")
+            _state.value = GatewayState.STARTING
+            mainJob = serviceScope.launch {
+                launchGateway()
+            }
+        } else {
+            Log.i(TAG, "Gateway loop already running, ignoring start command")
         }
 
         return START_STICKY

@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [App v0.5.0] - 2026-05-08
+
+### Added
+- **Terminal Interactivo Autocontenido**: Implementación completa de terminal usando librerías oficiales de Termux (`terminal-emulator` y `terminal-view` v0.119.0)
+  - Shell funcional con `/system/bin/sh` (sin requerir app Termux instalada)
+  - Soporte para comandos básicos: ls, cd, pwd, echo, cat, mkdir, etc.
+  - Entrada de teclado completa (físico y virtual)
+  - Scroll táctil y selección de texto
+  - Configuración de colores ANSI y tamaño de fuente
+  - Manejo completo del ciclo de vida (TerminalSession, TerminalView)
+  - `TerminalActivity.kt`: Actividad principal del terminal interactivo
+  - Soporte para gestos de zoom y selección de texto
+- **Documentación actualizada**: README.md y DOCUMENTATION_TECHNICAL.md con detalles del terminal
+
+### Changed
+- Actualizar `build.gradle.kts` con dependencias de Termux desde JitPack
+- Registrar `TerminalActivity` en `AndroidManifest.xml`
+- Crear layout `activity_terminal.xml` con `TerminalView`
+
 ## [Script v1.0.27] - 2026-04-13
 
 ### Fixed

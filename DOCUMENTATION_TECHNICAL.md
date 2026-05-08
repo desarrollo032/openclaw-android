@@ -19,6 +19,22 @@ Para evitar conflictos con las librerías nativas de Android (Bionic), se utiliz
 
 ## 🛠 Componentes de Software
 
+### Terminal Interactivo (`TerminalActivity.kt`)
+Implementación de un terminal completo usando librerías oficiales de Termux:
+- **Librerías**: `com.github.termux:terminal-emulator` y `com.github.termux:terminal-view` (v0.119.0)
+- **Shell**: `/system/bin/sh` (shell nativa de Android, sin dependencias externas)
+- **Características**:
+  - Emulación completa de terminal VT100/ANSI
+  - Soporte para entrada de teclado físico y virtual
+  - Scroll táctil y selección de texto
+  - Configuración de colores (16 colores ANSI) y tamaño de fuente
+  - Manejo de ciclo de vida (creación/destrucción de sesiones)
+- **Implementación**:
+  - `TerminalSession`: Maneja el proceso del shell y el emulador
+  - `TerminalView`: Widget visual para mostrar y interactuar con el terminal
+  - `TerminalSessionClient`: Callbacks para eventos de la sesión
+  - `TerminalViewClient`: Callbacks para eventos de la vista (gestos, teclas)
+
 ### Extracción Robusta (`OpenClawExtensions.kt`)
 Se utilizan librerías de `org.apache.commons:commons-compress` y `org.tukaani:xz` para manejar la descompresión en streaming:
 - Evita cargar archivos grandes en memoria.
@@ -40,3 +56,11 @@ El servicio gestiona la persistencia:
 
 - **Sandbox Total**: No se requieren permisos de `READ_EXTERNAL_STORAGE` o `WRITE_EXTERNAL_STORAGE`. Todo ocurre en `context.filesDir`.
 - **Privacidad**: Los datos de configuración, memoria y plugins de la IA están protegidos por el sistema de archivos de Android y no son accesibles por otras apps.
+
+## 📱 Notas sobre Compatibilidad Android
+
+### Android 11+ (API 30+) - Restricciones W^X
+Android 11 introdujo restricciones Write-Xor-Execute que pueden afectar la ejecución de binarios:
+- El terminal usa `/system/bin/sh` que es parte del sistema y funciona correctamente
+- Si hay problemas, verificar que el directorio de trabajo sea accesible (`/data/local/tmp`)
+- Las librerías de Termux manejan apropiadamente estas restricciones

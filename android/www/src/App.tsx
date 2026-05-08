@@ -17,6 +17,7 @@ import { SettingsAbout } from './screens/SettingsAbout'
 import { SettingsKeepAlive } from './screens/SettingsKeepAlive'
 import { SettingsTools } from './screens/SettingsTools'
 import { SettingsUpdates } from './screens/SettingsUpdates'
+import { Channels } from './screens/Channels'
 
 type Tab = 'chat' | 'dashboard' | 'terminal' | 'skills' | 'memory' | 'logs' | 'settings'
 
@@ -33,14 +34,19 @@ export function App() {
   const [online, setOnline] = useState(false)
   const [setupDone, setSetupDone] = useState<boolean | null>(null)
 
-  // Gateway health polling
+  // Gateway health polling — check bridge state + HTTP
   useEffect(() => {
     const check = async () => {
+      // Bridge state is most reliable
+      const bridgeObj = (window as unknown as { OpenClaw?: { getGatewayState?: () => string } }).OpenClaw
+      const bridgeState = bridgeObj?.getGatewayState?.()
+      if (bridgeState === 'READY') { setOnline(true); return }
+
       const h = await api.getHealth()
       setOnline(h.status === 'ok' || h.status === 'online')
     }
     check()
-    const id = setInterval(check, 10_000)
+    const id = setInterval(check, 8_000)
     return () => clearInterval(id)
   }, [])
 
@@ -138,5 +144,6 @@ function SettingsRouter() {
   if (path === '/settings/keepalive') return <SettingsKeepAlive />
   if (path === '/settings/tools') return <SettingsTools />
   if (path === '/settings/updates') return <SettingsUpdates />
+  if (path === '/settings/channels') return <Channels />
   return <Settings />
 }

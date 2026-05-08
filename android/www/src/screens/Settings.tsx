@@ -330,6 +330,15 @@ export function Settings() {
             <div className="card-chevron">›</div>
           </div>
 
+          <div className="settings-item" onClick={() => navigate('/settings/channels')}>
+            <div className="card-icon">📡</div>
+            <div className="card-content">
+              <div className="card-label">Canales</div>
+              <div className="card-desc">Telegram, WhatsApp, Discord, Slack...</div>
+            </div>
+            <div className="card-chevron">›</div>
+          </div>
+
           <div className="settings-item" onClick={() => navigate('/settings/platforms')}>
             <div className="card-icon">🔌</div>
             <div className="card-content">

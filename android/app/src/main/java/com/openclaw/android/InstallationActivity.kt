@@ -113,6 +113,13 @@ class InstallationActivity : AppCompatActivity() {
             }
             if (!configOk) { onInstallFailed("Falló la restauración de la configuración."); return@launch }
 
+            // Crear symlinks de BusyBox en payloadDir/bin/ para los applets del shell
+            withContext(Dispatchers.IO) {
+                runOnUiThread { updateProgress("Configurando BusyBox...", 99) }
+                val count = OpenClawTerminalManager(this@InstallationActivity).createBusyboxSymlinks()
+                Log.i(TAG, "BusyBox symlinks creados: $count")
+            }
+
             onInstallSuccess()
         }
     }
@@ -137,6 +144,13 @@ class InstallationActivity : AppCompatActivity() {
                 }
             }
             if (!configOk) { onInstallFailed("Falló la restauración de la configuración."); return@launch }
+
+            // Crear symlinks de BusyBox en payloadDir/bin/ para los applets del shell
+            withContext(Dispatchers.IO) {
+                runOnUiThread { updateProgress("Configurando BusyBox...", 99) }
+                val count = OpenClawTerminalManager(this@InstallationActivity).createBusyboxSymlinks()
+                Log.i(TAG, "BusyBox symlinks creados: $count")
+            }
 
             onInstallSuccess()
         }

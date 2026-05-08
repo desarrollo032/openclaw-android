@@ -16,6 +16,7 @@ Esta es una versión de OpenClaw para Android diseñada para ser **completamente
   - **Carga Local (App Liviana)**: Permite seleccionar los archivos `payload.tar.xz` y `openclaw-apk-migration.tar.gz` desde el almacenamiento del teléfono para mantener el APK pequeño.
 - **Gateway Nativo**: Ejecuta el núcleo de OpenClaw como un servicio de Android en primer plano (`Foreground Service`).
 - **Dashboard Integrado**: Interfaz de usuario accesible mediante un WebView optimizado.
+- **Terminal Interactivo Autocontenido**: Terminal completo usando librerías oficiales de Termux (`terminal-emulator` y `terminal-view`) embebidas en la app, sin requerir la app Termux instalada. Soporta comandos shell básicos (ls, cd, pwd, echo, cat, mkdir, etc.) con entrada de teclado, scroll y configuración de colores/fuente.
 - **Sin Dependencias Externas**: No requiere instalar Termux ni configurar entornos complejos manualmente.
 
 ## 📂 Estructura del Proyecto
@@ -23,6 +24,7 @@ Esta es una versión de OpenClaw para Android diseñada para ser **completamente
 - `OpenClawInstaller.kt`: Gestiona la extracción y verificación de los componentes.
 - `OpenClawGatewayService.kt`: Servicio que mantiene vivo el servidor Node.js/OpenClaw.
 - `OpenClawDashboardActivity.kt`: Actividad para interactuar con la WebUI de OpenClaw.
+- `TerminalActivity.kt`: Terminal interactivo usando librerías de Termux (autocontenido, sin app externa).
 - `OpenClawExtensions.kt`: Utilidades de bajo nivel para descompresión `.tar.xz` y `.tar.gz`.
 
 ## 🛠 Requisitos de Instalación

@@ -50,8 +50,18 @@ class OnboardActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // If onboard was already completed (flag set), go straight to dashboard
+        // UNLESS a specific interactive command was requested
+        val interactiveCmd = intent.getStringExtra("interactive_cmd")
+        if (interactiveCmd == null && OpenClawInstaller.isOnboardComplete(this)) {
+            Log.i("OnboardActivity", "Onboard already complete — skipping to dashboard")
+            launchDashboard()
+            return
+        }
+
         setContentView(buildLayout())
-        startOnboard()
+        startOnboard(interactiveCmd)
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -63,11 +73,14 @@ class OnboardActivity : AppCompatActivity() {
 
     // ── Onboard process ───────────────────────────────────────────────────────
 
-    private fun startOnboard() {
-        setStatus("Iniciando openclaw onboard...", Color.parseColor("#a0a0c0"))
-        appendOutput("🦀 OpenClaw Onboard\n")
-        appendOutput("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-        appendOutput("Responde las preguntas del asistente de configuración.\n\n")
+    private fun startOnboard(customCmd: String? = null) {
+        val cmdArgs = customCmd?.trim()?.split("\\s+".toRegex())?.filter { it.isNotEmpty() }
+            ?: listOf("onboard")
+        val displayCmd = customCmd ?: "openclaw onboard"
+
+        setStatus("Iniciando $displayCmd...", Color.parseColor("#a0a0c0"))
+        appendOutput("🦀 OpenClaw — $displayCmd\n")
+        appendOutput("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -87,12 +100,13 @@ class OnboardActivity : AppCompatActivity() {
                 }
 
                 val pb = ProcessBuilder(
-                    loader.absolutePath,
-                    "--library-path", libs,
-                    nodeExec.absolutePath,
-                    "--disable-warning=ExperimentalWarning",
-                    openclaw.absolutePath,
-                    "onboard"
+                    listOf(
+                        loader.absolutePath,
+                        "--library-path", libs,
+                        nodeExec.absolutePath,
+                        "--disable-warning=ExperimentalWarning",
+                        openclaw.absolutePath
+                    ) + cmdArgs
                 ).apply {
                     directory(base)
                     redirectErrorStream(true)
@@ -452,31 +466,36 @@ class OnboardActivity : AppCompatActivity() {
             key("DEL",   bg="#3b1f1f", fg="#fca5a5") { sendKey(byteArrayOf(0x1B,0x5B,0x33,0x7E)) }
         )
 
-        // ── Row 3: ENTER  |  Ctrl shortcuts: C  D  Z  L  U  K  W ───────────
+        // ── Row 3: ENTER  |  Ctrl shortcuts ─────────────────────────────────
         btnEnter = key("↵ ENTER", weight=2f, bg="#14532d", fg="#86efac") { sendKey(byteArrayOf(0x0D)) } as Button
         btnCtrlC = key("^C", bg="#7f1d1d", fg="#fca5a5") { sendRaw(byteArrayOf(0x03)) } as Button
 
         val r3 = row(
             btnEnter,
             btnCtrlC,
-            key("^D", bg="#3b1f1f", fg="#fca5a5") { sendRaw(byteArrayOf(0x04)) },  // EOF
-            key("^Z", bg="#2d2200", fg="#fbbf24") { sendRaw(byteArrayOf(0x1A)) },  // suspend
-            key("^L", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x0C)) },  // clear screen
-            key("^U", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x15)) },  // kill line
-            key("^K", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x0B)) },  // kill to end
-            key("^W", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x17)) }   // delete word
+            key("^D", bg="#3b1f1f", fg="#fca5a5") { sendRaw(byteArrayOf(0x04)) },
+            key("^Z", bg="#2d2200", fg="#fbbf24") { sendRaw(byteArrayOf(0x1A)) },
+            key("^L", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x0C)) },
+            key("^U", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x15)) },
+            key("^K", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x0B)) },
+            key("^W", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x17)) }
         )
 
-        // ── Row 4: F1-F6  |  INS  COPY(^C text)  PASTE ──────────────────────
-        btnSpace = key("F1", bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x50)) } as Button
+        // ── Row 4: Quick-answer buttons for Yes/No menus ─────────────────────
+        // These send the text + Enter directly, which openclaw accepts for Yes/No prompts
+        btnSpace = key("SPACE", bg="#1e2a3e", fg="#93c5fd") { sendRaw(byteArrayOf(0x20)) } as Button
         val r4 = row(
-            btnSpace,  // reuse btnSpace slot for F1
-            key("F2",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x51)) },
-            key("F3",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x52)) },
-            key("F4",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x53)) },
-            key("F5",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x5B,0x31,0x35,0x7E)) },
-            key("F6",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x5B,0x31,0x37,0x7E)) },
-            key("INS", bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x5B,0x32,0x7E)) },
+            key("✓ YES", weight=1.5f, bg="#14532d", fg="#86efac") {
+                sendRaw("yes\r".toByteArray())
+            },
+            key("✗ NO",  weight=1.5f, bg="#7f1d1d", fg="#fca5a5") {
+                sendRaw("no\r".toByteArray())
+            },
+            btnSpace,
+            key("y", bg="#1e2a3e", fg="#93c5fd") { sendRaw("y\r".toByteArray()) },
+            key("n", bg="#1e2a3e", fg="#93c5fd") { sendRaw("n\r".toByteArray()) },
+            key("skip", bg="#1c1c2e", fg="#94a3b8") { sendRaw("skip\r".toByteArray()) },
+            key("quit", bg="#2d2200", fg="#fbbf24") { sendRaw("quit\r".toByteArray()) },
             key("📋",  weight=1.2f, bg="#1e2d1e", fg="#86efac") {
                 val cm = getSystemService(android.content.ClipboardManager::class.java)
                 val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() ?: return@key

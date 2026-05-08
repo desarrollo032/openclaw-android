@@ -21,6 +21,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     private lateinit var statusText:       TextView
     private lateinit var retryButton:      Button
     private lateinit var openBrowserButton: Button
+    private lateinit var terminalButton:   Button
 
     private val DASHBOARD_URL = "file:///android_asset/www/index.html"
     private var waitJob: Job? = null
@@ -150,6 +151,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         statusText.text             = msg
         retryButton.visibility      = View.GONE
         openBrowserButton.visibility = View.GONE
+        terminalButton.visibility   = View.GONE
     }
 
     private fun showError(msg: String) {
@@ -159,6 +161,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         statusText.text             = msg
         retryButton.visibility      = View.VISIBLE
         openBrowserButton.visibility = View.VISIBLE
+        terminalButton.visibility   = View.VISIBLE
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
@@ -275,6 +278,20 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             }
         }
         card.addView(openBrowserButton)
+
+        // Terminal button — siempre visible en el overlay (útil si el gateway falla)
+        terminalButton = Button(this).apply {
+            text     = "⌨ Abrir terminal"
+            textSize = 13f
+            setTextColor(android.graphics.Color.parseColor("#8be9fd"))
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            layoutParams = LinearLayout.LayoutParams(-1, 44.dp()).apply { topMargin = 4.dp() }
+            visibility   = View.GONE   // visible en showError()
+            setOnClickListener {
+                startActivity(Intent(this@OpenClawDashboardActivity, OpenClawTerminalActivity::class.java))
+            }
+        }
+        card.addView(terminalButton)
 
         overlay.addView(card)
         frame.addView(overlay)

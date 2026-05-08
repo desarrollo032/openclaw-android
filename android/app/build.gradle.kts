@@ -8,6 +8,8 @@ plugins {
 
 // ── Dynamic versioning from git ───────────────────────────────────────────────
 
+// ── Dynamic versioning from git ───────────────────────────────────────────────
+
 fun runGit(vararg args: String): String = try {
     ProcessBuilder("git", *args)
         .directory(rootProject.projectDir)
@@ -123,6 +125,12 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.26.0")
     implementation("org.tukaani:xz:1.9")
     implementation("androidx.webkit:webkit:1.10.0")
+
+    // ── Termux Terminal Libraries ────────────────────────────────────────────
+    // Librería core de emulación de terminal (TerminalSession, etc.)
+    implementation("com.github.termux:terminal-emulator:v0.119.0")
+    // Vista de terminal para Android (TerminalView)
+    implementation("com.github.termux:terminal-view:v0.119.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

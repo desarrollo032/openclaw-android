@@ -45,6 +45,9 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
     fun getGatewayUrl(): String = "ws://127.0.0.1:18789"
 
     @JavascriptInterface
+    fun getGatewayState(): String = OpenClawGatewayService.getState().name
+
+    @JavascriptInterface
     fun getSetupStatus(): String {
         val obj = JSONObject()
         obj.put("bootstrapInstalled", OpenClawInstaller.isPayloadReady(context))
@@ -182,7 +185,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun runCommand(cmd: String): String {
-        val obj = JSONObject()
         return try {
             val base      = OpenClawInstaller.getPayloadDir(context)
             val nativeDir = java.io.File(context.applicationInfo.nativeLibraryDir)
@@ -190,34 +192,50 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
             val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
             val loader    = java.io.File(nativeDir, "libldlinux.so")
             val nodeExec  = java.io.File(nativeDir, "libnode.so")
+            val ocMjs     = java.io.File(base, "lib/node_modules/openclaw/openclaw.mjs")
             val tmpDir    = java.io.File(context.cacheDir, "tmp").apply { mkdirs() }
             val configDir = OpenClawInstaller.getConfigDir(context)
 
-            // Map friendly command names to actual binary paths + args
+            if (!loader.exists() || !nodeExec.exists()) {
+                return JSONObject().put("stdout", "Error: binarios no encontrados").toString()
+            }
+
+            // Parse command into binary + args
+            val parts = cmd.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
+            if (parts.isEmpty()) return JSONObject().put("stdout", "").toString()
+
             val (binary, args) = when {
-                cmd.startsWith("node") -> {
-                    // node -v  →  ld-linux node.real -v
-                    val nodeArgs = cmd.removePrefix("node").trim().split(" ").filter { it.isNotEmpty() }
-                    loader.absolutePath to (listOf("--library-path", libs, nodeExec.absolutePath) + nodeArgs)
+                // node -v, node --version
+                parts[0] == "node" -> {
+                    loader.absolutePath to (listOf("--library-path", libs, nodeExec.absolutePath)
+                        + parts.drop(1))
                 }
-                cmd.startsWith("git") -> {
-                    val gitBin = java.io.File(base, "bin/git")
-                    if (!gitBin.exists()) return JSONObject().put("stdout", "no encontrado").toString()
-                    loader.absolutePath to listOf("--library-path", libs, gitBin.absolutePath) +
-                        cmd.removePrefix("git").trim().split(" ").filter { it.isNotEmpty() }
-                }
-                cmd.contains("openclaw --version") || cmd.contains("openclaw -v") -> {
-                    // Run: ld-linux node.real openclaw.mjs --version
-                    val ocMjs = java.io.File(base, "lib/node_modules/openclaw/openclaw.mjs")
-                    if (!ocMjs.exists()) return JSONObject().put("stdout", "no encontrado").toString()
-                    loader.absolutePath to listOf(
+                // openclaw <subcommand> or oa <subcommand>
+                parts[0] == "openclaw" || parts[0] == "oa" -> {
+                    if (!ocMjs.exists()) return JSONObject().put("stdout", "openclaw no instalado").toString()
+                    loader.absolutePath to (listOf(
                         "--library-path", libs,
                         nodeExec.absolutePath,
                         "--disable-warning=ExperimentalWarning",
-                        ocMjs.absolutePath, "--version"
-                    )
+                        ocMjs.absolutePath
+                    ) + parts.drop(1))
                 }
-                else -> return JSONObject().put("stdout", "no encontrado").toString()
+                // Direct path execution
+                parts[0].startsWith("/") -> {
+                    val bin = java.io.File(parts[0])
+                    if (!bin.exists()) return JSONObject().put("stdout", "no encontrado: ${parts[0]}").toString()
+                    loader.absolutePath to (listOf("--library-path", libs, parts[0]) + parts.drop(1))
+                }
+                // Anything else — try as openclaw subcommand
+                else -> {
+                    if (!ocMjs.exists()) return JSONObject().put("stdout", "no encontrado").toString()
+                    loader.absolutePath to (listOf(
+                        "--library-path", libs,
+                        nodeExec.absolutePath,
+                        "--disable-warning=ExperimentalWarning",
+                        ocMjs.absolutePath
+                    ) + parts)
+                }
             }
 
             val pb = ProcessBuilder(listOf(binary) + args).apply {
@@ -227,26 +245,30 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                     remove("LD_PRELOAD")
                     put("LD_LIBRARY_PATH", libs)
                     put("OA_GLIBC",        "1")
+                    put("CONTAINER",       "1")
                     put("TMPDIR",          tmpDir.absolutePath)
                     put("HOME",            base.absolutePath)
                     put("NODE_PATH",       "${base.absolutePath}/lib/node_modules")
                     put("OPENCLAW_HOME",   configDir.absolutePath)
+                    put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")
                     put("PATH",            "${base.absolutePath}/bin:/system/bin")
                     put("NODE_NO_WARNINGS",                          "1")
                     put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
                     put("NODE_DISABLE_COMPILE_CACHE",                "1")
+                    put("NO_COLOR",        "1")
+                    put("FORCE_COLOR",     "0")
                 }
             }
 
             val proc   = pb.start()
+            // Limit output read to 10s to avoid blocking the UI thread
             val output = proc.inputStream.bufferedReader().readText().trim()
             proc.waitFor()
 
-            obj.put("stdout", output.ifEmpty { "no encontrado" })
-            obj.toString()
+            JSONObject().put("stdout", output.ifEmpty { "(sin salida)" }).toString()
         } catch (e: Exception) {
             Log.w("OpenClawBridge", "runCommand($cmd) failed: ${e.message}")
-            JSONObject().put("stdout", "no encontrado").toString()
+            JSONObject().put("stderr", e.message ?: "error desconocido").toString()
         }
     }
 
@@ -462,6 +484,16 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         val exists = java.io.File(binDir, id).exists() ||
                      java.io.File(base, "lib/node_modules/$id").exists()
         return JSONObject().put("installed", exists).toString()
+    }
+
+    @JavascriptInterface
+    fun launchInteractiveCommand(cmd: String) {
+        // Launch OnboardActivity with a custom command for interactive sessions
+        val intent = android.content.Intent(context, OnboardActivity::class.java).apply {
+            putExtra("interactive_cmd", cmd)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     }
 
     @JavascriptInterface
