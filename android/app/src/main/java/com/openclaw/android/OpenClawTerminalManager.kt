@@ -129,10 +129,11 @@ class OpenClawTerminalManager(private val context: Context) {
         return try {
             TerminalSession(
                 shell,                               // ejecutable
-                arrayOf(shell, "sh", "-i"),          // argv: argv[0]=shell, argv[1]=sh, argv[2]=-i
-                env,                                 // environment (sin LD_PRELOAD)
-                workingDir,                          // working directory
-                client                               // callbacks
+                workingDir,                          // working directory (2do param)
+                arrayOf(shell, "sh", "-i"),          // argv (3er param)
+                env,                                 // environment (4to param)
+                4000,                                // history size (5to param)
+                client                               // callbacks (6to param)
             )
         } catch (e: Exception) {
             Log.e(TAG, "TerminalSession creation failed", e)

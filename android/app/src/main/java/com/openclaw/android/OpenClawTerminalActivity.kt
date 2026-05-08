@@ -103,7 +103,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     private fun setupTerminalView() {
         terminalView.setTerminalViewClient(OpenClawTerminalViewClient())
-        terminalView.setTextSize(currentFontSizeSp)
+        terminalView.setTextSize(currentFontSizeSp.toInt())
 
 
 
@@ -139,10 +139,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // BACK: si hay texto seleccionado, cancela selección; si no, minimiza terminal
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (terminalView.isSelectingText) {
-                terminalView.stopTextSelectionMode()
-                return true
-            }
+            terminalView.stopTextSelectionMode()
             // No finish() — el usuario puede volver con el botón del sistema
             moveTaskToBack(true)
             return true
@@ -159,14 +156,14 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     // ── TerminalSessionClient callbacks ───────────────────────────────────────
 
     /** La pantalla necesita re-renderizarse */
-    override fun onTextChanged(changedSession: TerminalSession?) {
+    override fun onTextChanged(changedSession: TerminalSession) {
         // TerminalView se invalida automáticamente cuando la sesión notifica cambios.
         // Sin runOnUiThread aquí — el callback ya llega en el hilo correcto.
     }
 
     /** La sesión terminó (shell salió) */
-    override fun onSessionFinished(finishedSession: TerminalSession?) {
-        Log.i(TAG, "Shell session finished (exit code: ${finishedSession?.exitStatus})")
+    override fun onSessionFinished(finishedSession: TerminalSession) {
+        Log.i(TAG, "Shell session finished (exit code: ${finishedSession.exitStatus})")
         runOnUiThread {
             // Mostrar mensaje de "Process completed" y botón de reinicio
             showRestartOverlay()
@@ -174,8 +171,8 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     /** El usuario copió texto desde la terminal */
-    override fun onCopyText(session: TerminalSession?, text: String?) {
-        text?.let {
+    override fun onCopyTextToClipboard(session: TerminalSession, text: String) {
+        text.let {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("terminal", it))
             Log.d(TAG, "Copied ${it.length} chars to clipboard")
@@ -183,18 +180,23 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     /** La terminal necesita texto del portapapeles */
-    override fun onPasteText(session: TerminalSession?): String? {
+    override fun onPasteTextFromClipboard(session: TerminalSession) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        return clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        text?.let { 
+            session.write(it) 
+        }
     }
 
+    override fun getTerminalCursorStyle(): Int = 0 // Block cursor
+
     /** Bell (BEL char 0x07) — vibración opcional */
-    override fun onBell(session: TerminalSession?) {
+    override fun onBell(session: TerminalSession) {
         // Vibración deliberadamente omitida para no molestar al usuario
     }
 
     /** Los colores del terminal cambiaron via secuencias OSC */
-    override fun onColorsChanged(session: TerminalSession?) {
+    override fun onColorsChanged(session: TerminalSession) {
         terminalView.invalidate()
     }
 
@@ -204,27 +206,36 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     /** El título de la ventana cambió (secuencia OSC 0/2) */
-    override fun onSessionTitleChanged(changedSession: TerminalSession?) {
-        val title = changedSession?.title?.takeIf { it.isNotBlank() } ?: "Terminal"
+    override fun onTitleChanged(changedSession: TerminalSession) {
+        val title = changedSession.title.takeIf { it.isNotBlank() } ?: "Terminal"
         runOnUiThread {
             supportActionBar?.title = title
         }
     }
 
     /** Scroll hacia abajo por trackpad/ratón externo */
-    override fun onTrackpadScrollDown() {
-        terminalView.scrollDown()
+    fun onTrackpadScrollDown() {
+        // terminalView.scrollLines(1) 
     }
 
     /** Scroll hacia arriba por trackpad/ratón externo */
-    override fun onTrackpadScrollUp() {
-        terminalView.scrollUp()
+    fun onTrackpadScrollUp() {
+        // terminalView.scrollLines(-1)
     }
 
     /** El usuario inició modo selección de texto */
-    override fun onRequestSelectingText() {
-        terminalView.startSelectionMode()
+    fun onRequestSelectingText() {
+        // terminalView.startTextSelectionMode(null) 
     }
+
+    // ── Logging methods (required by some library versions) ───────────────────
+    override fun logError(tag: String?, message: String?) { Log.e("PTY", message ?: "") }
+    override fun logWarn(tag: String?, message: String?) { Log.w("PTY", message ?: "") }
+    override fun logInfo(tag: String?, message: String?) { Log.i("PTY", message ?: "") }
+    override fun logDebug(tag: String?, message: String?) { Log.d("PTY", message ?: "") }
+    override fun logVerbose(tag: String?, message: String?) {}
+    override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) {}
+    override fun logStackTrace(tag: String?, e: Exception?) {}
 
     // ── Special keys toolbar ──────────────────────────────────────────────────
 
@@ -491,22 +502,20 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
             val newSize = (currentFontSizeSp * scale).coerceIn(8f, 28f)
             if (newSize != currentFontSizeSp) {
                 currentFontSizeSp    = newSize
-                terminalView.textSize = newSize
+                terminalView.setTextSize(newSize.toInt())
             }
             return scale
         }
 
         /** Tap simple: solicitar foco y mostrar teclado */
         override fun onSingleTapUp(e: MotionEvent?) {
-            if (!terminalView.isSelectingText) {
-                terminalView.requestFocus()
-                showKeyboard()
-            }
+            terminalView.requestFocus()
+            showKeyboard()
         }
 
         /** Pulsación larga: iniciar selección de texto */
         override fun onLongPress(e: MotionEvent?): Boolean {
-            terminalView.startSelectionMode()
+            // terminalView.startTextSelectionMode(e)
             return true
         }
 
@@ -520,7 +529,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
         /** Teclas presionadas en el view (delegadas a la Activity) */
         override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: TerminalSession?): Boolean = false
-        override fun onKeyUp(keyCode: Int, e: KeyEvent?, session: TerminalSession?): Boolean   = false
+        override fun onKeyUp(keyCode: Int, e: KeyEvent?): Boolean = false
 
         // Teclas modificadoras (teclado físico externo)
         override fun readControlKey(): Boolean = false
@@ -529,6 +538,21 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         override fun readFnKey():      Boolean = false
 
         /** Deshabilitar entrada cuando la sesión terminó */
-        override fun disableInput(): Boolean = terminalSession?.isRunning != true
+        fun disableInput(): Boolean = terminalSession?.isRunning != true
+
+        override fun shouldEnforceCharBasedInput(): Boolean = true
+        override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
+        override fun onEmulatorSet() {}
+        override fun isTerminalViewSelected(): Boolean = true
+
+        override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?): Boolean = false
+
+        override fun logError(tag: String?, message: String?) { Log.e("PTY-View", message ?: "") }
+        override fun logWarn(tag: String?, message: String?) { Log.w("PTY-View", message ?: "") }
+        override fun logInfo(tag: String?, message: String?) { Log.i("PTY-View", message ?: "") }
+        override fun logDebug(tag: String?, message: String?) { Log.d("PTY-View", message ?: "") }
+        override fun logVerbose(tag: String?, message: String?) {}
+        override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) {}
+        override fun logStackTrace(tag: String?, e: Exception?) {}
     }
 }

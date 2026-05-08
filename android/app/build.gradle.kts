@@ -114,8 +114,6 @@ android {
 }
 
 dependencies {
-    implementation(files("libs/terminal-emulator.aar"))
-    implementation(files("libs/terminal-view.aar"))
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
@@ -130,7 +128,6 @@ dependencies {
 
     // ── Termux Terminal Libraries ────────────────────────────────────────────
     // Librería core de emulación de terminal (TerminalSession, etc.)
-    // ✅ Poner esto
     implementation("com.github.termux.termux-app:terminal-emulator:v0.118.0")
     implementation("com.github.termux.termux-app:terminal-view:v0.118.0")
     // Vista de terminal para Android (TerminalView)

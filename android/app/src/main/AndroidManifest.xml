@@ -65,7 +65,7 @@
         <!-- Terminal interactivo (BusyBox PTY) usando librerías de Termux -->
         <activity
             android:name=".OpenClawTerminalActivity"
-            android:exported="false"
+            android:exported="true"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|screenLayout|smallestScreenSize"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/AppTheme" />
@@ -81,5 +81,3 @@
     </application>
 
 </manifest>
-
-
