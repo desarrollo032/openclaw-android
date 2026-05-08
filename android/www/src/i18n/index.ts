@@ -17,8 +17,9 @@ function detectLocale(): string {
   }
 
   // 2. Detect from browser/system language
-  const lang = navigator.language || ''
-  if (lang.startsWith('es')) return 'es'
+  const langs = navigator.languages || [navigator.language || '']
+  const lang = langs.find(l => l) || ''
+  if (lang.toLowerCase().startsWith('es')) return 'es'
   return 'en'
 }
 
@@ -29,8 +30,15 @@ export function getLocale(): string {
   return currentLocale
 }
 
+let listeners: Array<() => void> = []
+
+export function subscribeLocale(fn: () => void) {
+  listeners.push(fn)
+  return () => { listeners = listeners.filter(l => l !== fn) }
+}
+
 export function setLocale(locale: string) {
-  if (locales[locale]) {
+  if (locales[locale] && currentLocale !== locale) {
     currentLocale = locale
     currentTranslations = locales[locale]
     try {
@@ -38,7 +46,22 @@ export function setLocale(locale: string) {
     } catch {
       // ignore
     }
+    listeners.forEach(l => l())
   }
+}
+
+// Escuchar cambios de idioma del sistema operativo
+if (typeof window !== 'undefined') {
+  window.addEventListener('languagechange', () => {
+    if (!localStorage.getItem('locale')) {
+      const newLocale = detectLocale()
+      if (newLocale !== currentLocale) {
+        currentLocale = newLocale
+        currentTranslations = locales[newLocale]
+        listeners.forEach(l => l())
+      }
+    }
+  })
 }
 
 export function t(key: TranslationKey, vars?: Record<string, string>): string {

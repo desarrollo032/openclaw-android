@@ -238,7 +238,7 @@ export function Settings() {
           const active = getLocale() === loc.code
           return (
             <button key={loc.code} style={{ ...S.langBtn, ...(active ? S.langBtnActive : {}) }}
-              onClick={() => { setLocale(loc.code); window.location.reload() }}>
+              onClick={() => setLocale(loc.code)}>
               {loc.label}
             </button>
           )

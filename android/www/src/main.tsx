@@ -2,7 +2,7 @@ import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Router } from './lib/router'
 import { App } from './App'
-import { LocaleContext, getLocale } from './i18n'
+import { LocaleContext, getLocale, subscribeLocale } from './i18n'
 import { notifyReady, onTokenRefresh } from './utils/androidBridge'
 import './styles/global.css'
 
@@ -20,7 +20,12 @@ window.__oc = {
 }
 
 function Root() {
-  const [locale] = useState(getLocale)
+  const [locale, setLocaleState] = useState(getLocale)
+  
+  // Suscribirse a cambios de idioma (manuales o del sistema)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useState(() => subscribeLocale(() => setLocaleState(getLocale())))
+
   return (
     <StrictMode>
       <LocaleContext.Provider value={locale}>
