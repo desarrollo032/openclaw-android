@@ -1,4 +1,4 @@
-import { StrictMode, useState } from 'react'
+import { StrictMode, useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Router } from './lib/router'
 import { App } from './App'
@@ -7,7 +7,7 @@ import { notifyReady, onTokenRefresh } from './utils/androidBridge'
 import './styles/global.css'
 
 // Escuchar refresh de token (Android puede regenerarlo)
-onTokenRefresh(_newToken => {
+onTokenRefresh(() => {
   // El nuevo token ya se actualizó en window.__OPENCLAW_TOKEN
   // apiFetch lo lee en cada request, no necesitamos re-renderizar
 })
@@ -19,12 +19,11 @@ window.__oc = {
   }
 }
 
-function Root() {
+export function Root() {
   const [locale, setLocaleState] = useState(getLocale)
   
   // Suscribirse a cambios de idioma (manuales o del sistema)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useState(() => subscribeLocale(() => setLocaleState(getLocale())))
+  useEffect(() => subscribeLocale(() => setLocaleState(getLocale())), [])
 
   return (
     <StrictMode>
