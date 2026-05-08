@@ -9,7 +9,6 @@
  */
 
 import { useState, useCallback } from 'react'
-import { useRoute } from '../lib/router'
 import { bridge } from '../lib/bridge'
 import { GatewayStatus } from '../components/GatewayStatus'
 import { t } from '../i18n'
@@ -32,7 +31,6 @@ const MGMT_ROWS = [
 ] as const
 
 export function Dashboard() {
-  const { navigate } = useRoute()
   const [nodeVer, setNodeVer] = useState<string | null>(null)
   const [ocVer,   setOcVer]   = useState<string | null>(null)
   const [gitVer,  setGitVer]  = useState<string | null>(null)

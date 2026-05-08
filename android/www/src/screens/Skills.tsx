@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
-import { t } from '../i18n'
 
 interface Skill {
   id: string

@@ -203,16 +203,21 @@ class InstallationActivity : AppCompatActivity() {
     }
 
     private fun launchNext() {
-        val next = if (OpenClawInstaller.isOnboardComplete(this)) {
+        if (OpenClawInstaller.isOnboardComplete(this)) {
             OpenClawGatewayService.start(this)
-            OpenClawDashboardActivity::class.java
+            startActivity(
+                Intent(this, OpenClawDashboardActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            )
         } else {
-            OnboardActivity::class.java
+            // Abrir terminal nativo para completar el asistente de configuración
+            startActivity(
+                Intent(this, OpenClawTerminalActivity::class.java).apply {
+                    putExtra("initial_command", "openclaw onboard")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                }
+            )
         }
-        startActivity(
-            Intent(this, next)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        )
         finish()
     }
 
