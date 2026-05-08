@@ -126,11 +126,9 @@ dependencies {
     implementation("org.tukaani:xz:1.9")
     implementation("androidx.webkit:webkit:1.10.0")
 
-    // ── Termux Terminal Libraries ────────────────────────────────────────────
-    // Librería core de emulación de terminal (TerminalSession, etc.)
-    implementation("com.github.termux.termux-app:terminal-emulator:v0.118.0")
-    implementation("com.github.termux.termux-app:terminal-view:v0.118.0")
-    // Vista de terminal para Android (TerminalView)
+    // ── Termux Terminal Libraries (Local AARs) ───────────────────────────────
+    implementation(files("libs/terminal-emulator.aar"))
+    implementation(files("libs/terminal-view.aar"))
 
 
     testImplementation("junit:junit:4.13.2")
