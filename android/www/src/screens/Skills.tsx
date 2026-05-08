@@ -18,7 +18,7 @@ export function Skills() {
     setLoading(true)
     try {
       const data = await api.getSkills()
-      setSkills(data || [])
+      setSkills((data as Skill[]) || [])
     } catch (e) {
       console.error(e)
     } finally {

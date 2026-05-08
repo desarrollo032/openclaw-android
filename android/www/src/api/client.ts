@@ -12,23 +12,31 @@ const DEFAULT_TIMEOUT = 5000
 // ── Custom errors ─────────────────────────────────────────────────────────────
 
 export class OpenClawNetworkError extends Error {
-  constructor(message: string, public readonly endpoint: string) {
+  public readonly endpoint: string;
+  constructor(message: string, endpoint: string) {
     super(message)
     this.name = 'OpenClawNetworkError'
+    this.endpoint = endpoint
   }
 }
 
 export class OpenClawAuthError extends Error {
-  constructor(public readonly endpoint: string) {
+  public readonly endpoint: string;
+  constructor(endpoint: string) {
     super('Authentication failed — token may be invalid or expired')
     this.name = 'OpenClawAuthError'
+    this.endpoint = endpoint
   }
 }
 
 export class OpenClawGatewayError extends Error {
-  constructor(message: string, public readonly statusCode: number, public readonly endpoint: string) {
+  public readonly statusCode: number;
+  public readonly endpoint: string;
+  constructor(message: string, statusCode: number, endpoint: string) {
     super(message)
     this.name = 'OpenClawGatewayError'
+    this.statusCode = statusCode
+    this.endpoint = endpoint
   }
 }
 

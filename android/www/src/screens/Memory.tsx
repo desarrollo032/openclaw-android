@@ -17,7 +17,7 @@ export function Memory() {
     setLoading(true)
     try {
       const data = await api.getMemory()
-      setMemories(data || [])
+      setMemories((data as MemoryItem[]) || [])
     } catch (e) {
       console.error(e)
     } finally {

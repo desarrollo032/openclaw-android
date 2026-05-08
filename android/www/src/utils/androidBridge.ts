@@ -27,8 +27,8 @@ export function isRunningInAndroid(): boolean {
  */
 export function notifyReady(): void {
   try {
-    window.OpenClaw?.onReactReady?.()
-    window.AndroidBridge?.onReactReady?.()
+    (window.OpenClaw as any)?.onReactReady?.()
+    (window.AndroidBridge as any)?.onReactReady?.()
   } catch {
     // No disponible en browser de desarrollo — ignorar
   }

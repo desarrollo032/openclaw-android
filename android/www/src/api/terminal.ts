@@ -5,7 +5,8 @@
  * El token se envía en la URL de conexión (estándar WebSocket — no headers).
  */
 
-import { getToken, getBaseUrl } from './client'
+import { getBaseUrl } from './client'
+import { getToken } from '../utils/androidBridge'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,7 +18,7 @@ export type ErrorCallback = (error: Event) => void
 
 interface PTYInputMessage  { type: 'input';  data: string }
 interface PTYResizeMessage { type: 'resize'; cols: number; rows: number }
-type PTYMessage = PTYInputMessage | PTYResizeMessage
+
 
 const WS_PATH       = '/terminal'
 const MAX_RETRIES   = 3
