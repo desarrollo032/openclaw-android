@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  activity_terminal.xml
+  Layout para OpenClawTerminalActivity (renombrada desde TerminalActivity).
+
+  Estructura:
+    FrameLayout (raíz) ← permite apilar overlays dinámicos sobre el terminal
+      └── TerminalView  ← ocupa toda la pantalla, margen inferior para la barra de teclas
+          (la barra de teclas especiales se añade programáticamente como View sobre el FrameLayout)
+
+  NOTAS DE DISEÑO:
+  - TerminalView necesita layout_marginBottom para no quedar oculto bajo la barra de teclas.
+    La barra tiene 40dp de alto (construida en OpenClawTerminalActivity.buildSpecialKeysBar()).
+  - El fondo negro es crítico para que el emulador xterm-256color no muestre destellos blancos.
+  - android:keepScreenOn se delega al código (WindowManager.FLAG_KEEP_SCREEN_ON).
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/terminalRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!--
+      TerminalView: emulador PTY real de Termux.
+      - layout_marginBottom=40dp → espacio libre para la barra de teclas especiales.
+      - focusable + focusableInTouchMode: necesarios para recibir input de teclado físico.
+      - Fondo negro propio para evitar artefactos en el scroll.
+    -->
+    <com.termux.view.TerminalView
+        android:id="@+id/terminal_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginBottom="40dp"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:background="#000000" />
+
+</FrameLayout>
