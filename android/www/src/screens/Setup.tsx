@@ -237,7 +237,10 @@ export function Setup({ onComplete }: Props) {
               ))}
             </div>
 
-            <button style={S.btnPrimary} onClick={onComplete}>
+            <button style={S.btnPrimary} onClick={() => {
+              bridge.call('startGateway')
+              onComplete()
+            }}>
               <span>Ir al Dashboard</span>
               <span style={{ fontSize: 18 }}>→</span>
             </button>

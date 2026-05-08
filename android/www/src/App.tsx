@@ -34,11 +34,14 @@ export function App() {
   const { path, navigate } = useRoute()
   const [online, setOnline]       = useState(false)
   const [starting, setStarting]   = useState(false)
-  const [setupDone, setSetupDone] = useState<boolean | null>(() => {
-    if (!bridge.isAvailable()) return true
-    const s = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string }>('getSetupStatus')
-    if (s) return !!s.bootstrapInstalled && !!s.platformInstalled
-    return true
+  const [setupState, setSetupState] = useState<{ installed: boolean; onboarded: boolean } | null>(() => {
+    if (!bridge.isAvailable()) return { installed: true, onboarded: true }
+    const s = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string; onboardComplete?: boolean }>('getSetupStatus')
+    if (s) return {
+      installed: !!s.bootstrapInstalled && !!s.platformInstalled,
+      onboarded: !!s.onboardComplete
+    }
+    return { installed: true, onboarded: true }
   })
 
   useEffect(() => {
@@ -64,7 +67,7 @@ export function App() {
     : path.startsWith('/memory')    ? 'memory'
     : 'dashboard'
 
-  if (setupDone === null) return (
+  if (setupState === null) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
                   height:'100vh', background:'#080810', flexDirection:'column', gap:16 }}>
       <div style={{ position:'relative', width:64, height:64 }}>
@@ -81,9 +84,17 @@ export function App() {
     </div>
   )
 
-  if (!setupDone && !path.startsWith('/setup')) navigate('/setup')
+  // 1. Redirigir a setup si no está instalado
+  if (!setupState.installed && !path.startsWith('/setup')) {
+    navigate('/setup')
+  } 
+  // 2. Redirigir a terminal para onboarding si está instalado pero no configurado
+  else if (setupState.installed && !setupState.onboarded && !path.startsWith('/terminal')) {
+    navigate('/terminal')
+    setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw onboard' })), 300)
+  }
 
-  const isSetup = path.startsWith('/setup')
+  const isSetup = path.startsWith('/setup') || (setupState.installed && !setupState.onboarded)
   const hideNav = isSetup
 
   const statusClass = online ? 'online' : starting ? 'starting' : 'offline'
@@ -120,7 +131,11 @@ export function App() {
       {/* ── Content ── */}
       <main className="content" style={isSetup ? { paddingTop:0, paddingBottom:0 } : undefined}>
         <Route path="/setup">
-          <Setup onComplete={() => { setSetupDone(true); navigate('/dashboard') }} />
+          <Setup onComplete={() => { 
+            setSetupState({ installed: true, onboarded: false })
+            navigate('/terminal')
+            setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw onboard' })), 300)
+          }} />
         </Route>
         <Route path="/chat">      <Chat />      </Route>
         <Route path="/dashboard"> <Dashboard /> </Route>

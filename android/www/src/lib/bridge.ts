@@ -45,6 +45,8 @@ interface OpenClawBridge {
   getGatewayLogs(): string
   clearGatewayLogs(): void
   getGatewayUptime(): string
+  startGateway(): void
+  stopGateway(): void
   // Interactive
   launchInteractiveCommand(cmd: string): void
 }

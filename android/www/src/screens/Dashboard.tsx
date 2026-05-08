@@ -92,9 +92,12 @@ export function Dashboard() {
         {CMD_ROWS.map((r, i) => (
           <CmdRow key={r.cmd}
             icon={r.icon} bg={r.bg} col={r.col}
-            title={r.title} cmd={r.cmd} sub={r.sub}
+            title={r.title} sub={r.sub}
             last={i === CMD_ROWS.length - 1}
-            onClick={() => runInTerminal(r.cmd)} />
+            onClick={() => {
+              if (r.cmd === 'openclaw gateway') bridge.call('startGateway')
+              else runInTerminal(r.cmd)
+            }} />
         ))}
       </div>
 
@@ -104,7 +107,7 @@ export function Dashboard() {
         {MGMT_ROWS.map((r, i) => (
           <CmdRow key={r.cmd}
             icon={r.icon} bg={r.bg} col={r.col}
-            title={r.title} cmd={r.cmd} sub={r.sub}
+            title={r.title} sub={r.sub}
             last={i === MGMT_ROWS.length - 1}
             onClick={() => runInTerminal(r.cmd)} />
         ))}
@@ -122,12 +125,11 @@ export function Dashboard() {
 
 // ── CmdRow ────────────────────────────────────────────────────────────────────
 
-function CmdRow({ icon, bg, col, title, cmd, sub, onClick, last }: {
+function CmdRow({ icon, bg, col, title, sub, onClick, last }: {
   icon: string
   bg: string
   col: string
   title: string
-  cmd: string
   sub: string
   onClick: () => void
   last?: boolean
@@ -144,7 +146,7 @@ function CmdRow({ icon, bg, col, title, cmd, sub, onClick, last }: {
       </div>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{title}</span>
-        <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: "'JetBrains Mono', monospace" }}>{cmd}</span>
+        <span style={{ fontSize: 11, color: 'var(--text3)' }}>{sub}</span>
       </div>
       <span style={{ color: 'var(--text4)', fontSize: 20, lineHeight: 1 }}>›</span>
     </button>

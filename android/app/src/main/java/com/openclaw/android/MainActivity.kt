@@ -6,16 +6,8 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * Entry point — pure router, never shows its own UI.
- *
- * Decision tree:
- *  1. Payload not installed          → InstallationActivity
- *  2. Payload installed, not onboarded → OnboardActivity (runs `openclaw onboard`)
- *  3. Fully configured               → start gateway + OpenClawDashboardActivity
- *
- * If the payload IS installed but something else failed (e.g. onboard error),
- * we go straight to the dashboard so the user can retry from there — never
- * back to the installer.
+ * Entry point � pure router, never shows its own UI.
+ * Modificado: Ahora el frontend maneja toda la instalacion.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -24,35 +16,24 @@ class MainActivity : AppCompatActivity() {
 
         val payloadReady   = OpenClawInstaller.isPayloadReady(this)
         val configRestored = OpenClawInstaller.isConfigRestored(this)
-        val onboarded      = OpenClawInstaller.isOnboardComplete(this)
 
-        Log.i("MainActivity", "payloadReady=$payloadReady configRestored=$configRestored onboarded=$onboarded")
+        Log.i("MainActivity", "payloadReady=$payloadReady configRestored=$configRestored")
 
-        when {
-            // Payload missing → must install first
-            !payloadReady -> {
-                startActivity(Intent(this, InstallationActivity::class.java))
-            }
-            // Payload ready but config not restored yet → install config too
-            !configRestored && !onboarded -> {
-                startActivity(Intent(this, InstallationActivity::class.java))
-            }
-            // Payload ready but not yet onboarded → run onboard wizard
-            !onboarded -> {
-                startActivity(Intent(this, OnboardActivity::class.java))
-            }
-            // Fully set up → go straight to dashboard
-            else -> {
-                OpenClawGatewayService.start(this)
-                startActivity(
-                    Intent(this, OpenClawDashboardActivity::class.java)
-                        .putExtra(
-                            OpenClawDashboardActivity.EXTRA_DASHBOARD_TOKEN,
-                            OpenClawGatewayService.currentToken
-                        )
-                )
-            }
+        // Iniciar el servicio en segundo plano SOLO si la configuracion ya esta lista
+        if (payloadReady && configRestored) {
+            OpenClawGatewayService.start(this)
         }
+
+        // Siempre cargar el dashboard (que hostea el frontend web).
+        // El frontend detectara que no esta instalado via bridge.getSetupStatus() y mostrara la UI de instalacion.
+        val intent = Intent(this, OpenClawDashboardActivity::class.java)
+        if (payloadReady && configRestored) {
+            intent.putExtra(
+                OpenClawDashboardActivity.EXTRA_DASHBOARD_TOKEN,
+                OpenClawGatewayService.currentToken
+            )
+        }
+        startActivity(intent)
 
         finish()
     }

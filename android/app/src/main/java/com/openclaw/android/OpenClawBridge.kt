@@ -52,6 +52,7 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         val obj = JSONObject()
         obj.put("bootstrapInstalled", OpenClawInstaller.isPayloadReady(context))
         obj.put("platformInstalled", OpenClawInstaller.isConfigRestored(context))
+        obj.put("onboardComplete", OpenClawInstaller.isOnboardComplete(context))
         return obj.toString()
     }
 
