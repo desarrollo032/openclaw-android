@@ -118,6 +118,19 @@ async function httpPost<T>(path: string, body: unknown): Promise<T | null> {
     }
 }
 
+/* ── Android bridge token helper ──────────────────────── */
+
+function getAndroidToken(): string {
+    try {
+        // window.OpenClaw is injected by the Android WebView bridge
+        const bridge = (window as unknown as { OpenClaw?: { getGatewayToken?: () => string } }).OpenClaw
+        if (bridge?.getGatewayToken) {
+            return bridge.getGatewayToken() ?? ''
+        }
+    } catch { /* not in Android WebView */ }
+    return ''
+}
+
 /* ── WebSocket RPC client ──────────────────────────────── */
 
 class GatewayClient {
@@ -149,6 +162,7 @@ class GatewayClient {
 
                     // Pre-auth challenge
                     if (frame.type === 'event' && frame.event === 'connect.challenge') {
+                        const token = getAndroidToken()
                         const req = {
                             type: 'req',
                             id: this.nextId(),
@@ -159,7 +173,7 @@ class GatewayClient {
                                 role: 'operator',
                                 scopes: ['operator.read', 'operator.write'],
                                 caps: [], commands: [], permissions: {},
-                                auth: { token: '' },
+                                auth: { token },
                                 locale: 'es',
                                 userAgent: 'openclaw-android/1.0.0',
                             }

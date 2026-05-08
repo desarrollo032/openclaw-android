@@ -2,6 +2,7 @@ package com.openclaw.android
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -25,9 +26,15 @@ class MainActivity : AppCompatActivity() {
         val configRestored = OpenClawInstaller.isConfigRestored(this)
         val onboarded      = OpenClawInstaller.isOnboardComplete(this)
 
+        Log.i("MainActivity", "payloadReady=$payloadReady configRestored=$configRestored onboarded=$onboarded")
+
         when {
             // Payload missing → must install first
-            !payloadReady || !configRestored -> {
+            !payloadReady -> {
+                startActivity(Intent(this, InstallationActivity::class.java))
+            }
+            // Payload ready but config not restored yet → install config too
+            !configRestored && !onboarded -> {
                 startActivity(Intent(this, InstallationActivity::class.java))
             }
             // Payload ready but not yet onboarded → run onboard wizard

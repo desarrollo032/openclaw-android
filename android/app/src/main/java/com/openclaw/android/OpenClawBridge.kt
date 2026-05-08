@@ -1,6 +1,7 @@
 package com.openclaw.android
 
 import android.content.Context
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +23,26 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
     fun showWebView() {
         // Already in WebView
     }
+
+    @JavascriptInterface
+    fun getGatewayToken(): String {
+        // The gateway token is stored in openclaw.json under gateway.auth.token
+        return try {
+            val configFile = java.io.File(OpenClawInstaller.getConfigDir(context), "openclaw.json")
+            if (!configFile.exists()) return ""
+            val json = org.json.JSONObject(configFile.readText())
+            // Path: gateway.auth.token
+            json.optJSONObject("gateway")
+                ?.optJSONObject("auth")
+                ?.optString("token", "") ?: ""
+        } catch (e: Exception) {
+            Log.w("OpenClawBridge", "getGatewayToken failed: ${e.message}")
+            ""
+        }
+    }
+
+    @JavascriptInterface
+    fun getGatewayUrl(): String = "ws://127.0.0.1:18789"
 
     @JavascriptInterface
     fun getSetupStatus(): String {
@@ -162,25 +183,309 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
     @JavascriptInterface
     fun runCommand(cmd: String): String {
         val obj = JSONObject()
-        try {
-            // Real command execution would use ProcessBuilder with the environment set up
-            // For now, we keep the mock for versions but allow basic echo/ls for testing
-            val result = when {
-                cmd.contains("node -v") -> "v20.11.0"
-                cmd.contains("npm -v") -> "10.2.4"
-                cmd.contains("oa --version") || cmd.contains("openclaw --version") -> "1.2.4"
-                cmd.contains("ldd --version") -> "ldd (GNU libc) 2.38"
-                else -> {
-                    // Try real execution for simple commands if possible (simplified for bridge)
-                    "Execution of '$cmd' is managed by the OpenClaw shell."
+        return try {
+            val base      = OpenClawInstaller.getPayloadDir(context)
+            val nativeDir = java.io.File(context.applicationInfo.nativeLibraryDir)
+            val glibcLibs = java.io.File(base, "glibc/lib").absolutePath
+            val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
+            val loader    = java.io.File(nativeDir, "libldlinux.so")
+            val nodeExec  = java.io.File(nativeDir, "libnode.so")
+            val tmpDir    = java.io.File(context.cacheDir, "tmp").apply { mkdirs() }
+            val configDir = OpenClawInstaller.getConfigDir(context)
+
+            // Map friendly command names to actual binary paths + args
+            val (binary, args) = when {
+                cmd.startsWith("node") -> {
+                    // node -v  →  ld-linux node.real -v
+                    val nodeArgs = cmd.removePrefix("node").trim().split(" ").filter { it.isNotEmpty() }
+                    loader.absolutePath to (listOf("--library-path", libs, nodeExec.absolutePath) + nodeArgs)
+                }
+                cmd.startsWith("git") -> {
+                    val gitBin = java.io.File(base, "bin/git")
+                    if (!gitBin.exists()) return JSONObject().put("stdout", "no encontrado").toString()
+                    loader.absolutePath to listOf("--library-path", libs, gitBin.absolutePath) +
+                        cmd.removePrefix("git").trim().split(" ").filter { it.isNotEmpty() }
+                }
+                cmd.contains("openclaw --version") || cmd.contains("openclaw -v") -> {
+                    // Run: ld-linux node.real openclaw.mjs --version
+                    val ocMjs = java.io.File(base, "lib/node_modules/openclaw/openclaw.mjs")
+                    if (!ocMjs.exists()) return JSONObject().put("stdout", "no encontrado").toString()
+                    loader.absolutePath to listOf(
+                        "--library-path", libs,
+                        nodeExec.absolutePath,
+                        "--disable-warning=ExperimentalWarning",
+                        ocMjs.absolutePath, "--version"
+                    )
+                }
+                else -> return JSONObject().put("stdout", "no encontrado").toString()
+            }
+
+            val pb = ProcessBuilder(listOf(binary) + args).apply {
+                directory(base)
+                redirectErrorStream(true)
+                environment().apply {
+                    remove("LD_PRELOAD")
+                    put("LD_LIBRARY_PATH", libs)
+                    put("OA_GLIBC",        "1")
+                    put("TMPDIR",          tmpDir.absolutePath)
+                    put("HOME",            base.absolutePath)
+                    put("NODE_PATH",       "${base.absolutePath}/lib/node_modules")
+                    put("OPENCLAW_HOME",   configDir.absolutePath)
+                    put("PATH",            "${base.absolutePath}/bin:/system/bin")
+                    put("NODE_NO_WARNINGS",                          "1")
+                    put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
+                    put("NODE_DISABLE_COMPILE_CACHE",                "1")
                 }
             }
-            obj.put("stdout", result)
+
+            val proc   = pb.start()
+            val output = proc.inputStream.bufferedReader().readText().trim()
+            proc.waitFor()
+
+            obj.put("stdout", output.ifEmpty { "no encontrado" })
+            obj.toString()
         } catch (e: Exception) {
-            obj.put("stderr", e.message)
+            Log.w("OpenClawBridge", "runCommand($cmd) failed: ${e.message}")
+            JSONObject().put("stdout", "no encontrado").toString()
         }
-        return obj.toString()
     }
+
+    @JavascriptInterface
+    fun openSystemSettings(page: String) {
+        val action = when (page) {
+            "developer"  -> android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
+            "app_info"   -> android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+            "battery"    -> android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+            else         -> android.provider.Settings.ACTION_SETTINGS
+        }
+        val intent = android.content.Intent(action).apply {
+            if (page == "app_info") {
+                data = android.net.Uri.parse("package:${context.packageName}")
+            }
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try { context.startActivity(intent) } catch (e: Exception) {
+            Log.w("OpenClawBridge", "openSystemSettings($page) failed: ${e.message}")
+        }
+    }
+
+    @JavascriptInterface
+    fun checkForUpdates(): String {
+        // Return empty array — actual update check would require network call
+        // The UI shows "up to date" when array is empty
+        return "[]"
+    }
+
+    @JavascriptInterface
+    fun applyUpdate(component: String) {
+        // Trigger update via openclaw CLI — runs async and emits install_progress events
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val base      = OpenClawInstaller.getPayloadDir(context)
+                val nativeDir = java.io.File(context.applicationInfo.nativeLibraryDir)
+                val glibcLibs = java.io.File(base, "glibc/lib").absolutePath
+                val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
+                val loader    = java.io.File(nativeDir, "libldlinux.so")
+                val nodeExec  = java.io.File(nativeDir, "libnode.so")
+                val ocMjs     = java.io.File(base, "lib/node_modules/openclaw/openclaw.mjs")
+                val configDir = OpenClawInstaller.getConfigDir(context)
+                val tmpDir    = java.io.File(context.cacheDir, "tmp").apply { mkdirs() }
+
+                emit("install_progress", JSONObject().apply {
+                    put("target", component); put("progress", 0.1)
+                })
+
+                val pb = ProcessBuilder(
+                    loader.absolutePath, "--library-path", libs,
+                    nodeExec.absolutePath, "--disable-warning=ExperimentalWarning",
+                    ocMjs.absolutePath, "update"
+                ).apply {
+                    directory(base); redirectErrorStream(true)
+                    environment().apply {
+                        remove("LD_PRELOAD")
+                        put("LD_LIBRARY_PATH", libs); put("OA_GLIBC", "1")
+                        put("TMPDIR", tmpDir.absolutePath); put("HOME", base.absolutePath)
+                        put("NODE_PATH", "${base.absolutePath}/lib/node_modules")
+                        put("OPENCLAW_HOME", configDir.absolutePath)
+                        put("PATH", "${base.absolutePath}/bin:/system/bin")
+                        put("NODE_NO_WARNINGS", "1")
+                        put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
+                        put("NODE_DISABLE_COMPILE_CACHE", "1")
+                    }
+                }
+                val proc = pb.start()
+                proc.waitFor()
+
+                emit("install_progress", JSONObject().apply {
+                    put("target", component); put("progress", 1.0)
+                })
+            } catch (e: Exception) {
+                Log.e("OpenClawBridge", "applyUpdate failed", e)
+                emit("install_progress", JSONObject().apply {
+                    put("target", component); put("progress", 0.0)
+                })
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun getApkUpdateInfo(): String {
+        // Returns update info — currently no remote check, returns no update available
+        return JSONObject().apply {
+            put("updateAvailable", false)
+            put("currentVersion", try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+            } catch (e: Exception) { "unknown" })
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun installPlatform(id: String) {
+        // Platforms are not separately installable in this build — emit completion immediately
+        scope.launch {
+            emit("install_progress", JSONObject().apply {
+                put("target", id); put("progress", 1.0)
+            })
+        }
+    }
+
+    @JavascriptInterface
+    fun uninstallPlatform(id: String) {
+        Log.i("OpenClawBridge", "uninstallPlatform($id) — not supported")
+    }
+
+    @JavascriptInterface
+    fun switchPlatform(id: String) {
+        Log.i("OpenClawBridge", "switchPlatform($id)")
+    }
+
+    @JavascriptInterface
+    fun getInstalledPlatforms(): String = getAvailablePlatforms()
+
+    @JavascriptInterface
+    fun installTool(id: String) {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val base      = OpenClawInstaller.getPayloadDir(context)
+                val nativeDir = java.io.File(context.applicationInfo.nativeLibraryDir)
+                val glibcLibs = java.io.File(base, "glibc/lib").absolutePath
+                val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
+                val loader    = java.io.File(nativeDir, "libldlinux.so")
+                val nodeExec  = java.io.File(nativeDir, "libnode.so")
+                val ocMjs     = java.io.File(base, "lib/node_modules/openclaw/openclaw.mjs")
+                val configDir = OpenClawInstaller.getConfigDir(context)
+                val tmpDir    = java.io.File(context.cacheDir, "tmp").apply { mkdirs() }
+
+                emit("install_progress", JSONObject().apply {
+                    put("target", id); put("progress", 0.1)
+                    put("message", "Installing $id...")
+                })
+
+                val pb = ProcessBuilder(
+                    loader.absolutePath, "--library-path", libs,
+                    nodeExec.absolutePath, "--disable-warning=ExperimentalWarning",
+                    ocMjs.absolutePath, "install", id
+                ).apply {
+                    directory(base); redirectErrorStream(true)
+                    environment().apply {
+                        remove("LD_PRELOAD")
+                        put("LD_LIBRARY_PATH", libs); put("OA_GLIBC", "1")
+                        put("TMPDIR", tmpDir.absolutePath); put("HOME", base.absolutePath)
+                        put("NODE_PATH", "${base.absolutePath}/lib/node_modules")
+                        put("OPENCLAW_HOME", configDir.absolutePath)
+                        put("PATH", "${base.absolutePath}/bin:/system/bin")
+                        put("NODE_NO_WARNINGS", "1")
+                        put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
+                        put("NODE_DISABLE_COMPILE_CACHE", "1")
+                    }
+                }
+                val proc = pb.start()
+                proc.waitFor()
+
+                emit("install_progress", JSONObject().apply {
+                    put("target", id); put("progress", 1.0)
+                    put("message", "$id installed")
+                })
+            } catch (e: Exception) {
+                Log.e("OpenClawBridge", "installTool($id) failed", e)
+                emit("install_progress", JSONObject().apply {
+                    put("target", id); put("progress", 0.0)
+                    put("message", "Failed: ${e.message}")
+                })
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun uninstallTool(id: String) {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val base      = OpenClawInstaller.getPayloadDir(context)
+                val nativeDir = java.io.File(context.applicationInfo.nativeLibraryDir)
+                val glibcLibs = java.io.File(base, "glibc/lib").absolutePath
+                val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
+                val loader    = java.io.File(nativeDir, "libldlinux.so")
+                val nodeExec  = java.io.File(nativeDir, "libnode.so")
+                val ocMjs     = java.io.File(base, "lib/node_modules/openclaw/openclaw.mjs")
+                val configDir = OpenClawInstaller.getConfigDir(context)
+                val tmpDir    = java.io.File(context.cacheDir, "tmp").apply { mkdirs() }
+
+                val pb = ProcessBuilder(
+                    loader.absolutePath, "--library-path", libs,
+                    nodeExec.absolutePath, "--disable-warning=ExperimentalWarning",
+                    ocMjs.absolutePath, "uninstall", id
+                ).apply {
+                    directory(base); redirectErrorStream(true)
+                    environment().apply {
+                        remove("LD_PRELOAD")
+                        put("LD_LIBRARY_PATH", libs); put("OA_GLIBC", "1")
+                        put("TMPDIR", tmpDir.absolutePath); put("HOME", base.absolutePath)
+                        put("NODE_PATH", "${base.absolutePath}/lib/node_modules")
+                        put("OPENCLAW_HOME", configDir.absolutePath)
+                        put("PATH", "${base.absolutePath}/bin:/system/bin")
+                        put("NODE_NO_WARNINGS", "1")
+                        put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
+                        put("NODE_DISABLE_COMPILE_CACHE", "1")
+                    }
+                }
+                pb.start().waitFor()
+            } catch (e: Exception) {
+                Log.e("OpenClawBridge", "uninstallTool($id) failed", e)
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun isToolInstalled(id: String): String {
+        val base   = OpenClawInstaller.getPayloadDir(context)
+        val binDir = java.io.File(base, "bin")
+        val exists = java.io.File(binDir, id).exists() ||
+                     java.io.File(base, "lib/node_modules/$id").exists()
+        return JSONObject().put("installed", exists).toString()
+    }
+
+    @JavascriptInterface
+    fun runCommandAsync(callbackId: String, cmd: String) {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = runCommand(cmd)
+            emit("cmd_result_$callbackId", JSONObject(result))
+        }
+    }
+
+    @JavascriptInterface
+    fun createSession(): String = JSONObject().put("id", "session-1").toString()
+
+    @JavascriptInterface
+    fun switchSession(id: String) { Log.i("OpenClawBridge", "switchSession($id)") }
+
+    @JavascriptInterface
+    fun closeSession(id: String) { Log.i("OpenClawBridge", "closeSession($id)") }
+
+    @JavascriptInterface
+    fun getTerminalSessions(): String = "[{\"id\":\"session-1\",\"name\":\"Main\"}]"
+
+    @JavascriptInterface
+    fun writeToTerminal(id: String, data: String) { Log.i("OpenClawBridge", "writeToTerminal($id): $data") }
 
     @JavascriptInterface
     fun requestBatteryOptimizationExclusion() {
@@ -191,7 +496,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
-            // Fallback to battery settings
             val fallback = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }

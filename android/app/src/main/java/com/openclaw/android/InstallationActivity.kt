@@ -75,14 +75,22 @@ class InstallationActivity : AppCompatActivity() {
 
         hasBundled = OpenClawInstaller.hasBundledAssets(this)
         if (hasBundled) {
+            // APK has bundled assets — auto-install mode
             modeCard.visibility   = View.GONE
             btnInstall.visibility = View.VISIBLE
             btnInstall.text       = "Instalar OpenClaw"
             btnInstall.setOnClickListener { runInstallFromAssets() }
         } else {
+            // No bundled assets — show manual file picker
+            // But first check if this is a fresh APK install over existing data
+            // by checking if the config file exists (migration was restored before)
+            val configExists = OpenClawInstaller.isConfigRestored(this)
             modeCard.visibility   = View.VISIBLE
             btnInstall.visibility = View.GONE
-            statusText.text       = "Selecciona los archivos para continuar"
+            statusText.text = if (configExists)
+                "El payload fue eliminado. Selecciona los archivos para reinstalar."
+            else
+                "Selecciona los archivos para continuar"
         }
     }
 

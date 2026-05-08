@@ -338,6 +338,42 @@ export function Settings() {
             </div>
             <div className="card-chevron">›</div>
           </div>
+
+          <div className="settings-item" onClick={() => navigate('/settings/tools')}>
+            <div className="card-icon">🔧</div>
+            <div className="card-content">
+              <div className="card-label">Herramientas adicionales</div>
+              <div className="card-desc">tmux, SSH, code-server, etc.</div>
+            </div>
+            <div className="card-chevron">›</div>
+          </div>
+
+          <div className="settings-item" onClick={() => navigate('/settings/keepalive')}>
+            <div className="card-icon">🔋</div>
+            <div className="card-content">
+              <div className="card-label">Keep Alive</div>
+              <div className="card-desc">Batería y Phantom Process Killer</div>
+            </div>
+            <div className="card-chevron">›</div>
+          </div>
+
+          <div className="settings-item" onClick={() => navigate('/settings/updates')}>
+            <div className="card-icon">⬆️</div>
+            <div className="card-content">
+              <div className="card-label">Actualizaciones</div>
+              <div className="card-desc">Verificar nuevas versiones</div>
+            </div>
+            <div className="card-chevron">›</div>
+          </div>
+
+          <div className="settings-item" onClick={() => navigate('/settings/about')}>
+            <div className="card-icon">ℹ️</div>
+            <div className="card-content">
+              <div className="card-label">Acerca de</div>
+              <div className="card-desc">Versión, licencia, runtime</div>
+            </div>
+            <div className="card-chevron">›</div>
+          </div>
         </div>
       </div>
 

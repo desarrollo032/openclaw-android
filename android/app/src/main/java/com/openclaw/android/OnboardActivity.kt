@@ -39,10 +39,12 @@ class OnboardActivity : AppCompatActivity() {
     private lateinit var btnLeft:        Button
     private lateinit var btnRight:       Button
     private lateinit var btnEnter:       Button
+    private lateinit var btnSpace:       Button
     private lateinit var btnCtrlC:       Button
 
     private var process:     Process?     = null
     private var ioJob:       Job?         = null
+    private val allNavKeys = mutableListOf<View>()
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -125,18 +127,7 @@ class OnboardActivity : AppCompatActivity() {
                     setStatus("Onboard en progreso...", Color.parseColor("#facc15"))
                     inputField.isEnabled = true
                     sendButton.isEnabled = true
-                    btnUp.isEnabled    = true
-                    btnDown.isEnabled  = true
-                    btnLeft.isEnabled  = true
-                    btnRight.isEnabled = true
-                    btnEnter.isEnabled = true
-                    btnCtrlC.isEnabled = true
-                    // Update button backgrounds to active state
-                    listOf(btnUp, btnDown, btnLeft, btnRight).forEach { btn ->
-                        (btn.background as? GradientDrawable)?.setColor(Color.parseColor("#1e3a5f"))
-                    }
-                    (btnEnter.background as? GradientDrawable)?.setColor(Color.parseColor("#166534"))
-                    (btnCtrlC.background as? GradientDrawable)?.setColor(Color.parseColor("#991b1b"))
+                    allNavKeys.forEach { it.isEnabled = true }
                 }
 
                 ioJob = launch(Dispatchers.IO) {
@@ -195,17 +186,14 @@ class OnboardActivity : AppCompatActivity() {
     private fun onOnboardFinished(code: Int) {
         inputField.isEnabled = false
         sendButton.isEnabled = false
-        btnUp.isEnabled    = false
-        btnDown.isEnabled  = false
-        btnLeft.isEnabled  = false
-        btnRight.isEnabled = false
-        btnEnter.isEnabled = false
-        btnCtrlC.isEnabled = false
+        allNavKeys.forEach { it.isEnabled = false }
 
         if (code == 0) {
             appendOutput("\n✓ Configuración completada.\n")
             setStatus("✓ Listo — iniciando gateway...", Color.parseColor("#4ade80"))
             doneButton.visibility = View.GONE
+            // Mark onboard as complete so MainActivity won't redirect here again
+            OpenClawInstaller.markOnboardComplete(this)
             lifecycleScope.launch {
                 delay(1_500)
                 launchDashboard()
@@ -329,67 +317,189 @@ class OnboardActivity : AppCompatActivity() {
         doneButton.visibility = View.GONE
         root.addView(doneButton)
 
-        // ── Nav keys (2 rows: arrows + action buttons) ───────────────────────
-        val navContainer = LinearLayout(this)
-        navContainer.orientation = LinearLayout.VERTICAL
-        navContainer.setPadding(dp(8), dp(6), dp(8), dp(4))
-        navContainer.setBackgroundColor(Color.parseColor("#0d0d1a"))
+        // ── Terminal keyboard ─────────────────────────────────────────────────
+        // Modifier state: when active, next key press sends Ctrl+X or Alt+X
+        var ctrlActive = false
+        var altActive  = false
 
-        fun makeNavBtn(label: String, bgColor: String, fgColor: String): Button {
+        val kbContainer = LinearLayout(this)
+        kbContainer.orientation = LinearLayout.VERTICAL
+        kbContainer.setBackgroundColor(Color.parseColor("#0a0a18"))
+        kbContainer.setPadding(dp(4), dp(4), dp(4), dp(4))
+
+        // ── Key factory ───────────────────────────────────────────────────────
+        // weight: flex weight in the row. fixedDp: fixed width (0 = use weight)
+        fun key(
+            label: String,
+            weight: Float = 1f,
+            fixedDp: Int = 0,
+            bg: String = "#1c1c2e",
+            fg: String = "#e2e8f0",
+            action: () -> Unit
+        ): View {
             val btn = Button(this)
             btn.text = label
-            btn.textSize = 15f
+            btn.textSize = 11f
             btn.typeface = Typeface.DEFAULT_BOLD
-            btn.setTextColor(Color.parseColor(fgColor))
+            btn.setTextColor(Color.parseColor(fg))
             btn.isEnabled = false
-            val bg = GradientDrawable()
-            bg.shape = GradientDrawable.RECTANGLE
-            bg.cornerRadius = dp(10).toFloat()
-            bg.setColor(Color.parseColor(bgColor))
-            btn.background = bg
-            val lp = LinearLayout.LayoutParams(0, dp(50), 1f)
-            lp.setMargins(dp(4), dp(4), dp(4), dp(4))
+            btn.setPadding(0, 0, 0, 0)
+            val bgd = GradientDrawable()
+            bgd.shape = GradientDrawable.RECTANGLE
+            bgd.cornerRadius = dp(6).toFloat()
+            bgd.setColor(Color.parseColor(bg))
+            bgd.setStroke(dp(1), Color.parseColor("#2d2d4a"))
+            btn.background = bgd
+            val lp = if (fixedDp > 0)
+                LinearLayout.LayoutParams(dp(fixedDp), dp(40))
+            else
+                LinearLayout.LayoutParams(0, dp(40), weight)
+            lp.setMargins(dp(2), dp(2), dp(2), dp(2))
             btn.layoutParams = lp
+            btn.setOnClickListener { action() }
+            // Register for enable/disable
+            btn.tag = "navkey"
             return btn
         }
 
-        // Row 1: ← ↑ ↓ →  (blue-grey tone)
-        val arrowRow = LinearLayout(this)
-        arrowRow.orientation = LinearLayout.HORIZONTAL
-        arrowRow.layoutParams = LinearLayout.LayoutParams(-1, -2)
+        // Modifier toggle factory (stays highlighted when active)
+        fun modKey(label: String, weight: Float = 1.4f): Button {
+            val btn = Button(this)
+            btn.text = label
+            btn.textSize = 11f
+            btn.typeface = Typeface.DEFAULT_BOLD
+            btn.setTextColor(Color.parseColor("#fbbf24"))
+            btn.isEnabled = false
+            btn.setPadding(0, 0, 0, 0)
+            val bgd = GradientDrawable()
+            bgd.shape = GradientDrawable.RECTANGLE
+            bgd.cornerRadius = dp(6).toFloat()
+            bgd.setColor(Color.parseColor("#2d2200"))
+            bgd.setStroke(dp(1), Color.parseColor("#78350f"))
+            btn.background = bgd
+            val lp = LinearLayout.LayoutParams(0, dp(40), weight)
+            lp.setMargins(dp(2), dp(2), dp(2), dp(2))
+            btn.layoutParams = lp
+            btn.tag = "navkey"
+            return btn
+        }
 
-        btnLeft  = makeNavBtn("⇤ Tab", "#2d3a5e", "#93c5fd")
-        btnUp    = makeNavBtn("↑", "#2d3a5e", "#93c5fd")
-        btnDown  = makeNavBtn("↓", "#2d3a5e", "#93c5fd")
-        btnRight = makeNavBtn("Tab ⇥", "#2d3a5e", "#93c5fd")
+        fun row(vararg views: View): LinearLayout {
+            val r = LinearLayout(this)
+            r.orientation = LinearLayout.HORIZONTAL
+            r.gravity = Gravity.CENTER_VERTICAL
+            r.layoutParams = LinearLayout.LayoutParams(-1, -2)
+            views.forEach { r.addView(it) }
+            return r
+        }
 
-        btnLeft.setOnClickListener  { sendRaw(byteArrayOf(0x1B, 0x5B, 0x5A)) } // Shift+Tab (ESC[Z)
-        btnUp.setOnClickListener    { sendRaw(byteArrayOf(0x1B, 0x5B, 0x41)) } // ESC[A up
-        btnDown.setOnClickListener  { sendRaw(byteArrayOf(0x1B, 0x5B, 0x42)) } // ESC[B down
-        btnRight.setOnClickListener { sendRaw(byteArrayOf(0x09)) }              // Tab
+        // Helper: send raw bytes, applying Ctrl or Alt modifier if active
+        fun sendKey(bytes: ByteArray, char: Char? = null) {
+            val toSend: ByteArray = when {
+                ctrlActive && char != null -> {
+                    ctrlActive = false
+                    byteArrayOf((char.code and 0x1F).toByte())
+                }
+                altActive && bytes.isNotEmpty() -> {
+                    altActive = false
+                    byteArrayOf(0x1B) + bytes
+                }
+                else -> bytes
+            }
+            sendRaw(toSend)
+        }
 
-        arrowRow.addView(btnLeft)
-        arrowRow.addView(btnUp)
-        arrowRow.addView(btnDown)
-        arrowRow.addView(btnRight)
+        // Collect all nav keys for enable/disable (uses class-level allNavKeys)
 
-        // Row 2: ↵ Enter (green)  +  ✕ Ctrl+C (red)
-        val actionRow = LinearLayout(this)
-        actionRow.orientation = LinearLayout.HORIZONTAL
-        actionRow.layoutParams = LinearLayout.LayoutParams(-1, -2)
+        // ── Row 1: ESC  TAB  CTRL  ALT  |  HOME  END  PGUP  PGDN ────────────
+        val ctrlBtn = modKey("CTRL")
+        val altBtn  = modKey("ALT")
 
-        btnEnter = makeNavBtn("↵  ENTER", "#14532d", "#86efac")
-        btnCtrlC = makeNavBtn("✕  CTRL+C", "#7f1d1d", "#fca5a5")
+        ctrlBtn.setOnClickListener {
+            ctrlActive = !ctrlActive
+            altActive  = false
+            val bgd = ctrlBtn.background as GradientDrawable
+            bgd.setColor(Color.parseColor(if (ctrlActive) "#92400e" else "#2d2200"))
+        }
+        altBtn.setOnClickListener {
+            altActive  = !altActive
+            ctrlActive = false
+            val bgd = altBtn.background as GradientDrawable
+            bgd.setColor(Color.parseColor(if (altActive) "#92400e" else "#2d2200"))
+        }
 
-        btnEnter.setOnClickListener { sendRaw(byteArrayOf(0x0D)) }
-        btnCtrlC.setOnClickListener { sendRaw(byteArrayOf(0x03)) }
+        val r1 = row(
+            key("ESC",  bg="#3b1f1f", fg="#fca5a5") { sendKey(byteArrayOf(0x1B)) },
+            key("TAB",  bg="#1e2d1e", fg="#86efac") { sendKey(byteArrayOf(0x09)) },
+            ctrlBtn,
+            altBtn,
+            key("HOME", bg="#1c1c2e", fg="#c4b5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x48)) },
+            key("END",  bg="#1c1c2e", fg="#c4b5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x46)) },
+            key("PGUP", bg="#1c1c2e", fg="#c4b5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x35,0x7E)) },
+            key("PGDN", bg="#1c1c2e", fg="#c4b5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x36,0x7E)) }
+        )
 
-        actionRow.addView(btnEnter)
-        actionRow.addView(btnCtrlC)
+        // ── Row 2: ← ↑ ↓ →  |  SPACE  BKSP  DEL ────────────────────────────
+        btnLeft  = key("←", bg="#1e2a3e", fg="#93c5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x44), 'D') } as Button
+        btnUp    = key("↑", bg="#1e2a3e", fg="#93c5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x41), 'A') } as Button
+        btnDown  = key("↓", bg="#1e2a3e", fg="#93c5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x42), 'B') } as Button
+        btnRight = key("→", bg="#1e2a3e", fg="#93c5fd") { sendKey(byteArrayOf(0x1B,0x5B,0x43), 'C') } as Button
 
-        navContainer.addView(arrowRow)
-        navContainer.addView(actionRow)
-        root.addView(navContainer)
+        val r2 = row(
+            btnLeft, btnUp, btnDown, btnRight,
+            key("SPACE", weight=1.5f, bg="#1e2a3e", fg="#93c5fd") { sendKey(byteArrayOf(0x20), ' ') },
+            key("BKSP",  bg="#3b1f1f", fg="#fca5a5") { sendKey(byteArrayOf(0x7F)) },
+            key("DEL",   bg="#3b1f1f", fg="#fca5a5") { sendKey(byteArrayOf(0x1B,0x5B,0x33,0x7E)) }
+        )
+
+        // ── Row 3: ENTER  |  Ctrl shortcuts: C  D  Z  L  U  K  W ───────────
+        btnEnter = key("↵ ENTER", weight=2f, bg="#14532d", fg="#86efac") { sendKey(byteArrayOf(0x0D)) } as Button
+        btnCtrlC = key("^C", bg="#7f1d1d", fg="#fca5a5") { sendRaw(byteArrayOf(0x03)) } as Button
+
+        val r3 = row(
+            btnEnter,
+            btnCtrlC,
+            key("^D", bg="#3b1f1f", fg="#fca5a5") { sendRaw(byteArrayOf(0x04)) },  // EOF
+            key("^Z", bg="#2d2200", fg="#fbbf24") { sendRaw(byteArrayOf(0x1A)) },  // suspend
+            key("^L", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x0C)) },  // clear screen
+            key("^U", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x15)) },  // kill line
+            key("^K", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x0B)) },  // kill to end
+            key("^W", bg="#1c1c2e", fg="#c4b5fd") { sendRaw(byteArrayOf(0x17)) }   // delete word
+        )
+
+        // ── Row 4: F1-F6  |  INS  COPY(^C text)  PASTE ──────────────────────
+        btnSpace = key("F1", bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x50)) } as Button
+        val r4 = row(
+            btnSpace,  // reuse btnSpace slot for F1
+            key("F2",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x51)) },
+            key("F3",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x52)) },
+            key("F4",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x4F,0x53)) },
+            key("F5",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x5B,0x31,0x35,0x7E)) },
+            key("F6",  bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x5B,0x31,0x37,0x7E)) },
+            key("INS", bg="#1c1c2e", fg="#94a3b8") { sendKey(byteArrayOf(0x1B,0x5B,0x32,0x7E)) },
+            key("📋",  weight=1.2f, bg="#1e2d1e", fg="#86efac") {
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() ?: return@key
+                sendRaw(clip.toByteArray(Charsets.UTF_8))
+            }
+        )
+
+        // Collect all keys for enable/disable
+        listOf(r1, r2, r3, r4).forEach { row ->
+            for (i in 0 until row.childCount) {
+                val v = row.getChildAt(i)
+                if (v.tag == "navkey" || v is Button) allNavKeys.add(v)
+            }
+        }
+        // Also add the modifier buttons explicitly
+        allNavKeys.add(ctrlBtn)
+        allNavKeys.add(altBtn)
+
+        kbContainer.addView(r1)
+        kbContainer.addView(r2)
+        kbContainer.addView(r3)
+        kbContainer.addView(r4)
+        root.addView(kbContainer)
 
         // ── Input row ─────────────────────────────────────────────────────────
         val inputRow = LinearLayout(this)

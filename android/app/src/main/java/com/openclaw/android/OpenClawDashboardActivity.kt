@@ -22,7 +22,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     private lateinit var retryButton:      Button
     private lateinit var openBrowserButton: Button
 
-    private val DASHBOARD_URL = "http://127.0.0.1:18789"
+    private val DASHBOARD_URL = "file:///android_asset/www/index.html"
     private var waitJob: Job? = null
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -106,6 +106,13 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             useWideViewPort       = true
             displayZoomControls   = false
             builtInZoomControls   = false
+            // Allow file:// origin to fetch http://127.0.0.1 (gateway)
+            @Suppress("DEPRECATION")
+            allowFileAccessFromFileURLs   = true
+            @Suppress("DEPRECATION")
+            allowUniversalAccessFromFileURLs = true
+            @Suppress("DEPRECATION")
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
         webView.addJavascriptInterface(OpenClawBridge(this, webView), "OpenClaw")
         webView.webViewClient = object : WebViewClient() {
@@ -117,7 +124,10 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             override fun onReceivedError(
                 view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
-                showError("Error cargando dashboard: ${error?.description}")
+                // Only show error for main frame, not sub-resources
+                if (request?.isForMainFrame == true) {
+                    showError("Error cargando dashboard: ${error?.description}")
+                }
             }
         }
         webView.webChromeClient = WebChromeClient()
@@ -125,9 +135,9 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     private fun loadDashboard() {
         waitJob?.cancel()
-        progressBar.visibility = View.VISIBLE
+        progressBar.visibility = View.GONE
         statusCard.visibility  = View.GONE
-        webView.visibility     = View.GONE
+        webView.visibility     = View.VISIBLE
         webView.loadUrl(DASHBOARD_URL)
     }
 

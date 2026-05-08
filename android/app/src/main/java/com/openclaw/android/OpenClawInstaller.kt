@@ -13,6 +13,7 @@ private const val TAG = "OpenClawInstaller"
 private const val PREFS_NAME            = "openclaw_install"
 private const val KEY_PAYLOAD_INSTALLED = "payload_installed"
 private const val KEY_CONFIG_RESTORED   = "config_restored"
+private const val KEY_ONBOARD_COMPLETE  = "onboard_complete"
 
 // Asset names
 private const val PAYLOAD_ASSET = "payload-v2.tar.xz"
@@ -42,33 +43,58 @@ object OpenClawInstaller {
     // ── Readiness checks ──────────────────────────────────────────────────────
 
     fun isPayloadReady(context: Context): Boolean {
+        val prefs     = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val base      = getPayloadDir(context)
         val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val filesExist = File(nativeDir, "libldlinux.so").exists() &&
-                         File(nativeDir, "libnode.so").exists() &&
-                         File(base, "glibc/lib/ld-linux-aarch64.so.1").exists() &&
-                         File(base, "lib/node_modules/openclaw/openclaw.mjs").exists()
+
+        // Check the critical files that must exist for the gateway to run
+        val libLoader = File(nativeDir, "libldlinux.so")
+        val libNode   = File(nativeDir, "libnode.so")
+        // Note: ld-linux-aarch64.so.1 from the payload is NOT used — the gateway
+        // uses libldlinux.so from nativeLibraryDir (installed by Android from jniLibs/).
+        val ocMjs     = File(base, "lib/node_modules/openclaw/openclaw.mjs")
+
+        Log.d(TAG, "isPayloadReady check:")
+        Log.d(TAG, "  libldlinux.so @ ${libLoader.absolutePath} → ${libLoader.exists()}")
+        Log.d(TAG, "  libnode.so    @ ${libNode.absolutePath}   → ${libNode.exists()}")
+        Log.d(TAG, "  openclaw.mjs  @ ${ocMjs.absolutePath}     → ${ocMjs.exists()}")
+
+        val filesExist = libLoader.exists() && libNode.exists() && ocMjs.exists()
 
         if (filesExist) {
-            // Auto-repair the flag if files exist but prefs were lost
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            // Files present — ensure flag is set
             if (!prefs.getBoolean(KEY_PAYLOAD_INSTALLED, false)) {
                 Log.i(TAG, "Files exist but flag missing — auto-repairing prefs")
                 prefs.edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
             }
             return true
         }
+
+        // Files missing — but if the .so libs are in nativeLibraryDir (always present after
+        // APK install) and the flag is set, only the extracted payload is missing.
+        // Don't send user back to installer just because of the flag — check what's actually
+        // missing and only return false if the payload dir itself is empty.
+        if (prefs.getBoolean(KEY_PAYLOAD_INSTALLED, false)) {
+            // Flag says installed but files are gone — payload dir was cleared
+            // (e.g. Android cleared app data). Reset flag so installer runs again.
+            Log.w(TAG, "Flag set but files missing — clearing flag, need reinstall")
+            prefs.edit().putBoolean(KEY_PAYLOAD_INSTALLED, false).apply()
+        }
+
         return false
     }
 
     fun isConfigRestored(context: Context): Boolean {
+        // If onboard was completed, config is implicitly restored
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_ONBOARD_COMPLETE, false)) return true
+        if (prefs.getBoolean(KEY_CONFIG_RESTORED, false)) return true
+
+        // Check if the file physically exists
         val jsonExists = File(getConfigDir(context), "openclaw.json").exists()
         if (jsonExists) {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            if (!prefs.getBoolean(KEY_CONFIG_RESTORED, false)) {
-                Log.i(TAG, "Config exists but flag missing — auto-repairing prefs")
-                prefs.edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
-            }
+            Log.i(TAG, "Config exists but flag missing — auto-repairing prefs")
+            prefs.edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
             return true
         }
         return false
@@ -255,14 +281,27 @@ object OpenClawInstaller {
     // ── Onboard check ─────────────────────────────────────────────────────────
 
     fun isOnboardComplete(context: Context): Boolean {
+        // Primary check: explicit flag set when `openclaw onboard` exits with code 0
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_ONBOARD_COMPLETE, false)) return true
+
+        // Fallback: inspect openclaw.json for a configured gateway or agent model,
+        // which only exists after a real onboard run (not just the migration skeleton).
         val json = File(getConfigDir(context), "openclaw.json")
         if (!json.exists()) return false
         return try {
             val text = json.readText()
-            text.contains("\"primary\"") || text.contains("\"providers\"") ||
-            text.contains("\"openai\"")  || text.contains("\"anthropic\"") ||
-            text.contains("\"google\"")  || text.contains("\"ollama\"")
+            // Must have gateway section with auth token OR agents section with a primary model
+            // The migration config only has skills/wizard/meta — no gateway or agents
+            (text.contains("\"gateway\"") && text.contains("\"token\"")) ||
+            (text.contains("\"agents\"")  && text.contains("\"primary\""))
         } catch (e: Exception) { false }
+    }
+
+    fun markOnboardComplete(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+               .edit().putBoolean(KEY_ONBOARD_COMPLETE, true).apply()
+        Log.i(TAG, "Onboard marked complete")
     }
 
     // ── Version ───────────────────────────────────────────────────────────────

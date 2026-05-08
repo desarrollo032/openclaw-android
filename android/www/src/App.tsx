@@ -13,6 +13,10 @@ import { Skills } from './screens/Skills.tsx'
 import { Terminal } from './screens/Terminal'
 import { SettingsStorage } from './screens/SettingsStorage'
 import { SettingsPlatforms } from './screens/SettingsPlatforms'
+import { SettingsAbout } from './screens/SettingsAbout'
+import { SettingsKeepAlive } from './screens/SettingsKeepAlive'
+import { SettingsTools } from './screens/SettingsTools'
+import { SettingsUpdates } from './screens/SettingsUpdates'
 
 type Tab = 'chat' | 'dashboard' | 'terminal' | 'skills' | 'memory' | 'logs' | 'settings'
 
@@ -40,13 +44,21 @@ export function App() {
     return () => clearInterval(id)
   }, [])
 
-  // Setup status
+  // Setup status — only check when bridge is available (Android)
+  // In Android, MainActivity already verified payload/config before launching this activity.
+  // We trust that check and skip the setup screen unless bridge explicitly says not installed.
   useEffect(() => {
+    if (!bridge.isAvailable()) {
+      // Browser/dev mode — skip setup
+      setSetupDone(true)
+      return
+    }
     const status = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string }>('getSetupStatus')
     if (status) {
       setSetupDone(!!status.bootstrapInstalled && !!status.platformInstalled)
     } else {
-      setSetupDone(true) // dev / browser mode
+      // Bridge available but returned null — assume installed (MainActivity already checked)
+      setSetupDone(true)
     }
   }, [])
 
@@ -122,5 +134,9 @@ function SettingsRouter() {
   const { path } = useRoute()
   if (path === '/settings/storage') return <SettingsStorage />
   if (path === '/settings/platforms') return <SettingsPlatforms />
+  if (path === '/settings/about') return <SettingsAbout />
+  if (path === '/settings/keepalive') return <SettingsKeepAlive />
+  if (path === '/settings/tools') return <SettingsTools />
+  if (path === '/settings/updates') return <SettingsUpdates />
   return <Settings />
 }

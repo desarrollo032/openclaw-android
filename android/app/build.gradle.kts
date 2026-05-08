@@ -16,22 +16,55 @@ fun runGit(vararg args: String): String = try {
         .inputStream.bufferedReader().readText().trim()
 } catch (e: Exception) { "" }
 
-// versionCode: total commit count — increments automatically on every commit
 val gitVersionCode: Int = runGit("rev-list", "--count", "HEAD").toIntOrNull() ?: 1
 
-// versionName: nearest tag (e.g. "1.2.0"), or "0.0-<short-hash>" if no tag exists.
-// git describe returns the tag when on a tagged commit, or "<tag>-<n>-g<hash>" otherwise.
-// If there are no tags at all it returns just the hash — detect that and add a prefix.
 val gitVersionName: String = run {
     val raw = runGit("describe", "--tags", "--always", "--dirty=-dev")
     if (raw.isEmpty()) {
         "0.0-${runGit("rev-parse", "--short", "HEAD").ifEmpty { "unknown" }}"
     } else if (raw.first().isDigit() || raw.startsWith("v")) {
-        // Looks like a real tag-based version (e.g. "1.0.1", "1.0.1-dev", "1.0.1-3-gabcdef")
         raw
     } else {
-        // No tags — git returned a bare hash
         "0.0-$raw"
+    }
+}
+
+// ── Web UI auto-build task ────────────────────────────────────────────────────
+
+val wwwSrcDir   = file("${rootProject.projectDir}/www")
+val wwwDistDir  = file("${wwwSrcDir}/dist")
+val wwwAssetsDir = file("${projectDir}/src/main/assets/www")
+
+tasks.register<Exec>("buildWebUI") {
+    description = "Build the React web UI and copy dist to Android assets"
+    group       = "build"
+
+    workingDir = wwwSrcDir
+    // Use npm on Windows (cmd /c npm run build) or npm directly on Unix
+    if (System.getProperty("os.name").lowercase().contains("windows")) {
+        commandLine("cmd", "/c", "npm", "run", "build")
+    } else {
+        commandLine("npm", "run", "build")
+    }
+
+    // Only re-run if sources changed
+    inputs.dir(file("${wwwSrcDir}/src"))
+    inputs.file(file("${wwwSrcDir}/package.json"))
+    inputs.file(file("${wwwSrcDir}/vite.config.ts"))
+    outputs.dir(wwwDistDir)
+
+    doLast {
+        // Copy dist → assets/www
+        if (wwwAssetsDir.exists()) wwwAssetsDir.deleteRecursively()
+        wwwDistDir.copyRecursively(wwwAssetsDir, overwrite = true)
+        println("✓ Web UI built and copied to assets/www")
+    }
+}
+
+// Wire buildWebUI to run before asset merging on every build
+tasks.whenTaskAdded {
+    if (name == "mergeDebugAssets" || name == "mergeReleaseAssets") {
+        dependsOn("buildWebUI")
     }
 }
 
