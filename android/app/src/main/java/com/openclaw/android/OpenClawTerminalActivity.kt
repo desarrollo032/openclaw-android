@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -349,17 +350,27 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     private fun toggleKeyboard() {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         if (currentFocus == null) {
             terminalView.requestFocus()
         }
-        imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.show(android.view.WindowInsets.Type.ime())
+        } else {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            @Suppress("DEPRECATION")
+            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+        }
     }
 
     private fun showKeyboard() {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         terminalView.postDelayed({
-            imm.showSoftInput(terminalView, InputMethodManager.SHOW_FORCED)
+            terminalView.requestFocus()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.show(android.view.WindowInsets.Type.ime())
+            } else {
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+            }
         }, 200)
     }
 

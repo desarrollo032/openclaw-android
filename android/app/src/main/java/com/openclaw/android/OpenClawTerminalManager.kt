@@ -65,7 +65,6 @@ class OpenClawTerminalManager(private val context: Context) {
         val native    = nativeDir.absolutePath
         val payload   = payloadDir.absolutePath
         val glibcLib  = "$payload/glibc/lib"
-        val configAbs = configDir.absolutePath
         val tmpDir    = context.cacheDir.absolutePath
         val ocHome    = File(context.filesDir, ".openclaw").absolutePath
 
