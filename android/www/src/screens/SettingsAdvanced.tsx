@@ -20,12 +20,12 @@ export function SettingsAdvanced() {
       setToken(t)
 
       // Fetch openclaw.json
-      const res = bridge.callJson<{ stdout?: string }>('runCommand', 'cat ~/.openclaw/openclaw.json')
+      const res = bridge.callJson<{ stdout?: string }>('runCommand', 'cat "$OPENCLAW_HOME/openclaw.json"')
       if (res?.stdout) {
         setJsonContent(res.stdout)
         setOriginalContent(res.stdout)
       } else {
-        setMsg('No se pudo leer ~/.openclaw/openclaw.json')
+        setMsg('No se pudo leer $OPENCLAW_HOME/openclaw.json')
       }
       setLoading(false)
     }
@@ -44,8 +44,8 @@ export function SettingsAdvanced() {
     
     // Convertir el JSON a base64 para evitar problemas de comillas al inyectarlo en bash
     const b64 = btoa(unescape(encodeURIComponent(jsonContent)))
-    // Comando seguro para escribir el archivo
-    const cmd = `node -e "require('fs').writeFileSync(require('os').homedir()+'/.openclaw/openclaw.json', Buffer.from('${b64}', 'base64'))"`
+    // Comando seguro para escribir el archivo usando la variable de entorno de Android
+    const cmd = `node -e "require('fs').writeFileSync(require('path').join(process.env.OPENCLAW_HOME, 'openclaw.json'), Buffer.from('${b64}', 'base64'))"`
     
     const res = bridge.callJson<{ stdout?: string; stderr?: string }>('runCommand', cmd)
     if (res && !res.stderr) {
