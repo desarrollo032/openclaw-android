@@ -103,10 +103,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     private fun setupTerminalView() {
         terminalView.setTerminalViewClient(OpenClawTerminalViewClient())
-        terminalView.textSize = currentFontSizeSp
+        terminalView.setTextSize(currentFontSizeSp)
 
-        // Esquema de colores estilo Termux/xterm oscuro
-        terminalView.setTerminalColors(buildColorScheme())
+
 
         // Padding interior mínimo para no cortar caracteres en los bordes
         terminalView.setPadding(6, 0, 6, 0)
@@ -141,7 +140,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         // BACK: si hay texto seleccionado, cancela selección; si no, minimiza terminal
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (terminalView.isSelectingText) {
-                terminalView.stopSelectionMode()
+                terminalView.stopTextSelectionMode()
                 return true
             }
             // No finish() — el usuario puede volver con el botón del sistema
