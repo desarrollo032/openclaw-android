@@ -54,13 +54,20 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         obj.put("bootstrapInstalled", OpenClawInstaller.isPayloadReady(context))
         obj.put("platformInstalled", OpenClawInstaller.isConfigRestored(context))
         obj.put("onboardComplete", OpenClawInstaller.isOnboardComplete(context))
+        obj.put("hasBundled", OpenClawInstaller.hasBundledAssets(context))
         return obj.toString()
+    }
+
+    @JavascriptInterface
+    fun startGateway() {
+        OpenClawGatewayService.start(context)
     }
 
     @JavascriptInterface
     fun getBootstrapStatus(): String {
         val obj = JSONObject()
         obj.put("installed", OpenClawInstaller.isPayloadReady(context))
+        obj.put("hasBundled", OpenClawInstaller.hasBundledAssets(context))
         obj.put("prefixPath", OpenClawInstaller.getPayloadDir(context).absolutePath)
         return obj.toString()
     }
@@ -88,6 +95,9 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                     })
                 }
 
+                // Configurar BusyBox
+                OpenClawTerminalManager(context).createBusyboxSymlinks()
+
                 emit("setup_progress", JSONObject().apply {
                     put("progress", 1.0)
                     put("message", "Setup complete!")
@@ -96,6 +106,54 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                 emit("setup_progress", JSONObject().apply {
                     put("progress", 0.0)
                     put("message", "Setup failed.")
+                })
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun pickFile(callbackId: String) {
+        if (context is OpenClawDashboardActivity) {
+            context.pickFile(callbackId)
+        }
+    }
+
+    @JavascriptInterface
+    fun installFromUri(payloadUri: String, configUri: String) {
+        scope.launch {
+            val pUri = android.net.Uri.parse(payloadUri)
+            val cUri = android.net.Uri.parse(configUri)
+            
+            emit("setup_progress", JSONObject().apply {
+                put("progress", 0.1)
+                put("message", "Iniciando instalación manual...")
+            })
+
+            val success = OpenClawInstaller.installPayloadFromUri(context, pUri) { msg, pct ->
+                emit("setup_progress", JSONObject().apply {
+                    put("progress", if (pct >= 0) pct / 100.0 * 0.8 else 0.4)
+                    put("message", msg)
+                })
+            }
+
+            if (success) {
+                OpenClawInstaller.restoreConfigFromUri(context, cUri) { msg, pct ->
+                    emit("setup_progress", JSONObject().apply {
+                        put("progress", if (pct >= 0) 0.8 + pct / 100.0 * 0.2 else 0.9)
+                        put("message", msg)
+                    })
+                }
+                
+                OpenClawTerminalManager(context).createBusyboxSymlinks()
+
+                emit("setup_progress", JSONObject().apply {
+                    put("progress", 1.0)
+                    put("message", "Instalación manual completa!")
+                })
+            } else {
+                emit("setup_progress", JSONObject().apply {
+                    put("progress", 0.0)
+                    put("message", "Error en instalación manual.")
                 })
             }
         }

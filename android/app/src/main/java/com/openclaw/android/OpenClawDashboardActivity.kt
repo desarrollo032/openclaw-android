@@ -9,10 +9,12 @@ import android.view.Gravity
 import android.view.View
 import android.webkit.*
 import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
+import org.json.JSONObject
 
 class OpenClawDashboardActivity : AppCompatActivity() {
 
@@ -33,6 +35,22 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     private val DASHBOARD_URL = "file:///android_asset/www/index.html"
     private var waitJob: Job? = null
+
+    private var pendingCallbackId: String? = null
+    private val filePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val cbId = pendingCallbackId ?: return@registerForActivityResult
+        pendingCallbackId = null
+        val result = JSONObject().apply {
+            put("uri", uri?.toString() ?: "")
+            put("success", uri != null)
+        }
+        webView.evaluateJavascript("window.__oc && window.__oc.emit('file_picked_$cbId', $result)", null)
+    }
+
+    fun pickFile(callbackId: String) {
+        pendingCallbackId = callbackId
+        filePicker.launch("*/*")
+    }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 

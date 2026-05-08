@@ -63,10 +63,27 @@ tasks.register<Exec>("buildWebUI") {
     }
 }
 
-// Wire buildWebUI to run before asset merging on every build
+// ── Scripts bundling task ─────────────────────────────────────────────────────
+val scriptsAssetsDir = file("${projectDir}/src/main/assets/scripts")
+val rootScripts = listOf(
+    "oa.sh", "bootstrap.sh", "install.sh", "uninstall.sh", 
+    "update.sh", "update-core.sh", "post-setup.sh"
+)
+
+tasks.register<Copy>("bundleScripts") {
+    description = "Copy root maintenance scripts to Android assets"
+    group       = "build"
+
+    from(rootProject.projectDir)
+    into(scriptsAssetsDir)
+    include(rootScripts)
+}
+
+// Wire tasks to run before asset merging
 tasks.whenTaskAdded {
     if (name == "mergeDebugAssets" || name == "mergeReleaseAssets") {
         dependsOn("buildWebUI")
+        dependsOn("bundleScripts")
     }
 }
 

@@ -291,6 +291,24 @@ export function Chat() {
             }}
           />
           <button
+            style={S.attachBtn}
+            onClick={() => {
+              const id = Math.random().toString(36).slice(2)
+              const listener = (e: Event) => {
+                const d = (e as CustomEvent).detail as { uri: string; success: boolean }
+                if (d.success) {
+                  // En el futuro, esto subiría el archivo al gateway.
+                  // Por ahora, solo insertamos la referencia en el chat.
+                  setInput(prev => prev + (prev ? ' ' : '') + `[Archivo: ${d.uri}]`)
+                }
+                window.removeEventListener('native:file_picked_' + id, listener)
+              }
+              window.addEventListener('native:file_picked_' + id, listener)
+              bridge.call('pickFile', id)
+            }}>
+            📎
+          </button>
+          <button
             style={{ ...S.sendBtn, opacity: (!input.trim() || typing) ? 0.5 : 1 }}
             onClick={() => handleSend()}
             disabled={!input.trim() || typing}>
@@ -467,12 +485,15 @@ const S: Record<string, React.CSSProperties> = {
     boxShadow: 'var(--sh-inset)',
   },
   sendBtn: {
-    width: 40, height: 40, borderRadius: '50%',
-    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-    border: 'none', color: '#fff', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
     boxShadow: '0 4px 14px rgba(99,102,241,0.4)', flexShrink: 0,
     transition: 'opacity 0.2s, transform 0.1s',
+  },
+  attachBtn: {
+    width: 40, height: 40, borderRadius: '50%',
+    background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)',
+    color: 'var(--text3)', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0, transition: 'background 0.2s',
   },
   inputToolbar: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',

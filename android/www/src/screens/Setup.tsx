@@ -16,6 +16,9 @@ const STEPS = [
 
 export function Setup({ onComplete }: Props) {
   const [phase, setPhase]       = useState<Phase>('welcome')
+  const [manual, setManual]     = useState(false)
+  const [pickedPayload, setPickedPayload] = useState<string | null>(null)
+  const [pickedConfig,  setPickedConfig]  = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
   const [logs, setLogs]         = useState<LogLine[]>([])
   const [dots, setDots]         = useState('')
@@ -70,14 +73,36 @@ export function Setup({ onComplete }: Props) {
   useNativeEvent('setup_progress', onProgress)
 
   const handleStart = () => {
-    setPhase('verifying')
-    setProgress(0.03)
-    addLog('🔐 Verificando integridad SHA-256...', 'info')
-    setTimeout(() => {
+    if (manual) {
+      if (!pickedPayload || !pickedConfig) return
       setPhase('installing')
-      addLog('▶ Iniciando instalación de OpenClaw...', 'info')
-      bridge.call('startSetup')
-    }, 800)
+      addLog('▶ Iniciando instalación manual...', 'info')
+      bridge.call('installFromUri', pickedPayload, pickedConfig)
+    } else {
+      setPhase('verifying')
+      setProgress(0.03)
+      addLog('🔐 Verificando integridad SHA-256...', 'info')
+      setTimeout(() => {
+        setPhase('installing')
+        addLog('▶ Iniciando instalación de OpenClaw...', 'info')
+        bridge.call('startSetup')
+      }, 800)
+    }
+  }
+
+  const handlePick = (type: 'payload' | 'config') => {
+    const id = Math.random().toString(36).slice(2)
+    const listener = (e: Event) => {
+      const d = (e as CustomEvent).detail as { uri: string; success: boolean }
+      if (d.success) {
+        if (type === 'payload') setPickedPayload(d.uri)
+        else setPickedConfig(d.uri)
+        addLog(`✓ Archivo ${type} seleccionado`, 'success')
+      }
+      window.removeEventListener('native:file_picked_' + id, listener)
+    }
+    window.addEventListener('native:file_picked_' + id, listener)
+    bridge.call('pickFile', id)
   }
 
   const pct = Math.round(progress * 100)
@@ -119,10 +144,38 @@ export function Setup({ onComplete }: Props) {
               ))}
             </div>
 
-            <button style={S.btnPrimary} onClick={handleStart}>
-              <span>Instalar ahora</span>
-              <span style={{ fontSize: 18 }}>→</span>
-            </button>
+            {manual ? (
+              <div style={{ ...S.featureList, marginTop: 0 }}>
+                <button style={S.pickerBtn} onClick={() => handlePick('payload')}>
+                  {pickedPayload ? '✅ payload.tar.xz' : '📦 Seleccionar Payload (~186MB)'}
+                </button>
+                <button style={S.pickerBtn} onClick={() => handlePick('config')}>
+                  {pickedConfig ? '✅ migration.tar.gz' : '⚙️ Seleccionar Configuración'}
+                </button>
+                <button style={S.linkBtn} onClick={() => setManual(false)}>
+                  Volver a instalación automática
+                </button>
+              </div>
+            ) : (
+              <div style={{ width: '100%' }}>
+                <button style={S.btnPrimary} onClick={handleStart}>
+                  <span>Instalar ahora</span>
+                  <span style={{ fontSize: 18 }}>→</span>
+                </button>
+                <button style={S.linkBtn} onClick={() => setManual(true)}>
+                  O realizar instalación manual (cargar archivos)
+                </button>
+              </div>
+            )}
+            
+            {manual && (
+              <button 
+                style={{ ...S.btnPrimary, opacity: (pickedPayload && pickedConfig) ? 1 : 0.5, marginTop: 12 }} 
+                onClick={handleStart}
+                disabled={!pickedPayload || !pickedConfig}>
+                <span>Iniciar instalación manual</span>
+              </button>
+            )}
             <p style={{ fontSize: 11, color: 'var(--text4)', marginTop: 12 }}>
               ~200 MB · Solo se instala una vez
             </p>
@@ -338,4 +391,13 @@ const S: Record<string, React.CSSProperties> = {
   doneSubtitle: { fontSize:13, color:'#7878a0', lineHeight:1.65, margin:'0 0 22px' },
   checkList: { width:'100%', display:'flex', flexDirection:'column', gap:7, marginBottom:24 },
   checkItem: { display:'flex', alignItems:'center', gap:10, background:'rgba(74,222,128,0.07)', border:'1px solid rgba(74,222,128,0.18)', borderRadius:10, padding:'10px 14px', textAlign:'left' },
+  linkBtn: {
+    background: 'none', border: 'none', color: '#8b5cf6', fontSize: 12,
+    fontWeight: 600, marginTop: 16, cursor: 'pointer', textDecoration: 'underline'
+  },
+  pickerBtn: {
+    width: '100%', padding: '12px', borderRadius: 12, background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.1)', color: '#c4c4e0', fontSize: 13,
+    textAlign: 'left', marginBottom: 8, cursor: 'pointer'
+  }
 }

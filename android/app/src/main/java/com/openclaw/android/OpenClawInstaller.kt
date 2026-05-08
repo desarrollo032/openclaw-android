@@ -95,6 +95,18 @@ object OpenClawInstaller {
         return false
     }
 
+    fun hasBundledAssets(context: Context): Boolean {
+        val hasPayload = try {
+            context.assets.open(PAYLOAD_ASSET).use { true }
+        } catch (_: Exception) { false }
+        
+        val hasConfig = try {
+            context.assets.open(CONFIG_ASSET).use { true }
+        } catch (_: Exception) { false }
+        
+        return hasPayload && hasConfig
+    }
+
     fun isConfigRestored(context: Context): Boolean {
         // If onboard was completed, config is implicitly restored
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -111,10 +123,6 @@ object OpenClawInstaller {
         return false
     }
 
-    fun hasBundledAssets(context: Context): Boolean = try {
-        val list = context.assets.list("") ?: emptyArray()
-        list.contains(PAYLOAD_ASSET) && list.contains(CONFIG_ASSET)
-    } catch (e: Exception) { false }
 
     // ── Payload integrity ─────────────────────────────────────────────────────
 
@@ -173,7 +181,7 @@ object OpenClawInstaller {
         base.deleteRecursivelySafe()
         base.mkdirs()
 
-        onProgress("Extrayendo payload-v2.tar.xz...", 1)
+        onProgress("Cargando payload principal (payload-v2.tar.xz)...", 10)
         val ok = context.extractTarXz(PAYLOAD_ASSET, base) { pct, read, total, _ ->
             val label = if (total > 0)
                 "Extrayendo... ${formatBytes(read)} / ${formatBytes(total)}"
@@ -187,7 +195,8 @@ object OpenClawInstaller {
             return@withContext false
         }
 
-        onProgress("Aplicando permisos...", 86)
+        onProgress("Aplicando permisos y scripts...", 86)
+        deployScripts(context, base)
         fixPermissions(base)
 
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -230,7 +239,8 @@ object OpenClawInstaller {
             return@withContext false
         }
 
-        onProgress("Aplicando permisos...", 86)
+        onProgress("Aplicando permisos y scripts...", 86)
+        deployScripts(context, base)
         fixPermissions(base)
 
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -245,7 +255,7 @@ object OpenClawInstaller {
         context: Context,
         onProgress: (msg: String, pct: Int) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Restaurando configuración...", 91)
+        onProgress("Cargando configuración (openclaw-apk-migration.tar.gz)...", 91)
         val ok = context.extractTarGz(CONFIG_ASSET, context.filesDir) { pct, read, total, _ ->
             val label = if (total > 0)
                 "Config... ${formatBytes(read)} / ${formatBytes(total)}"
@@ -322,6 +332,25 @@ object OpenClawInstaller {
         }
 
         Log.i(TAG, "fixPermissions done. base=${base.absolutePath}")
+    }
+
+    private fun deployScripts(context: Context, base: File) {
+        val binDir = File(base, "bin")
+        if (!binDir.exists()) binDir.mkdirs()
+
+        try {
+            val scripts = context.assets.list("scripts") ?: emptyArray()
+            scripts.forEach { name ->
+                context.assets.open("scripts/$name").use { input ->
+                    File(binDir, name).outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.i(TAG, "Deployed script: $name to ${binDir.absolutePath}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to deploy scripts from assets", e)
+        }
     }
 
     // ── Uninstall ─────────────────────────────────────────────────────────────

@@ -14,6 +14,8 @@ interface OpenClawBridge {
   getSetupStatus(): string
   getBootstrapStatus(): string
   startSetup(): void
+  pickFile(callbackId: string): void
+  installFromUri(payloadUri: string, configUri: string): void
   saveToolSelections(json: string): void
   getAvailablePlatforms(): string
   getInstalledPlatforms(): string
