@@ -88,10 +88,10 @@ export function App() {
   if (!setupState.installed && !path.startsWith('/setup')) {
     navigate('/setup')
   } 
-  // 2. Redirigir a terminal para onboarding si está instalado pero no configurado
-  else if (setupState.installed && !setupState.onboarded && !path.startsWith('/terminal')) {
-    navigate('/terminal')
-    setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw onboard' })), 300)
+  // 2. Redirigir a terminal nativa para onboarding si está instalado pero no configurado
+  else if (setupState.installed && !setupState.onboarded && !path.startsWith('/setup')) {
+    bridge.call('launchInteractiveCommand', 'openclaw onboard')
+    setSetupState({ ...setupState, onboarded: true })
   }
 
   const isSetup = path.startsWith('/setup') || (setupState.installed && !setupState.onboarded)
@@ -132,9 +132,9 @@ export function App() {
       <main className="content" style={isSetup ? { paddingTop:0, paddingBottom:0 } : undefined}>
         <Route path="/setup">
           <Setup onComplete={() => { 
-            setSetupState({ installed: true, onboarded: false })
-            navigate('/terminal')
-            setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: 'openclaw onboard' })), 300)
+            setSetupState({ installed: true, onboarded: true })
+            bridge.call('launchInteractiveCommand', 'openclaw onboard')
+            navigate('/dashboard')
           }} />
         </Route>
         <Route path="/chat">      <Chat />      </Route>
@@ -153,7 +153,10 @@ export function App() {
             <button
               key={t.id}
               className={`tab-bar-item ${activeTab === t.id ? 'active' : ''}`}
-              onClick={() => navigate(t.path)}
+              onClick={() => {
+                if (t.id === 'terminal') bridge.call('showTerminal')
+                else navigate(t.path)
+              }}
             >
               <span className="icon">{t.icon}</span>
               <span>{t.label}</span>

@@ -53,9 +53,9 @@ export function Dashboard() {
     : null
 
   const runInTerminal = useCallback((cmd: string) => {
-    navigate('/terminal')
-    setTimeout(() => window.dispatchEvent(new CustomEvent('terminal:run', { detail: cmd })), 300)
-  }, [navigate])
+    // Usamos el terminal nativo para una experiencia integrada
+    bridge.call('launchInteractiveCommand', cmd)
+  }, [])
 
   const envTools = [
     { icon: '⬡',  label: 'Node.js',   value: nodeVer,  color: '#6366f1', installed: !!nodeVer },

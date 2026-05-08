@@ -128,6 +128,13 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         }
 
         terminalView.attachSession(terminalSession)
+
+        // Ejecutar comando inicial si viene del bridge
+        intent.getStringExtra("initial_command")?.let { cmd ->
+            terminalSession?.write("$cmd\n")
+            intent.removeExtra("initial_command") // Evitar que se repita al rotar pantalla
+        }
+
         terminalView.requestFocus()
         showKeyboard()
 

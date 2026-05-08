@@ -16,7 +16,10 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun showTerminal() {
-        // Implementation for switching to terminal view
+        val intent = android.content.Intent(context, OpenClawTerminalActivity::class.java).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     }
 
     @JavascriptInterface
@@ -26,12 +29,10 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun getGatewayToken(): String {
-        // The gateway token is stored in openclaw.json under gateway.auth.token
         return try {
             val configFile = java.io.File(OpenClawInstaller.getConfigDir(context), "openclaw.json")
             if (!configFile.exists()) return ""
             val json = org.json.JSONObject(configFile.readText())
-            // Path: gateway.auth.token
             json.optJSONObject("gateway")
                 ?.optJSONObject("auth")
                 ?.optString("token", "") ?: ""
@@ -91,9 +92,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                     put("progress", 1.0)
                     put("message", "Setup complete!")
                 })
-
-                // Setup complete — InstallationActivity handles the transition now
-                // (bridge-triggered setup is legacy; kept for compatibility)
             } else {
                 emit("setup_progress", JSONObject().apply {
                     put("progress", 0.0)
@@ -105,7 +103,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun saveToolSelections(json: String) {
-        // Save selections to shared preferences or file
         val prefs = context.getSharedPreferences("openclaw_prefs", Context.MODE_PRIVATE)
         prefs.edit().putString("selected_tools", json).apply()
     }
@@ -160,9 +157,8 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         val total = internal.totalSpace
         val free = internal.freeSpace
         
-        // Calculate sizes of specific dirs
         val bootstrapSize = getDirSize(OpenClawInstaller.getPayloadDir(context))
-        val wwwSize = getDirSize(context.getFileStreamPath("www")) // or wherever www is
+        val wwwSize = getDirSize(context.getFileStreamPath("www"))
 
         obj.put("totalBytes", total)
         obj.put("freeBytes", free)
@@ -174,7 +170,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
     @JavascriptInterface
     fun getInstalledTools(): String {
         val arr = JSONArray()
-        // Check for specific binaries in the payload bin dir
         val binDir = java.io.File(OpenClawInstaller.getPayloadDir(context), "usr/bin")
         if (binDir.exists() && binDir.isDirectory) {
             binDir.listFiles()?.forEach { file ->
@@ -201,17 +196,14 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                 return JSONObject().put("stdout", "Error: binarios no encontrados").toString()
             }
 
-            // Parse command into binary + args
             val parts = cmd.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
             if (parts.isEmpty()) return JSONObject().put("stdout", "").toString()
 
             val (binary, args) = when {
-                // node -v, node --version
                 parts[0] == "node" -> {
                     loader.absolutePath to (listOf("--library-path", libs, nodeExec.absolutePath)
                         + parts.drop(1))
                 }
-                // openclaw <subcommand> or oa <subcommand>
                 parts[0] == "openclaw" || parts[0] == "oa" -> {
                     if (!ocMjs.exists()) return JSONObject().put("stdout", "openclaw no instalado").toString()
                     loader.absolutePath to (listOf(
@@ -221,13 +213,11 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
                         ocMjs.absolutePath
                     ) + parts.drop(1))
                 }
-                // Direct path execution
                 parts[0].startsWith("/") -> {
                     val bin = java.io.File(parts[0])
                     if (!bin.exists()) return JSONObject().put("stdout", "no encontrado: ${parts[0]}").toString()
                     loader.absolutePath to (listOf("--library-path", libs, parts[0]) + parts.drop(1))
                 }
-                // Anything else — try as openclaw subcommand
                 else -> {
                     if (!ocMjs.exists()) return JSONObject().put("stdout", "no encontrado").toString()
                     loader.absolutePath to (listOf(
@@ -262,7 +252,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
             }
 
             val proc   = pb.start()
-            // Limit output read to 10s to avoid blocking the UI thread
             val output = proc.inputStream.bufferedReader().readText().trim()
             proc.waitFor()
 
@@ -294,14 +283,11 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun checkForUpdates(): String {
-        // Return empty array — actual update check would require network call
-        // The UI shows "up to date" when array is empty
         return "[]"
     }
 
     @JavascriptInterface
     fun applyUpdate(component: String) {
-        // Trigger update via openclaw CLI — runs async and emits install_progress events
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val base      = OpenClawInstaller.getPayloadDir(context)
@@ -353,7 +339,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun getApkUpdateInfo(): String {
-        // Returns update info — currently no remote check, returns no update available
         return JSONObject().apply {
             put("updateAvailable", false)
             put("currentVersion", try {
@@ -364,7 +349,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun installPlatform(id: String) {
-        // Platforms are not separately installable in this build — emit completion immediately
         scope.launch {
             emit("install_progress", JSONObject().apply {
                 put("target", id); put("progress", 1.0)
@@ -374,7 +358,7 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun uninstallPlatform(id: String) {
-        Log.i("OpenClawBridge", "uninstallPlatform($id) — not supported")
+        Log.i("OpenClawBridge", "uninstallPlatform($id) \u2014 not supported")
     }
 
     @JavascriptInterface
@@ -489,9 +473,8 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun launchInteractiveCommand(cmd: String) {
-        // Launch OnboardActivity with a custom command for interactive sessions
-        val intent = android.content.Intent(context, OnboardActivity::class.java).apply {
-            putExtra("interactive_cmd", cmd)
+        val intent = android.content.Intent(context, OpenClawTerminalActivity::class.java).apply {
+            putExtra("initial_command", cmd)
             addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
@@ -559,7 +542,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun getGatewayLogs(): String {
-        // Lee las últimas N líneas del log rotativo de OpenClawLogger
         return try {
             val logFile = java.io.File(context.filesDir, "logs/openclaw.log")
             if (!logFile.exists()) return "[]"
@@ -567,7 +549,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
             val arr = org.json.JSONArray()
             lines.forEach { line ->
                 if (line.isBlank()) return@forEach
-                // Formato: 2024-01-01 12:00:00.000 [LEVEL] TAG: message
                 val obj = org.json.JSONObject()
                 val level = when {
                     line.contains("[ERROR]") -> "error"
@@ -599,7 +580,6 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
 
     @JavascriptInterface
     fun getGatewayUptime(): String {
-        // OpenClawGatewayService expone el uptime en segundos
         return try {
             val uptime = OpenClawGatewayService.getUptimeSeconds()
             JSONObject().put("seconds", uptime).toString()
@@ -622,4 +602,3 @@ class OpenClawBridge(private val context: Context, private val webView: WebView)
         }
     }
 }
-
