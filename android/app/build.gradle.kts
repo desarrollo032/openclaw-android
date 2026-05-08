@@ -19,9 +19,21 @@ fun runGit(vararg args: String): String = try {
 // versionCode: total commit count — increments automatically on every commit
 val gitVersionCode: Int = runGit("rev-list", "--count", "HEAD").toIntOrNull() ?: 1
 
-// versionName: nearest tag (e.g. "1.2.0"), or "1.0-<short-hash>" if no tag exists
-val gitVersionName: String = runGit("describe", "--tags", "--always", "--dirty=-dev")
-    .ifEmpty { "1.0-${runGit("rev-parse", "--short", "HEAD").ifEmpty { "unknown" }}" }
+// versionName: nearest tag (e.g. "1.2.0"), or "0.0-<short-hash>" if no tag exists.
+// git describe returns the tag when on a tagged commit, or "<tag>-<n>-g<hash>" otherwise.
+// If there are no tags at all it returns just the hash — detect that and add a prefix.
+val gitVersionName: String = run {
+    val raw = runGit("describe", "--tags", "--always", "--dirty=-dev")
+    if (raw.isEmpty()) {
+        "0.0-${runGit("rev-parse", "--short", "HEAD").ifEmpty { "unknown" }}"
+    } else if (raw.first().isDigit() || raw.startsWith("v")) {
+        // Looks like a real tag-based version (e.g. "1.0.1", "1.0.1-dev", "1.0.1-3-gabcdef")
+        raw
+    } else {
+        // No tags — git returned a bare hash
+        "0.0-$raw"
+    }
+}
 
 android {
     namespace = "com.openclaw.android"
@@ -40,6 +52,12 @@ android {
     // Prevent aapt from compressing binary archives — critical for large assets
     androidResources {
         noCompress += listOf("xz", "tar", "gz")
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     buildTypes {

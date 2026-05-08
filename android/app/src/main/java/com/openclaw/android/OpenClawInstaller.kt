@@ -15,7 +15,7 @@ private const val KEY_PAYLOAD_INSTALLED = "payload_installed"
 private const val KEY_CONFIG_RESTORED   = "config_restored"
 
 // Asset names
-private const val PAYLOAD_ASSET = "payload.tar.xz"
+private const val PAYLOAD_ASSET = "payload-v2.tar.xz"
 private const val CONFIG_ASSET  = "openclaw-apk-migration.tar.gz"
 
 object OpenClawInstaller {
@@ -26,26 +26,31 @@ object OpenClawInstaller {
     fun getConfigDir(context: Context):  File = File(context.filesDir, ".openclaw")
 
     /**
-     * The glibc dynamic linker.
-     * Actual path in the tar: glibc/lib/ld-linux-aarch64.so.1
+     * The glibc dynamic linker, packaged as a native .so so Android installs
+     * it in nativeLibraryDir (which has execute permission on Android 12+).
+     * Pass context.applicationInfo.nativeLibraryDir as [nativeDir].
      */
-    fun getLoaderFile(base: File): File = File(base, "glibc/lib/ld-linux-aarch64.so.1")
+    fun getLoaderFile(nativeDir: String): File = File(nativeDir, "libldlinux.so")
 
     /**
-     * The node binary.
-     * Actual path in the tar: bin/node.real  (NOT node/bin/node.real)
+     * The node binary, packaged as a native .so so Android installs it in
+     * nativeLibraryDir (which has execute permission on Android 12+).
+     * Pass context.applicationInfo.nativeLibraryDir as [nativeDir].
      */
-    fun getNodeFile(base: File): File = File(base, "bin/node.real")
+    fun getNodeFile(nativeDir: String): File = File(nativeDir, "libnode.so")
 
     // ── Readiness checks ──────────────────────────────────────────────────────
 
     fun isPayloadReady(context: Context): Boolean {
-        val base = getPayloadDir(context)
-        val filesExist = getLoaderFile(base).exists()
-                      && getNodeFile(base).exists()
-                      && File(base, "lib/node_modules/openclaw/openclaw.mjs").exists()
+        val base      = getPayloadDir(context)
+        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
+        val filesExist = File(nativeDir, "libldlinux.so").exists() &&
+                         File(nativeDir, "libnode.so").exists() &&
+                         File(base, "glibc/lib/ld-linux-aarch64.so.1").exists() &&
+                         File(base, "lib/node_modules/openclaw/openclaw.mjs").exists()
 
         if (filesExist) {
+            // Auto-repair the flag if files exist but prefs were lost
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             if (!prefs.getBoolean(KEY_PAYLOAD_INSTALLED, false)) {
                 Log.i(TAG, "Files exist but flag missing — auto-repairing prefs")
@@ -85,7 +90,7 @@ object OpenClawInstaller {
         base.deleteRecursivelySafe()
         base.mkdirs()
 
-        onProgress("Extrayendo payload.tar.xz...", 1)
+        onProgress("Extrayendo payload-v2.tar.xz...", 1)
         val ok = context.extractTarXz(PAYLOAD_ASSET, base) { pct, read, total, _ ->
             val label = if (total > 0)
                 "Extrayendo... ${formatBytes(read)} / ${formatBytes(total)}"
@@ -203,8 +208,6 @@ object OpenClawInstaller {
         base.setReadable(true, false)
 
         val critical = listOf(
-            getLoaderFile(base),
-            getNodeFile(base),
             File(base, "lib/node_modules/openclaw/openclaw.mjs"),
         )
         critical.forEach { f ->
@@ -218,7 +221,10 @@ object OpenClawInstaller {
             }
         }
 
-        // chmod all .so files and all binaries
+        // Note: libldlinux.so and libnode.so live in nativeLibraryDir —
+        // Android installs them with correct execute permissions automatically.
+
+        // chmod all .so files and all binaries in glibc/lib and bin
         listOf(File(base, "glibc/lib"), File(base, "bin")).forEach { dir ->
             dir.walkTopDown().filter { it.isFile }.forEach { f ->
                 f.setReadable(true, false)

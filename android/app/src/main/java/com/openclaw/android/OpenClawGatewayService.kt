@@ -122,9 +122,11 @@ class OpenClawGatewayService : Service() {
     private fun startProcess() {
         try {
             val base      = OpenClawInstaller.getPayloadDir(this)
-            val loader    = OpenClawInstaller.getLoaderFile(base)
-            val nodeExec  = OpenClawInstaller.getNodeFile(base)
-            val libs      = File(base, "glibc/lib").absolutePath
+            val nativeDir = File(applicationInfo.nativeLibraryDir)
+            val loader    = File(nativeDir, "libldlinux.so")
+            val nodeExec  = File(nativeDir, "libnode.so")
+            val glibcLibs = File(base, "glibc/lib").absolutePath
+            val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
             val openclaw  = File(base, "lib/node_modules/openclaw/openclaw.mjs")
             val tmpDir    = File(cacheDir, "tmp").apply { mkdirs() }
             val configDir = OpenClawInstaller.getConfigDir(this)
@@ -142,6 +144,7 @@ class OpenClawGatewayService : Service() {
                 loader.absolutePath,
                 "--library-path", libs,
                 nodeExec.absolutePath,
+                "--disable-warning=ExperimentalWarning",
                 openclaw.absolutePath,
                 "gateway"
             ).apply {
@@ -157,7 +160,13 @@ class OpenClawGatewayService : Service() {
                     put("NODE_PATH",       "${base.absolutePath}/lib/node_modules")
                     put("OPENCLAW_HOME",   configDir.absolutePath)
                     put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")
-                    put("PATH",            "${base.absolutePath}/node/bin:/system/bin")
+                    put("PATH",            "${base.absolutePath}/bin:/system/bin")
+                    // Prevent openclaw.mjs from respawning with execArgv flags
+                    // that the ld-linux loader doesn't understand
+                    put("NODE_NO_WARNINGS",                          "1")
+                    put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
+                    put("OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED",   "1")
+                    put("NODE_DISABLE_COMPILE_CACHE",                "1")
                 }
             }
 

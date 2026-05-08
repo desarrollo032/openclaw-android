@@ -19,7 +19,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import java.io.File
-import java.io.PrintWriter
 
 private const val TAG = "OnboardActivity"
 
@@ -35,9 +34,14 @@ class OnboardActivity : AppCompatActivity() {
     private lateinit var doneButton:     Button
     private lateinit var scrollView:     ScrollView
     private lateinit var statusBar:      TextView
+    private lateinit var btnUp:          Button
+    private lateinit var btnDown:        Button
+    private lateinit var btnLeft:        Button
+    private lateinit var btnRight:       Button
+    private lateinit var btnEnter:       Button
+    private lateinit var btnCtrlC:       Button
 
     private var process:     Process?     = null
-    private var stdinWriter: PrintWriter? = null
     private var ioJob:       Job?         = null
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -66,9 +70,11 @@ class OnboardActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val base      = OpenClawInstaller.getPayloadDir(this@OnboardActivity)
-                val loader    = OpenClawInstaller.getLoaderFile(base)
-                val nodeExec  = OpenClawInstaller.getNodeFile(base)
-                val libs      = File(base, "glibc/lib").absolutePath
+                val nativeDir = File(applicationInfo.nativeLibraryDir)
+                val loader    = File(nativeDir, "libldlinux.so")
+                val nodeExec  = File(nativeDir, "libnode.so")
+                val glibcLibs = File(base, "glibc/lib").absolutePath
+                val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
                 val openclaw  = File(base, "lib/node_modules/openclaw/openclaw.mjs")
                 val tmpDir    = File(cacheDir, "tmp").apply { mkdirs() }
                 val configDir = OpenClawInstaller.getConfigDir(this@OnboardActivity)
@@ -82,6 +88,7 @@ class OnboardActivity : AppCompatActivity() {
                     loader.absolutePath,
                     "--library-path", libs,
                     nodeExec.absolutePath,
+                    "--disable-warning=ExperimentalWarning",
                     openclaw.absolutePath,
                     "onboard"
                 ).apply {
@@ -97,22 +104,39 @@ class OnboardActivity : AppCompatActivity() {
                         put("NODE_PATH",       "${base.absolutePath}/lib/node_modules")
                         put("OPENCLAW_HOME",   configDir.absolutePath)
                         put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")
-                        put("PATH",            "${base.absolutePath}/node/bin:/system/bin")
+                        put("PATH",            "${base.absolutePath}/bin:/system/bin")
                         put("TERM",            "xterm-256color")
                         put("COLUMNS",         "80")
                         put("LINES",           "40")
                         put("FORCE_COLOR",     "0")
                         put("NO_COLOR",        "1")
+                        // Prevent openclaw.mjs from respawning with execArgv flags
+                        // that the ld-linux loader doesn't understand
+                        put("NODE_NO_WARNINGS",                          "1")
+                        put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
+                        put("OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED",   "1")
+                        put("NODE_DISABLE_COMPILE_CACHE",                "1")
                     }
                 }
 
                 process = pb.start()
-                stdinWriter = PrintWriter(process!!.outputStream, true)
 
                 withContext(Dispatchers.Main) {
                     setStatus("Onboard en progreso...", Color.parseColor("#facc15"))
                     inputField.isEnabled = true
                     sendButton.isEnabled = true
+                    btnUp.isEnabled    = true
+                    btnDown.isEnabled  = true
+                    btnLeft.isEnabled  = true
+                    btnRight.isEnabled = true
+                    btnEnter.isEnabled = true
+                    btnCtrlC.isEnabled = true
+                    // Update button backgrounds to active state
+                    listOf(btnUp, btnDown, btnLeft, btnRight).forEach { btn ->
+                        (btn.background as? GradientDrawable)?.setColor(Color.parseColor("#1e3a5f"))
+                    }
+                    (btnEnter.background as? GradientDrawable)?.setColor(Color.parseColor("#166534"))
+                    (btnCtrlC.background as? GradientDrawable)?.setColor(Color.parseColor("#991b1b"))
                 }
 
                 ioJob = launch(Dispatchers.IO) {
@@ -137,18 +161,46 @@ class OnboardActivity : AppCompatActivity() {
     }
 
     private fun sendInput(text: String) {
-        val writer = stdinWriter ?: return
+        if (text.isEmpty()) return
+        val proc = process ?: return
         lifecycleScope.launch(Dispatchers.IO) {
-            writer.println(text)
-            writer.flush()
+            try {
+                // Send text bytes + CR (0x0D) — no println to avoid \r\n corruption
+                val bytes = text.toByteArray(Charsets.UTF_8) + byteArrayOf(0x0D)
+                proc.outputStream.write(bytes)
+                proc.outputStream.flush()
+            } catch (e: Exception) {
+                Log.w(TAG, "sendInput failed: ${e.message}")
+            }
         }
-        appendOutput("> $text\n")
-        inputField.text.clear()
+        runOnUiThread {
+            appendOutput("> $text\n")
+            inputField.text.clear()
+        }
+    }
+
+    /** Send raw bytes directly to the process stdin (for escape sequences). */
+    private fun sendRaw(bytes: ByteArray) {
+        val proc = process ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                proc.outputStream.write(bytes)
+                proc.outputStream.flush()
+            } catch (e: Exception) {
+                Log.w(TAG, "sendRaw failed: ${e.message}")
+            }
+        }
     }
 
     private fun onOnboardFinished(code: Int) {
         inputField.isEnabled = false
         sendButton.isEnabled = false
+        btnUp.isEnabled    = false
+        btnDown.isEnabled  = false
+        btnLeft.isEnabled  = false
+        btnRight.isEnabled = false
+        btnEnter.isEnabled = false
+        btnCtrlC.isEnabled = false
 
         if (code == 0) {
             appendOutput("\n✓ Configuración completada.\n")
@@ -178,8 +230,20 @@ class OnboardActivity : AppCompatActivity() {
     }
 
     private fun appendOutput(text: String) {
-        terminalOutput.append(text)
-        scrollView.post { scrollView.fullScroll(View.FOCUS_DOWN) }
+        // Strip ANSI/VT100 escape sequences so the terminal stays readable
+        val clean = text
+            .replace(Regex("\u001B\\[\\?[0-9;]*[hlH]"), "")  // private mode: [?25l [?25h etc
+            .replace(Regex("\u001B\\[[0-9;]*[A-Za-z]"), "")  // CSI sequences (cursor, color)
+            .replace(Regex("\u001B\\][^\u0007\u001B]*(\u0007|\u001B\\\\)"), "") // OSC
+            .replace(Regex("\u001B[()][AB012]"), "")          // charset designations
+            .replace(Regex("\u001B[=>]"), "")                 // keypad mode
+            .replace(Regex("\u001B[NOM]"), "")                // SS2/SS3/RI
+            .replace(Regex("\r\n"), "\n")                     // CRLF → LF
+            .replace(Regex("\r"), "")                         // bare CR
+        if (clean.isNotEmpty()) {
+            terminalOutput.append(clean)
+            scrollView.post { scrollView.fullScroll(View.FOCUS_DOWN) }
+        }
     }
 
     private fun setStatus(msg: String, color: Int) {
@@ -265,43 +329,114 @@ class OnboardActivity : AppCompatActivity() {
         doneButton.visibility = View.GONE
         root.addView(doneButton)
 
+        // ── Nav keys (2 rows: arrows + action buttons) ───────────────────────
+        val navContainer = LinearLayout(this)
+        navContainer.orientation = LinearLayout.VERTICAL
+        navContainer.setPadding(dp(8), dp(6), dp(8), dp(4))
+        navContainer.setBackgroundColor(Color.parseColor("#0d0d1a"))
+
+        fun makeNavBtn(label: String, bgColor: String, fgColor: String): Button {
+            val btn = Button(this)
+            btn.text = label
+            btn.textSize = 15f
+            btn.typeface = Typeface.DEFAULT_BOLD
+            btn.setTextColor(Color.parseColor(fgColor))
+            btn.isEnabled = false
+            val bg = GradientDrawable()
+            bg.shape = GradientDrawable.RECTANGLE
+            bg.cornerRadius = dp(10).toFloat()
+            bg.setColor(Color.parseColor(bgColor))
+            btn.background = bg
+            val lp = LinearLayout.LayoutParams(0, dp(50), 1f)
+            lp.setMargins(dp(4), dp(4), dp(4), dp(4))
+            btn.layoutParams = lp
+            return btn
+        }
+
+        // Row 1: ← ↑ ↓ →  (blue-grey tone)
+        val arrowRow = LinearLayout(this)
+        arrowRow.orientation = LinearLayout.HORIZONTAL
+        arrowRow.layoutParams = LinearLayout.LayoutParams(-1, -2)
+
+        btnLeft  = makeNavBtn("⇤ Tab", "#2d3a5e", "#93c5fd")
+        btnUp    = makeNavBtn("↑", "#2d3a5e", "#93c5fd")
+        btnDown  = makeNavBtn("↓", "#2d3a5e", "#93c5fd")
+        btnRight = makeNavBtn("Tab ⇥", "#2d3a5e", "#93c5fd")
+
+        btnLeft.setOnClickListener  { sendRaw(byteArrayOf(0x1B, 0x5B, 0x5A)) } // Shift+Tab (ESC[Z)
+        btnUp.setOnClickListener    { sendRaw(byteArrayOf(0x1B, 0x5B, 0x41)) } // ESC[A up
+        btnDown.setOnClickListener  { sendRaw(byteArrayOf(0x1B, 0x5B, 0x42)) } // ESC[B down
+        btnRight.setOnClickListener { sendRaw(byteArrayOf(0x09)) }              // Tab
+
+        arrowRow.addView(btnLeft)
+        arrowRow.addView(btnUp)
+        arrowRow.addView(btnDown)
+        arrowRow.addView(btnRight)
+
+        // Row 2: ↵ Enter (green)  +  ✕ Ctrl+C (red)
+        val actionRow = LinearLayout(this)
+        actionRow.orientation = LinearLayout.HORIZONTAL
+        actionRow.layoutParams = LinearLayout.LayoutParams(-1, -2)
+
+        btnEnter = makeNavBtn("↵  ENTER", "#14532d", "#86efac")
+        btnCtrlC = makeNavBtn("✕  CTRL+C", "#7f1d1d", "#fca5a5")
+
+        btnEnter.setOnClickListener { sendRaw(byteArrayOf(0x0D)) }
+        btnCtrlC.setOnClickListener { sendRaw(byteArrayOf(0x03)) }
+
+        actionRow.addView(btnEnter)
+        actionRow.addView(btnCtrlC)
+
+        navContainer.addView(arrowRow)
+        navContainer.addView(actionRow)
+        root.addView(navContainer)
+
         // ── Input row ─────────────────────────────────────────────────────────
         val inputRow = LinearLayout(this)
-        inputRow.orientation = LinearLayout.HORIZONTAL
-        inputRow.gravity     = Gravity.CENTER_VERTICAL
-        inputRow.setPadding(dp(12), dp(8), dp(12), dp(8))
+        inputRow.orientation = LinearLayout.VERTICAL
+        inputRow.setPadding(dp(10), dp(6), dp(10), dp(10))
         inputRow.setBackgroundColor(Color.parseColor("#0d0d1a"))
 
-        val promptView = TextView(this)
-        promptView.setText("›")
-        promptView.textSize = 18f
-        promptView.typeface = Typeface.DEFAULT_BOLD
-        promptView.setTextColor(Color.parseColor("#6366f1"))
-        val promptLp = LinearLayout.LayoutParams(-2, -2)
-        promptLp.rightMargin = dp(8)
-        promptView.layoutParams = promptLp
-        inputRow.addView(promptView)
+        // Input field container (border + field side by side)
+        val fieldRow = LinearLayout(this)
+        fieldRow.orientation = LinearLayout.HORIZONTAL
+        fieldRow.gravity = Gravity.CENTER_VERTICAL
+        val fieldBg = GradientDrawable()
+        fieldBg.shape = GradientDrawable.RECTANGLE
+        fieldBg.cornerRadius = dp(10).toFloat()
+        fieldBg.setColor(Color.parseColor("#12122a"))
+        fieldBg.setStroke(dp(1), Color.parseColor("#3d3d6e"))
+        fieldRow.background = fieldBg
+        fieldRow.setPadding(dp(10), dp(4), dp(4), dp(4))
+        fieldRow.layoutParams = LinearLayout.LayoutParams(-1, -2).also {
+            it.bottomMargin = dp(6)
+        }
 
         inputField = EditText(this)
-        inputField.hint = "Escribe tu respuesta..."
+        inputField.hint = "Escribe o pega tu respuesta..."
         inputField.setHintTextColor(Color.parseColor("#444466"))
         inputField.setTextColor(Color.WHITE)
         inputField.textSize = 14f
         inputField.typeface = Typeface.MONOSPACE
         inputField.background = null
         inputField.isEnabled = false
-        inputField.imeOptions = EditorInfo.IME_ACTION_SEND
-        inputField.setSingleLine(true)
+        // Multiline so paste works properly; Enter key sends
+        inputField.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                               android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                               android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        inputField.imeOptions = EditorInfo.IME_ACTION_NONE
+        inputField.isSingleLine = false
+        inputField.maxLines = 4
         inputField.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
-        inputField.setOnEditorActionListener { _, actionId, event ->
-            if (actionId == EditorInfo.IME_ACTION_SEND ||
-                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
-                val txt = inputField.text.toString().trim()
+        // Intercept Enter key to send
+        inputField.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
+                val txt = inputField.text.toString()
                 if (txt.isNotEmpty()) sendInput(txt)
                 true
             } else false
         }
-        inputRow.addView(inputField)
+        fieldRow.addView(inputField)
 
         sendButton = ImageButton(this)
         sendButton.setImageResource(android.R.drawable.ic_menu_send)
@@ -310,11 +445,42 @@ class OnboardActivity : AppCompatActivity() {
         sendButton.isEnabled = false
         sendButton.layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
         sendButton.setOnClickListener {
-            val txt = inputField.text.toString().trim()
+            val txt = inputField.text.toString()
             if (txt.isNotEmpty()) sendInput(txt)
         }
-        inputRow.addView(sendButton)
+        fieldRow.addView(sendButton)
+        inputRow.addView(fieldRow)
 
+        // Quick-action buttons row: Paste | Clear
+        val quickRow = LinearLayout(this)
+        quickRow.orientation = LinearLayout.HORIZONTAL
+        quickRow.layoutParams = LinearLayout.LayoutParams(-1, -2)
+
+        fun quickBtn(label: String, color: String, action: () -> Unit): Button {
+            val b = Button(this)
+            b.text = label
+            b.textSize = 12f
+            b.typeface = Typeface.DEFAULT_BOLD
+            b.setTextColor(Color.parseColor(color))
+            b.background = null
+            val lp = LinearLayout.LayoutParams(-2, dp(36))
+            lp.rightMargin = dp(8)
+            b.layoutParams = lp
+            b.setOnClickListener { action() }
+            return b
+        }
+
+        quickRow.addView(quickBtn("📋 Pegar", "#a5b4fc") {
+            val cm = getSystemService(android.content.ClipboardManager::class.java)
+            val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() ?: return@quickBtn
+            inputField.setText(inputField.text.toString() + clip)
+            inputField.setSelection(inputField.text.length)
+        })
+        quickRow.addView(quickBtn("✕ Limpiar", "#f87171") {
+            inputField.text.clear()
+        })
+
+        inputRow.addView(quickRow)
         root.addView(inputRow)
         return root
     }
