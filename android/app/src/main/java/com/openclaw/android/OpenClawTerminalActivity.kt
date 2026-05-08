@@ -103,7 +103,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     private fun setupTerminalView() {
         terminalView.setTerminalViewClient(OpenClawTerminalViewClient())
-        terminalView.setTextSize(currentFontSizeSp.toInt())
+        terminalView.textSize = currentFontSizeSp
 
         // Esquema de colores estilo Termux/xterm oscuro
         terminalView.setTerminalColors(buildColorScheme())
@@ -175,7 +175,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     /** El usuario copió texto desde la terminal */
-    override fun onCopyTextToClipboard(session: TerminalSession?, text: String?) {
+    override fun onCopyText(session: TerminalSession?, text: String?) {
         text?.let {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("terminal", it))
@@ -184,11 +184,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     /** La terminal necesita texto del portapapeles */
-    override fun onPasteTextFromClipboard(session: TerminalSession?) {
+    override fun onPasteText(session: TerminalSession?): String? {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.let {
-            session?.write(it.toByteArray(Charsets.UTF_8), 0, it.length)
-        }
+        return clipboard.primaryClip?.getItemAt(0)?.text?.toString()
     }
 
     /** Bell (BEL char 0x07) — vibración opcional */
@@ -207,7 +205,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     /** El título de la ventana cambió (secuencia OSC 0/2) */
-    override fun onTitleChanged(changedSession: TerminalSession?) {
+    override fun onSessionTitleChanged(changedSession: TerminalSession?) {
         val title = changedSession?.title?.takeIf { it.isNotBlank() } ?: "Terminal"
         runOnUiThread {
             supportActionBar?.title = title
@@ -480,38 +478,6 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         /* 14 cian brillante   */ 0xFFA4FFFF.toInt(),
         /* 15 blanco brillante */ 0xFFFFFFFF.toInt()
     )
-
-    override fun getTerminalCursorStyle(): Int = 0
-
-    // ── Logging ───────────────────────────────────────────────────────────
-
-    override fun logError(tag: String, message: String) {
-        Log.e(tag, message)
-    }
-
-    override fun logWarn(tag: String, message: String) {
-        Log.w(tag, message)
-    }
-
-    override fun logInfo(tag: String, message: String) {
-        Log.i(tag, message)
-    }
-
-    override fun logDebug(tag: String, message: String) {
-        Log.d(tag, message)
-    }
-
-    override fun logVerbose(tag: String, message: String) {
-        Log.v(tag, message)
-    }
-
-    override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {
-        Log.e(tag, message, e)
-    }
-
-    override fun logStackTrace(tag: String, e: Exception) {
-        Log.e(tag, Log.getStackTraceString(e))
-    }
 
     // ── TerminalViewClient inner class ────────────────────────────────────────
 
