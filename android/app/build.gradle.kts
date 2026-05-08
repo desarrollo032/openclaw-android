@@ -122,7 +122,7 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    
+
     // For robust tar.gz and tar.xz extraction
     implementation("org.apache.commons:commons-compress:1.26.0")
     implementation("org.tukaani:xz:1.9")
@@ -130,9 +130,11 @@ dependencies {
 
     // ── Termux Terminal Libraries ────────────────────────────────────────────
     // Librería core de emulación de terminal (TerminalSession, etc.)
-    
+    // ✅ Poner esto
+    implementation("com.github.termux.termux-app:terminal-emulator:v0.118.0")
+    implementation("com.github.termux.termux-app:terminal-view:v0.118.0")
     // Vista de terminal para Android (TerminalView)
-    
+
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
