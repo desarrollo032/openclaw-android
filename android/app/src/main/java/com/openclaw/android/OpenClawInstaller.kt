@@ -54,45 +54,10 @@ object OpenClawInstaller {
     // ── Readiness checks ──────────────────────────────────────────────────────
 
     fun isPayloadReady(context: Context): Boolean {
-        val prefs     = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val base      = getPayloadDir(context)
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-
-        // Check the critical files that must exist for the gateway to run
-        val libLoader = File(nativeDir, "libldlinux.so")
-        val libNode   = File(nativeDir, "libnode.so")
-        // Note: ld-linux-aarch64.so.1 from the payload is NOT used — the gateway
-        // uses libldlinux.so from nativeLibraryDir (installed by Android from jniLibs/).
-        val ocMjs     = File(base, "lib/node_modules/openclaw/openclaw.mjs")
-
-        Log.d(TAG, "isPayloadReady check:")
-        Log.d(TAG, "  libldlinux.so @ ${libLoader.absolutePath} → ${libLoader.exists()}")
-        Log.d(TAG, "  libnode.so    @ ${libNode.absolutePath}   → ${libNode.exists()}")
-        Log.d(TAG, "  openclaw.mjs  @ ${ocMjs.absolutePath}     → ${ocMjs.exists()}")
-
-        val filesExist = libLoader.exists() && libNode.exists() && ocMjs.exists()
-
-        if (filesExist) {
-            // Files present — ensure flag is set
-            if (!prefs.getBoolean(KEY_PAYLOAD_INSTALLED, false)) {
-                Log.i(TAG, "Files exist but flag missing — auto-repairing prefs")
-                prefs.edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
-            }
-            return true
-        }
-
-        // Files missing — but if the .so libs are in nativeLibraryDir (always present after
-        // APK install) and the flag is set, only the extracted payload is missing.
-        // Don't send user back to installer just because of the flag — check what's actually
-        // missing and only return false if the payload dir itself is empty.
-        if (prefs.getBoolean(KEY_PAYLOAD_INSTALLED, false)) {
-            // Flag says installed but files are gone — payload dir was cleared
-            // (e.g. Android cleared app data). Reset flag so installer runs again.
-            Log.w(TAG, "Flag set but files missing — clearing flag, need reinstall")
-            prefs.edit().putBoolean(KEY_PAYLOAD_INSTALLED, false).apply()
-        }
-
-        return false
+        val payloadDir = context.getDir("payload", Context.MODE_PRIVATE)
+        // Verificar que los archivos críticos existen post-extracción
+        return File(payloadDir, "bin/node.real").exists() &&
+               File(payloadDir, "lib/node_modules/openclaw").exists()
     }
 
     fun hasBundledAssets(context: Context): Boolean {

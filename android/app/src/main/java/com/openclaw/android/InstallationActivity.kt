@@ -1,4 +1,4 @@
-﻿package com.openclaw.android
+package com.openclaw.android
 
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -322,7 +322,14 @@ class InstallationActivity : AppCompatActivity() {
     // -- Result handlers --
 
     private fun onInstallSuccess() {
+        // Save the installation complete flag as requested
+        getSharedPreferences("openclaw_install", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("installation_complete", true)
+            .apply()
         setState(ScreenState.DONE)
+        // Redirigir automáticamente al Dashboard
+        launchDashboard()
     }
 
     private fun onInstallFailed(reason: String) {

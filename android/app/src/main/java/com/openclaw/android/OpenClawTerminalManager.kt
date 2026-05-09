@@ -157,15 +157,9 @@ class OpenClawTerminalManager(private val context: Context) {
                          else context.cacheDir.absolutePath
         val env = buildEnvironment()
 
-        // Construir argv correctamente según el shell elegido
-        val args: Array<String> = if (shell == busyboxFile.absolutePath) {
-            // BusyBox: argv[0]=ejecutable, argv[1]="sh" (nombre del applet),
-            // argv[2]="-i" (modo interactivo)
-            arrayOf(shell, "sh", "-i")
-        } else {
-            // /system/bin/sh: argv estándar
-            arrayOf("sh", "-i")
-        }
+        // Construir argv correctamente según el shell elegido.
+        // Ambos shells (BusyBox y /system/bin/sh) esperan "sh" como argv[0] para el modo interactivo.
+        val args = arrayOf("sh", "-i")
 
         val isBusybox = shell == busyboxFile.absolutePath
         Log.d(TAG, "Creating terminal session:")

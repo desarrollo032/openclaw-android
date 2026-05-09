@@ -1,4 +1,4 @@
-﻿package com.openclaw.android
+package com.openclaw.android
 
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -454,7 +454,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 "Terminal no disponible - libbusybox.so no encontrado en el APK",
                 Toast.LENGTH_LONG
             ).show()
-            // Still try with /system/bin/sh fallback
+            return
         }
         startActivity(Intent(this, OpenClawTerminalActivity::class.java))
     }
