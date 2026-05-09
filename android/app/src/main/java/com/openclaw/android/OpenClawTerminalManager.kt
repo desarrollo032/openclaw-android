@@ -14,19 +14,20 @@ private const val TAG = "OpenClawTermMgr"
  * Responsabilidades:
  *  - Construir el entorno (environment array) idéntico al del ProcessBuilder del gateway.
  *  - Verificar que libbusybox.so exista en nativeLibraryDir antes de crear sesión.
- *  - Crear la TerminalSession con BusyBox como shell ("sh" mode).
+ *  - Validar que libbusybox.so responde a --list y tiene applet "sh".
+ *  - Fallback a /system/bin/sh si BusyBox no es válido.
+ *  - Crear la TerminalSession con el shell adecuado.
  *  - Gestionar el ciclo de vida de la sesión (start / finish / recreate).
  *
  * REGLAS CRÍTICAS aplicadas:
- *  - NUNCA hardcoded /data/data/ ni /data/user/0/ — se usa context.getDir() / filesDir
- *  - NUNCA setExecutable() sobre libbusybox.so — ya viene instalado en nativeLibraryDir
+ *  - NUNCA hardcoded /data/data/ ni /data/user/0/ → se usa context.getDir() / filesDir
+ *  - NUNCA setExecutable() sobre libbusybox.so → ya viene instalado en nativeLibraryDir
  *  - LD_PRELOAD siempre removido del entorno
- *  - Shell: libbusybox.so con args ["libbusybox.so", "sh", "-i"]
  *  - Working dir: context.getDir("payload", MODE_PRIVATE)
  */
 class OpenClawTerminalManager(private val context: Context) {
 
-    // ── Paths ─────────────────────────────────────────────────────────────────
+    // ── Paths ─────────────────────────────────────────────────────────────
 
     private val nativeDir: File
         get() = File(context.applicationInfo.nativeLibraryDir)
@@ -37,7 +38,7 @@ class OpenClawTerminalManager(private val context: Context) {
     private val configDir: File
         get() = OpenClawInstaller.getConfigDir(context)
 
-    // ── BusyBox helpers ───────────────────────────────────────────────────────
+    // ── BusyBox helpers ───────────────────────────────────────────────────
 
     /** El ELF estático BusyBox instalado por Android en nativeLibraryDir */
     val busyboxFile: File
@@ -45,7 +46,7 @@ class OpenClawTerminalManager(private val context: Context) {
 
     /**
      * Verifica que libbusybox.so existe y es legible.
-     * No usa setExecutable() — Android lo instala con permisos correctos.
+     * No usa setExecutable() → Android lo instala con permisos correctos.
      */
     fun isBusyboxAvailable(): Boolean {
         val f = busyboxFile
@@ -54,7 +55,44 @@ class OpenClawTerminalManager(private val context: Context) {
         return ok
     }
 
-    // ── Environment ───────────────────────────────────────────────────────────
+    /**
+     * Verifica que libbusybox.so es un BusyBox válido con applet "sh".
+     * Ejecuta `libbusybox.so --list` y comprueba que la salida contiene "sh".
+     *
+     * @return true si BusyBox tiene applet "sh" disponible
+     */
+    fun isBusyboxValid(): Boolean {
+        if (!isBusyboxAvailable()) return false
+        return try {
+            val process = ProcessBuilder(busyboxFile.absolutePath, "--list")
+                .redirectErrorStream(true)
+                .start()
+            val result = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            val hasShApplet = result.lines().any { it.trim() == "sh" }
+            Log.d(TAG, "BusyBox --list: hasShApplet=$hasShApplet (${result.lines().size} applets)")
+            hasShApplet
+        } catch (e: Exception) {
+            Log.e(TAG, "BusyBox validation failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Determina el path del shell a usar:
+     * - Si BusyBox es válido (tiene applet "sh"): usa libbusybox.so
+     * - Si no: fallback a /system/bin/sh
+     */
+    fun getShellPath(): String {
+        return if (isBusyboxValid()) {
+            busyboxFile.absolutePath
+        } else {
+            Log.w(TAG, "BusyBox invalid or unavailable → falling back to /system/bin/sh")
+            "/system/bin/sh"
+        }
+    }
+
+    // ── Environment ───────────────────────────────────────────────────────
 
     /**
      * Construye el array de variables de entorno para la sesión de terminal.
@@ -93,46 +131,57 @@ class OpenClawTerminalManager(private val context: Context) {
         )
     }
 
-    // ── Session factory ───────────────────────────────────────────────────────
+    // ── Session factory ───────────────────────────────────────────────────
 
     /**
-     * Crea una TerminalSession con BusyBox sh interactivo.
+     * Crea una TerminalSession con el shell apropiado en modo interactivo.
      *
-     * Invocación: libbusybox.so sh -i
-     *   - El primer argumento es argv[0] (nombre del proceso visible en ps)
-     *   - "sh" activa el applet de shell de BusyBox
-     *   - "-i" fuerza modo interactivo (prompt, job control, readline)
+     * Lógica de selección del shell:
+     *   1. Si libbusybox.so existe y tiene applet "sh":
+     *      → argv = [libbusybox.so, "sh", "-i"]
+     *      (BusyBox usa argv[1] como nombre del applet a ejecutar)
+     *
+     *   2. Si BusyBox no está disponible o no tiene applet "sh":
+     *      → /system/bin/sh -i
+     *      (fallback a shell del sistema Android)
      *
      * Working dir: context.getDir("payload", MODE_PRIVATE)
      * Si el payloadDir no existe todavía, se usa cacheDir como fallback seguro.
      *
      * @param client Callback de TerminalSessionClient (implementado por la Activity)
-     * @return TerminalSession listo para adjuntar a TerminalView, o null si BusyBox no está.
+     * @return TerminalSession listo para adjuntar a TerminalView, o null si falla.
      */
     fun createSession(client: TerminalSessionClient): TerminalSession? {
-        if (!isBusyboxAvailable()) {
-            Log.e(TAG, "Cannot create session: libbusybox.so unavailable")
-            return null
-        }
-
-        val shell      = busyboxFile.absolutePath
+        val shell = getShellPath()
         val workingDir = if (payloadDir.exists()) payloadDir.absolutePath
                          else context.cacheDir.absolutePath
-        val env        = buildEnvironment()
+        val env = buildEnvironment()
 
+        // Construir argv correctamente según el shell elegido
+        val args: Array<String> = if (shell == busyboxFile.absolutePath) {
+            // BusyBox: argv[0]=ejecutable, argv[1]="sh" (nombre del applet),
+            // argv[2]="-i" (modo interactivo)
+            arrayOf(shell, "sh", "-i")
+        } else {
+            // /system/bin/sh: argv estándar
+            arrayOf("sh", "-i")
+        }
+
+        val isBusybox = shell == busyboxFile.absolutePath
         Log.d(TAG, "Creating terminal session:")
-        Log.d(TAG, "  shell      = $shell")
+        Log.d(TAG, "  shell      = $shell (busybox valid: $isBusybox)")
         Log.d(TAG, "  workingDir = $workingDir")
+        Log.d(TAG, "  argv       = ${args.joinToString(" ")}")
         Log.d(TAG, "  env[PATH]  = ${env.firstOrNull { it.startsWith("PATH=") }}")
 
         return try {
             TerminalSession(
-                shell,                               // ejecutable
-                workingDir,                          // working directory (2do param)
-                arrayOf(shell, "sh", "-i"),          // argv (3er param)
-                env,                                 // environment (4to param)
-                4000,                                // history size (5to param)
-                client                               // callbacks (6to param)
+                shell,           // ejecutable
+                workingDir,      // working directory
+                args,            // argv
+                env,             // environment
+                4000,            // history size
+                client           // callbacks
             )
         } catch (e: Exception) {
             Log.e(TAG, "TerminalSession creation failed", e)
@@ -140,7 +189,7 @@ class OpenClawTerminalManager(private val context: Context) {
         }
     }
 
-    // ── BusyBox symlinks ──────────────────────────────────────────────────────
+    // ── BusyBox symlinks ──────────────────────────────────────────────────
 
     /**
      * Lista de applets de BusyBox que se exponen como symlinks en payloadDir/bin/.
@@ -201,7 +250,7 @@ class OpenClawTerminalManager(private val context: Context) {
         return created
     }
 
-    // ── Diagnostics ───────────────────────────────────────────────────────────
+    // ── Diagnostics ───────────────────────────────────────────────────────
 
     /**
      * Imprime en logcat el estado del entorno del terminal.
@@ -213,6 +262,8 @@ class OpenClawTerminalManager(private val context: Context) {
         Log.d(TAG, "payloadDir       : ${payloadDir.absolutePath} (exists=${payloadDir.exists()})")
         Log.d(TAG, "configDir        : ${configDir.absolutePath} (exists=${configDir.exists()})")
         Log.d(TAG, "libbusybox.so    : ${busyboxFile.absolutePath} (exists=${busyboxFile.exists()}, readable=${busyboxFile.canRead()})")
+        Log.d(TAG, "busybox valid    : ${isBusyboxValid()}")
+        Log.d(TAG, "shell path       : ${getShellPath()}")
         Log.d(TAG, "Environment:")
         buildEnvironment().forEach { Log.d(TAG, "  $it") }
         Log.d(TAG, "==========================================")

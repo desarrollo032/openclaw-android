@@ -1,12 +1,17 @@
-package com.openclaw.android
+﻿package com.openclaw.android
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.animation.AlphaAnimation
 import android.webkit.*
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +20,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import org.json.JSONObject
+import java.io.File
+
+private const val DASH_TAG = "OpenClawDash"
 
 class OpenClawDashboardActivity : AppCompatActivity() {
 
@@ -22,19 +30,22 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         const val EXTRA_DASHBOARD_TOKEN = "DASHBOARD_TOKEN"
     }
 
-    private lateinit var webView:          WebView
-    private lateinit var progressBar:      ProgressBar
-    private lateinit var statusCard:       View
-    private lateinit var statusText:       TextView
-    private lateinit var retryButton:      Button
-    private lateinit var openBrowserButton: Button
-    private lateinit var terminalButton:   Button
+    // Gateway states for UI
+    private enum class GwState { STOPPED, STARTING, RUNNING, ERROR }
 
-    // Token de autenticación recibido del Intent (o leido del Service companion)
+    private lateinit var webView:        WebView
+    private lateinit var dashboardPanel: LinearLayout
+    private lateinit var statusDot:      TextView
+    private lateinit var statusLabel:    TextView
+    private lateinit var btnGateway:     Button
+    private lateinit var btnTerminal:    Button
+    private lateinit var btnLogs:        Button
+    private lateinit var spinnerGw:      ProgressBar
+
     private var dashboardToken: String = ""
-
-    private val DASHBOARD_URL = "file:///android_asset/www/index.html"
-    private var waitJob: Job? = null
+    private val DASHBOARD_URL = "http://127.0.0.1:18789"
+    private var pollJob: Job? = null
+    private var gwState = GwState.STOPPED
 
     private var pendingCallbackId: String? = null
     private val filePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -52,85 +63,155 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         filePicker.launch("*/*")
     }
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // -- Lifecycle --
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Leer token del Intent; fallback al valor actual del Service companion
         dashboardToken = intent.getStringExtra(EXTRA_DASHBOARD_TOKEN)
             ?: OpenClawGatewayService.currentToken
 
-        if (dashboardToken.isEmpty()) {
-            Log.w("OpenClawDash", "Dashboard token is empty — gateway may not be running yet")
-            // No bloqueamos: el token puede llegar cuando el gateway arranque
-        }
-
         setContentView(buildLayout())
         setupWebView()
+
+        // Check if gateway is already running
+        if (OpenClawGatewayService.isRunning()) {
+            setGwState(GwState.RUNNING)
+            showWebView()
+        } else {
+            setGwState(GwState.STOPPED)
+        }
 
         // Observe gateway state from the service
         lifecycleScope.launch {
             OpenClawGatewayService.state.collect { state ->
                 when (state) {
                     GatewayState.STARTING,
-                    GatewayState.RESTARTING -> showLoading(
-                        if (state == GatewayState.RESTARTING) "Reiniciando gateway..." else "Iniciando gateway..."
-                    )
-                    GatewayState.READY      -> loadDashboard()
-                    GatewayState.FAILED     -> showError("El gateway falló. Verifica la notificación.")
+                    GatewayState.RESTARTING -> setGwState(GwState.STARTING)
+                    GatewayState.READY      -> {
+                        dashboardToken = OpenClawGatewayService.currentToken
+                        setGwState(GwState.RUNNING)
+                        showWebView()
+                    }
+                    GatewayState.FAILED     -> setGwState(GwState.ERROR)
                 }
             }
         }
-
-        // Also poll directly — covers the case where service was already running
-        startPolling()
     }
 
     override fun onDestroy() {
-        waitJob?.cancel()
+        pollJob?.cancel()
         super.onDestroy()
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        if (webView.visibility == View.VISIBLE) {
+            // If WebView is showing, hide it and go back to dashboard panel
+            webView.visibility       = View.GONE
+            dashboardPanel.visibility = View.VISIBLE
+            return
+        }
         AlertDialog.Builder(this)
-            .setTitle("¿Salir?")
-            .setMessage("El gateway seguirá corriendo en segundo plano.")
+            .setTitle("Salir?")
+            .setMessage("El gateway seguira corriendo en segundo plano.")
             .setPositiveButton("Salir") { _, _ -> finish() }
             .setNegativeButton("Cancelar", null)
             .show()
     }
 
-    // ── Gateway polling ───────────────────────────────────────────────────────
+    // -- Gateway state UI --
 
-    private fun startPolling() {
-        waitJob?.cancel()
-        showLoading("Iniciando gateway...")
-
-        waitJob = lifecycleScope.launch {
-            val maxRetries = 30   // 60 seconds (30 × 2s)
-            for (i in 1..maxRetries) {
-                val alive = withContext(Dispatchers.IO) { isGatewayAlive() }
-                if (alive) {
-                    loadDashboard()
-                    return@launch
+    private fun setGwState(state: GwState) {
+        gwState = state
+        runOnUiThread {
+            when (state) {
+                GwState.STOPPED -> {
+                    statusDot.text = "\u25CF"
+                    statusDot.setTextColor(Color.parseColor("#6b7280"))
+                    statusLabel.text = "Detenido"
+                    statusLabel.setTextColor(Color.parseColor("#6b7280"))
+                    btnGateway.text = "INICIAR GATEWAY"
+                    btnGateway.isEnabled = true
+                    (btnGateway.background as? GradientDrawable)?.setColor(Color.parseColor("#6366f1"))
+                    spinnerGw.visibility = View.GONE
                 }
-                val elapsed = i * 2
-                val msg = when {
-                    elapsed < 10 -> "Iniciando gateway..."
-                    elapsed < 30 -> "Cargando Node.js... (${elapsed}s)"
-                    else         -> "Casi listo... (${elapsed}s)"
+                GwState.STARTING -> {
+                    statusDot.text = "\u25CF"
+                    statusDot.setTextColor(Color.parseColor("#fbbf24"))
+                    statusLabel.text = "Iniciando..."
+                    statusLabel.setTextColor(Color.parseColor("#fbbf24"))
+                    btnGateway.text = "Iniciando..."
+                    btnGateway.isEnabled = false
+                    (btnGateway.background as? GradientDrawable)?.setColor(Color.parseColor("#4b5563"))
+                    spinnerGw.visibility = View.VISIBLE
+                    startPolling()
                 }
-                showLoading(msg)
-                delay(2_000)
+                GwState.RUNNING -> {
+                    statusDot.text = "\u25CF"
+                    statusDot.setTextColor(Color.parseColor("#4ade80"))
+                    statusLabel.text = "En ejecucion"
+                    statusLabel.setTextColor(Color.parseColor("#4ade80"))
+                    btnGateway.text = "DETENER GATEWAY"
+                    btnGateway.isEnabled = true
+                    (btnGateway.background as? GradientDrawable)?.setColor(Color.parseColor("#ef4444"))
+                    spinnerGw.visibility = View.GONE
+                }
+                GwState.ERROR -> {
+                    statusDot.text = "\u25CF"
+                    statusDot.setTextColor(Color.parseColor("#f87171"))
+                    statusLabel.text = "Error"
+                    statusLabel.setTextColor(Color.parseColor("#f87171"))
+                    btnGateway.text = "REINTENTAR"
+                    btnGateway.isEnabled = true
+                    (btnGateway.background as? GradientDrawable)?.setColor(Color.parseColor("#f97316"))
+                    spinnerGw.visibility = View.GONE
+                }
             }
-            // Timeout
-            showError("El gateway tardó demasiado. Revisa la notificación.")
         }
     }
 
-    // ── WebView ───────────────────────────────────────────────────────────────
+    // -- Gateway polling --
+
+    private fun startPolling() {
+        pollJob?.cancel()
+        pollJob = lifecycleScope.launch {
+            val maxRetries = 30  // 60 seconds (30 x 2s)
+            for (i in 1..maxRetries) {
+                val alive = withContext(Dispatchers.IO) { isGatewayAlive() }
+                if (alive) {
+                    dashboardToken = OpenClawGatewayService.currentToken
+                    setGwState(GwState.RUNNING)
+                    showWebView()
+                    return@launch
+                }
+                val elapsed = i * 2
+                runOnUiThread {
+                    statusLabel.text = when {
+                        elapsed < 10 -> "Iniciando gateway..."
+                        elapsed < 30 -> "Cargando Node.js... (${elapsed}s)"
+                        else         -> "Casi listo... (${elapsed}s)"
+                    }
+                }
+                delay(2_000)
+            }
+            // Timeout
+            setGwState(GwState.ERROR)
+        }
+    }
+
+    // -- WebView --
+
+    private fun showWebView() {
+        pollJob?.cancel()
+        runOnUiThread {
+            dashboardPanel.visibility = View.GONE
+            webView.visibility = View.VISIBLE
+            webView.alpha = 0f
+            webView.animate().alpha(1f).setDuration(400).start()
+            webView.loadUrl(DASHBOARD_URL)
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
@@ -148,15 +229,12 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = true
             @Suppress("DEPRECATION")
-            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
         webView.addJavascriptInterface(OpenClawBridge(this, webView), "OpenClaw")
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
-                progressBar.visibility = View.GONE
-                statusCard.visibility  = View.GONE
-                webView.visibility     = View.VISIBLE
-                // Inyectar token en window.__OPENCLAW_TOKEN para que el frontend lo use
+                // Inject token
                 if (dashboardToken.isNotEmpty()) {
                     view?.evaluateJavascript(
                         "window.__OPENCLAW_TOKEN = '${dashboardToken}';", null
@@ -167,16 +245,19 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
-                    showError("Error cargando dashboard: \${error?.description}")
+                    Log.e(DASH_TAG, "WebView error: ${error?.description}")
+                    // Go back to dashboard panel on error
+                    runOnUiThread {
+                        webView.visibility       = View.GONE
+                        dashboardPanel.visibility = View.VISIBLE
+                    }
                 }
             }
-            // Añadir header Authorization en todas las requests al gateway
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: WebResourceRequest?
             ): WebResourceResponse? {
                 val url = request?.url?.toString() ?: return null
-                // Solo interceptar requests al gateway local (no el file:// del HTML)
                 if (!url.startsWith("http://127.0.0.1:18789")) return null
                 if (dashboardToken.isEmpty()) return null
 
@@ -196,63 +277,33 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                         conn.headerFields.mapValues { it.value.firstOrNull() ?: "" },
                         stream)
                 } catch (e: Exception) {
-                    null   // Fallback: dejar que el WebView haga la request normal
+                    null
                 }
             }
         }
         webView.webChromeClient = WebChromeClient()
     }
 
-    private fun loadDashboard() {
-        waitJob?.cancel()
-        progressBar.visibility = View.GONE
-        statusCard.visibility  = View.GONE
-        webView.visibility     = View.VISIBLE
-        webView.loadUrl(DASHBOARD_URL)
-    }
-
-    // ── UI state helpers ──────────────────────────────────────────────────────
-
-    private fun showLoading(msg: String) {
-        progressBar.visibility      = View.VISIBLE
-        statusCard.visibility       = View.VISIBLE
-        webView.visibility          = View.GONE
-        statusText.text             = msg
-        retryButton.visibility      = View.GONE
-        openBrowserButton.visibility = View.GONE
-        terminalButton.visibility   = View.GONE
-    }
-
-    private fun showError(msg: String) {
-        progressBar.visibility      = View.GONE
-        statusCard.visibility       = View.VISIBLE
-        webView.visibility          = View.GONE
-        statusText.text             = msg
-        retryButton.visibility      = View.VISIBLE
-        openBrowserButton.visibility = View.VISIBLE
-        terminalButton.visibility   = View.VISIBLE
-    }
-
-    // ── Layout ────────────────────────────────────────────────────────────────
+    // -- Layout --
 
     private fun buildLayout(): View {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
-        // Root frame: WebView fills it, overlay on top
+        // Root frame: WebView fills it, dashboard panel on top
         val frame = FrameLayout(this).apply {
-            setBackgroundColor(android.graphics.Color.parseColor("#0d0d12"))
+            setBackgroundColor(Color.parseColor("#0d0d12"))
         }
 
-        // WebView (full screen, hidden until ready)
+        // WebView (full screen, hidden until gateway responds)
         webView = WebView(this).apply {
             layoutParams = FrameLayout.LayoutParams(-1, -1)
             visibility   = View.GONE
         }
         frame.addView(webView)
 
-        // Overlay: centered card
-        val overlay = LinearLayout(this).apply {
+        // Dashboard panel
+        dashboardPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity     = Gravity.CENTER
             layoutParams = FrameLayout.LayoutParams(-1, -1)
@@ -263,17 +314,17 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             gravity     = Gravity.CENTER
             setPadding(28.dp(), 36.dp(), 28.dp(), 36.dp())
-            background  = android.graphics.drawable.GradientDrawable().apply {
-                shape        = android.graphics.drawable.GradientDrawable.RECTANGLE
+            background  = GradientDrawable().apply {
+                shape        = GradientDrawable.RECTANGLE
                 cornerRadius = 24.dp().toFloat()
-                setColor(android.graphics.Color.parseColor("#1a1a2e"))
-                setStroke(1.dp(), android.graphics.Color.parseColor("#2d2d4e"))
+                setColor(Color.parseColor("#1a1a2e"))
+                setStroke(1.dp(), Color.parseColor("#2d2d4e"))
             }
         }
 
         // Logo
         card.addView(TextView(this).apply {
-            text     = "🦀"
+            text     = "\uD83E\uDD80"
             textSize = 52f
             gravity  = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = 14.dp() }
@@ -283,87 +334,129 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         card.addView(TextView(this).apply {
             text     = "OpenClaw"
             textSize = 24f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setTextColor(android.graphics.Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
             gravity  = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = 28.dp() }
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = 8.dp() }
         })
 
-        // Spinner
-        progressBar = ProgressBar(this).apply {
-            layoutParams = LinearLayout.LayoutParams(44.dp(), 44.dp()).apply {
-                gravity      = Gravity.CENTER_HORIZONTAL
-                bottomMargin = 20.dp()
-            }
-            indeterminateTintList = android.content.res.ColorStateList.valueOf(
-                android.graphics.Color.parseColor("#6366f1")
-            )
+        // Status row: dot + label
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity     = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = 28.dp() }
         }
-        card.addView(progressBar)
-
-        // Status text
-        statusText = TextView(this).apply {
-            text     = "Iniciando gateway..."
+        statusDot = TextView(this).apply {
+            text     = "\u25CF"
             textSize = 14f
-            setTextColor(android.graphics.Color.parseColor("#a0a0c0"))
-            gravity  = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 20.dp() }
+            setTextColor(Color.parseColor("#6b7280"))
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = 8.dp() }
         }
-        card.addView(statusText)
+        statusLabel = TextView(this).apply {
+            text     = "Detenido"
+            textSize = 14f
+            setTextColor(Color.parseColor("#6b7280"))
+        }
+        statusRow.addView(statusDot)
+        statusRow.addView(statusLabel)
+        card.addView(statusRow)
 
-        // Status card (wraps text + buttons)
-        statusCard = card
-
-        // Retry button
-        retryButton = Button(this).apply {
-            text     = "Reintentar"
-            textSize = 15f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setTextColor(android.graphics.Color.WHITE)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape        = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = 12.dp().toFloat()
-                setColor(android.graphics.Color.parseColor("#6366f1"))
+        // Spinner (shown during STARTING)
+        spinnerGw = ProgressBar(this).apply {
+            layoutParams = LinearLayout.LayoutParams(36.dp(), 36.dp()).apply {
+                gravity      = Gravity.CENTER_HORIZONTAL
+                bottomMargin = 16.dp()
             }
-            layoutParams = LinearLayout.LayoutParams(-1, 52.dp()).apply { bottomMargin = 10.dp() }
-            visibility   = View.GONE
+            indeterminateTintList = ColorStateList.valueOf(Color.parseColor("#6366f1"))
+            visibility = View.GONE
+        }
+        card.addView(spinnerGw)
+
+        // Gateway button
+        btnGateway = Button(this).apply {
+            text     = "INICIAR GATEWAY"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            isAllCaps = false
+            background = GradientDrawable().apply {
+                shape        = GradientDrawable.RECTANGLE
+                cornerRadius = 14.dp().toFloat()
+                setColor(Color.parseColor("#6366f1"))
+            }
+            layoutParams = LinearLayout.LayoutParams(-1, 52.dp()).apply { bottomMargin = 16.dp() }
+            setOnClickListener { onGatewayButtonClick() }
+        }
+        card.addView(btnGateway)
+
+        // Terminal button
+        btnTerminal = Button(this).apply {
+            text     = "Abrir Terminal"
+            textSize = 13f
+            setTextColor(Color.parseColor("#8be9fd"))
+            setBackgroundColor(Color.TRANSPARENT)
+            isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(-1, 44.dp()).apply { bottomMargin = 4.dp() }
+            setOnClickListener { onTerminalButtonClick() }
+        }
+        card.addView(btnTerminal)
+
+        // Logs button
+        btnLogs = Button(this).apply {
+            text     = "Ver Logs"
+            textSize = 13f
+            setTextColor(Color.parseColor("#a0a0c0"))
+            setBackgroundColor(Color.TRANSPARENT)
+            isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(-1, 44.dp())
             setOnClickListener {
-                OpenClawGatewayService.start(this@OpenClawDashboardActivity)
+                try {
+                    startActivity(Intent(this@OpenClawDashboardActivity, OpenClawLogsActivity::class.java))
+                } catch (e: Exception) {
+                    Toast.makeText(this@OpenClawDashboardActivity, "Logs no disponibles", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        card.addView(btnLogs)
+
+        dashboardPanel.addView(card)
+        frame.addView(dashboardPanel)
+        return frame
+    }
+
+    // -- Button handlers --
+
+    private fun onGatewayButtonClick() {
+        when (gwState) {
+            GwState.STOPPED, GwState.ERROR -> {
+                // Start gateway
+                setGwState(GwState.STARTING)
+                OpenClawGatewayService.start(this)
                 startPolling()
             }
-        }
-        card.addView(retryButton)
-
-        // Open in browser button
-        openBrowserButton = Button(this).apply {
-            text     = "Abrir en navegador externo"
-            textSize = 13f
-            setTextColor(android.graphics.Color.parseColor("#6366f1"))
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            layoutParams = LinearLayout.LayoutParams(-1, 44.dp())
-            visibility   = View.GONE
-            setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DASHBOARD_URL)))
+            GwState.RUNNING -> {
+                // Stop gateway
+                OpenClawGatewayService.stop(this)
+                webView.visibility       = View.GONE
+                dashboardPanel.visibility = View.VISIBLE
+                setGwState(GwState.STOPPED)
+            }
+            GwState.STARTING -> {
+                // Already starting, do nothing
             }
         }
-        card.addView(openBrowserButton)
+    }
 
-        // Terminal button — siempre visible en el overlay (útil si el gateway falla)
-        terminalButton = Button(this).apply {
-            text     = "⌨ Abrir terminal"
-            textSize = 13f
-            setTextColor(android.graphics.Color.parseColor("#8be9fd"))
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            layoutParams = LinearLayout.LayoutParams(-1, 44.dp()).apply { topMargin = 4.dp() }
-            visibility   = View.GONE   // visible en showError()
-            setOnClickListener {
-                startActivity(Intent(this@OpenClawDashboardActivity, OpenClawTerminalActivity::class.java))
-            }
+    private fun onTerminalButtonClick() {
+        val busybox = File(applicationInfo.nativeLibraryDir, "libbusybox.so")
+        if (!busybox.exists()) {
+            Toast.makeText(
+                this,
+                "Terminal no disponible - libbusybox.so no encontrado en el APK",
+                Toast.LENGTH_LONG
+            ).show()
+            // Still try with /system/bin/sh fallback
         }
-        card.addView(terminalButton)
-
-        overlay.addView(card)
-        frame.addView(overlay)
-        return frame
+        startActivity(Intent(this, OpenClawTerminalActivity::class.java))
     }
 }

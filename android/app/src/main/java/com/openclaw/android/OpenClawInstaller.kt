@@ -400,4 +400,33 @@ object OpenClawInstaller {
                 .find(pkg.readText())?.groupValues?.get(1)
         } catch (e: Exception) { null }
     }
+
+    // ── Asset detection ──────────────────────────────────────────────────
+
+    /**
+     * Detecta qué assets de instalación están disponibles dentro del APK.
+     * Usado por InstallationActivity para mostrar la lista al usuario.
+     */
+    fun detectAvailableAssets(context: Context): List<AssetInfo> {
+        val assetList = listOf(
+            PAYLOAD_ASSET to "Node.js + glibc + OpenClaw (~186MB)",
+            CONFIG_ASSET  to "Configuración personal (~5MB)"
+        )
+        return assetList.map { (filename, description) ->
+            val available = try {
+                context.assets.open(filename).close()
+                true
+            } catch (e: Exception) { false }
+            AssetInfo(filename, description, available)
+        }
+    }
 }
+
+/**
+ * Información sobre un asset de instalación detectado en el APK.
+ */
+data class AssetInfo(
+    val filename: String,
+    val description: String,
+    val available: Boolean
+)
