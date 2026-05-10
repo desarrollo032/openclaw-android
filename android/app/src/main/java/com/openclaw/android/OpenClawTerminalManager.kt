@@ -88,6 +88,7 @@ class OpenClawTerminalManager(private val context: Context) {
             "LD_LIBRARY_PATH=$ldLibPath",
             "TMPDIR=$tmpDir",
             "OPENCLAW_HOME=$ocHome",
+            "PS1=$ ",
             "NODE_PATH=$payload/lib/node_modules",
             "SSL_CERT_FILE=$payload/etc/tls/cert.pem",
             "LANG=en_US.UTF-8",

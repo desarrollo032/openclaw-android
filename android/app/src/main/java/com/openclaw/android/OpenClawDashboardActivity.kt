@@ -14,6 +14,7 @@ import androidx.webkit.WebViewAssetLoader
 import com.openclaw.android.databinding.ActivityDashboardBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 class OpenClawDashboardActivity : AppCompatActivity() {
 
@@ -68,12 +69,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     }
 
     private fun handleFilePicked(uri: Uri) {
-        pendingFileCallbackId?.let { callbackId ->
-            dispatchNativeFilePicked(callbackId, uri, true)
-            pendingFileCallbackId = null
-            return
-        }
-        handleMigrationFilePicked(uri)
+        androidBridge?.handlePickedFile(uri)
     }
 
     private fun handleMigrationFilePicked(uri: Uri) {

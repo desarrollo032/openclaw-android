@@ -22,6 +22,7 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
+import kotlin.math.roundToInt
 
 private const val TAG = "OpenClawTermAct"
 
@@ -37,9 +38,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private lateinit var titleView: TextView
     private lateinit var rootFrame: FrameLayout
 
-    private var currentFontSizeSp = 16f
-    private val MIN_FONT = 14f
-    private val MAX_FONT = 26f
+    private var currentFontSizeSp = 18f
+    private val MIN_FONT_SP = 14f
+    private val MAX_FONT_SP = 32f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,10 +80,10 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
             setBackgroundColor(Color.BLACK)
             isFocusable = true
             isFocusableInTouchMode = true
-            setPadding(dp(12), dp(8), dp(12), dp(12))
+            setPadding(dp(16), dp(8), dp(16), dp(64))
             layoutParams = FrameLayout.LayoutParams(-1, -1).apply {
                 topMargin = dp(56)
-                bottomMargin = dp(48)
+                bottomMargin = dp(56)
             }
         }
         rootFrame.addView(terminalView)
@@ -98,7 +99,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         val scroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(Color.parseColor("#0f172a"))
-            layoutParams = FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM)
+            layoutParams = FrameLayout.LayoutParams(-1, dp(56), Gravity.BOTTOM)
         }
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
 
@@ -118,10 +119,10 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
         keys.forEach { (label, action) ->
             bar.addView(TextView(this).apply {
-                text = label; textSize = 13f; typeface = Typeface.create("sans-serif-bold", Typeface.NORMAL)
+                text = label; textSize = 15f; typeface = Typeface.create("sans-serif-bold", Typeface.NORMAL)
                 setTextColor(Color.parseColor("#cbd5e1")); gravity = Gravity.CENTER
-                minWidth = dp(52); minHeight = dp(48)
-                setPadding(dp(8), 0, dp(8), 0)
+                minWidth = dp(56); minHeight = dp(56)
+                setPadding(dp(16), 0, dp(16), 0)
                 background = RippleDrawable(ColorStateList.valueOf(Color.parseColor("#1e293b")), null, null)
                 setOnClickListener { action() }
             })
@@ -144,13 +145,13 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
                 shape = GradientDrawable.OVAL; setColor(Color.parseColor("#4ade80"))
                 setStroke(dp(1), Color.parseColor("#22c55e"))
             }
-            layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(12) }
+            layoutParams = LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginEnd = dp(12) }
         }
         bar.addView(statusDot)
 
         titleView = TextView(this).apply {
-            text = "Terminal"; textSize = 16f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            text = "Terminal"; textSize = 18f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
             setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
         }
@@ -189,8 +190,8 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     private fun changeFontSize(delta: Float) {
-        currentFontSizeSp = (currentFontSizeSp + delta).coerceIn(MIN_FONT, MAX_FONT)
-        terminalView.setTextSize(currentFontSizeSp.toInt())
+        currentFontSizeSp = (currentFontSizeSp + delta).coerceIn(MIN_FONT_SP, MAX_FONT_SP)
+        terminalView.setTextSize(currentFontSizeSp.roundToInt())
     }
 
     private fun send(byte: Int) { terminalSession?.write(byteArrayOf(byte.toByte()), 0, 1) }
@@ -204,13 +205,14 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     private fun setupTerminalView() {
         terminalView.setTerminalViewClient(ViewClient())
-        terminalView.setTextSize(currentFontSizeSp.toInt())
+        terminalView.setTextSize(currentFontSizeSp.roundToInt())
     }
 
     private fun startSession() {
         terminalSession = manager.createSession(this)
         terminalSession?.let {
             terminalView.attachSession(it)
+            terminalView.setTextSize(currentFontSizeSp.roundToInt())
             updateDot(true)
             intent.getStringExtra("initial_command")?.let { cmd ->
                 it.write("$cmd\n")
@@ -258,8 +260,11 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     private inner class ViewClient : TerminalViewClient {
         override fun onScale(scale: Float): Float {
-            currentFontSizeSp = (currentFontSizeSp * scale).coerceIn(MIN_FONT, MAX_FONT)
-            terminalView.setTextSize(currentFontSizeSp.toInt())
+            val newSize = (currentFontSizeSp * scale).coerceIn(MIN_FONT_SP, MAX_FONT_SP)
+            if (Math.abs(newSize - currentFontSizeSp) > 0.5f) {
+                currentFontSizeSp = newSize
+                terminalView.setTextSize(newSize.roundToInt())
+            }
             return scale
         }
         override fun onSingleTapUp(e: MotionEvent?) {

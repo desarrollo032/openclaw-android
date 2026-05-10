@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.TimeUnit
 
 /**
  * AndroidBridge
@@ -111,23 +112,22 @@ class AndroidBridge(
         scope.launch(Dispatchers.IO) {
             try {
                 val payloadFile = copyUriToTempFile(Uri.parse(payloadUri), "payload_manual.tar.xz")
-                payloadFile.inputStream().use { stream ->
-                    val payloadDir = OpenClawInstaller.getPayloadDir(activity)
-                    payloadDir.deleteRecursivelySafe()
-                    payloadDir.mkdirs()
-                    extractTarXzFromStream(stream, payloadDir)
-                    OpenClawInstaller.deployScripts(activity, payloadDir)
-                    OpenClawInstaller.fixPermissions(payloadDir)
+                val configFile = if (configUri.isNotBlank()) {
+                    copyUriToTempFile(Uri.parse(configUri), "config_manual.tar.gz")
+                } else {
+                    null
                 }
 
-                if (configUri.isNotBlank()) {
-                    val configFile = copyUriToTempFile(Uri.parse(configUri), "config_manual.tar.gz")
-                    configFile.inputStream().use { stream ->
-                        extractTarGzFromStream(stream, activity.filesDir)
+                OpenClawInstaller.installDetailedFromFiles(
+                    context = activity,
+                    payloadFile = payloadFile,
+                    migrationFile = configFile,
+                    onProgress = { progressJson -> notifyReact("onInstallProgress", progressJson) },
+                    onComplete = { notifyReact("onInstallComplete", "{\"success\":true}") },
+                    onError = { error ->
+                        notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString())
                     }
-                }
-
-                notifyReact("onInstallComplete", "{\"success\":true}")
+                )
             } catch (e: Exception) {
                 notifyReact("onInstallError", JSONObject().apply { put("error", e.message ?: "Error desconocido") }.toString())
             }
@@ -140,7 +140,7 @@ class AndroidBridge(
         pendingFileCallbackId = null
         activity.runOnUiThread {
             if (activity is OpenClawDashboardActivity) {
-                activity.filePicker.launch("application/gzip")
+                activity.filePicker.launch("*/*")
             }
         }
     }
@@ -270,6 +270,66 @@ class AndroidBridge(
                 put("exitCode", 1)
             }.toString()
         }
+    }
+
+    @JavascriptInterface
+    fun getSystemInfo(): String {
+        val nativeDir = File(activity.applicationInfo.nativeLibraryDir)
+        val payloadDir = activity.getDir("payload", Context.MODE_PRIVATE)
+        val ldlinux = File(nativeDir, "libldlinux.so")
+        val nodeReal = File(nativeDir, "libnode.so")
+        val glibcLibs = File(payloadDir, "glibc/lib").absolutePath
+        val libs = "${nativeDir.absolutePath}:$glibcLibs"
+
+        val nodeVersion = try {
+            if (!ldlinux.exists() || !nodeReal.exists()) {
+                "unknown"
+            } else {
+                val process = ProcessBuilder(
+                    ldlinux.absolutePath,
+                    "--library-path", libs,
+                    nodeReal.absolutePath,
+                    "--version"
+                ).apply {
+                    environment().apply {
+                        remove("LD_PRELOAD")
+                        put("LD_LIBRARY_PATH", libs)
+                    }
+                    redirectErrorStream(true)
+                }.start()
+
+                if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                    process.destroyForcibly()
+                    "unknown"
+                } else {
+                    process.inputStream.bufferedReader().readLine()?.trim().orEmpty().ifBlank { "unknown" }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenClawBridge", "Node version error: ${e.message}")
+            "unknown"
+        }
+
+        val openclawVersion = try {
+            val pkgJson = File(payloadDir, "lib/node_modules/openclaw/package.json")
+            if (pkgJson.exists()) {
+                JSONObject(pkgJson.readText()).optString("version", "unknown")
+            } else {
+                "unknown"
+            }
+        } catch (_: Exception) {
+            "unknown"
+        }
+
+        return JSONObject().apply {
+            put("nodeVersion", nodeVersion)
+            put("openclawVersion", openclawVersion)
+            put("gitVersion", "no incluido")
+            put("busyboxAvailable", File(nativeDir, "libbusybox.so").canExecute())
+            put("freeSpaceMB", activity.filesDir.freeSpace / 1024 / 1024)
+            put("nativeLibDir", nativeDir.absolutePath)
+            put("payloadDir", payloadDir.absolutePath)
+        }.toString()
     }
 
     @JavascriptInterface

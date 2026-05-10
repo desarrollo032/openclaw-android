@@ -74,10 +74,10 @@ export function Setup({ onComplete }: Props) {
 
   const handleStart = () => {
     if (manual) {
-      if (!pickedPayload || !pickedConfig) return
+      if (!pickedPayload) return
       setPhase('installing')
       addLog('▶ Iniciando instalación manual...', 'info')
-      bridge.call('installFromUri', pickedPayload, pickedConfig)
+      bridge.call('installFromUri', pickedPayload, pickedConfig ?? '')
     } else {
       setPhase('verifying')
       setProgress(0.03)
@@ -170,9 +170,9 @@ export function Setup({ onComplete }: Props) {
             
             {manual && (
               <button 
-                style={{ ...S.btnPrimary, opacity: (pickedPayload && pickedConfig) ? 1 : 0.5, marginTop: 12 }} 
+                style={{ ...S.btnPrimary, opacity: pickedPayload ? 1 : 0.5, marginTop: 12 }} 
                 onClick={handleStart}
-                disabled={!pickedPayload || !pickedConfig}>
+                disabled={!pickedPayload}>
                 <span>Iniciar instalación manual</span>
               </button>
             )}

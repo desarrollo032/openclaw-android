@@ -5,6 +5,7 @@ declare global {
     OpenClaw?: {
       checkInstallation(): string;
       startInstallation(): void;
+      pickPayloadFile(): void;
       pickMigrationFile(): void;
       startGateway(): void;
       stopGateway(): void;

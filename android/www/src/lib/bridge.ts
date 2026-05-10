@@ -28,6 +28,7 @@ interface OpenClawBridge {
   uninstallTool(id: string): void
   isToolInstalled(id: string): string
   runCommand(cmd: string): string
+  getSystemInfo(): string
   runCommandAsync(callbackId: string, cmd: string): void
   checkForUpdates(): string
   applyUpdate(component: string): void
@@ -53,6 +54,7 @@ interface OpenClawBridge {
   launchInteractiveCommand(cmd: string): void
   checkInstallation(): string
   startInstallation(): void
+  pickPayloadFile(): void
   pickMigrationFile(): void
   openTerminal(): void
   getAuthToken(): string

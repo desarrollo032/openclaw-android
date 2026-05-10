@@ -9,6 +9,7 @@ export function InstallationCard() {
     isDone,
     error,
     install,
+    pickPayload,
     pickMigration
   } = useInstallation();
 
@@ -36,7 +37,16 @@ export function InstallationCard() {
                 <span className={`status-dot ${status.payloadAvailable ? 'ok' : 'error'}`}></span>
                 <div className="asset-info">
                   <strong>payload-v2.tar.xz</strong>
-                  <span>Node.js + glibc + OpenClaw (186MB)</span>
+                  <span>
+                    {status.payloadSource === 'local'
+                      ? 'Payload local listo para instalar'
+                      : status.payloadAvailable
+                        ? 'Incluido en el APK'
+                        : 'Falta el payload base'}
+                  </span>
+                  <button className="btn-text" onClick={pickPayload}>
+                    {status.payloadAvailable ? 'Reemplazar desde archivo local' : 'Cargar payload local'}
+                  </button>
                 </div>
               </div>
 
@@ -47,6 +57,9 @@ export function InstallationCard() {
                   <span>{status.migrationAvailable ? 'Configuración incluida' : 'Configuración opcional'}</span>
                   {!status.migrationAvailable && (
                     <button className="btn-text" onClick={pickMigration}>📁 Cargar manualmente</button>
+                  )}
+                  {status.migrationAvailable && (
+                    <button className="btn-text" onClick={pickMigration}>Reemplazar desde archivo local</button>
                   )}
                 </div>
               </div>

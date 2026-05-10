@@ -34,17 +34,19 @@ export function useInstallation() {
       setError(data.error);
     });
 
-    const hFilePicked = (data: { filename: string; sizeMB: number }) => {
+    const hFilePicked = (data: { type?: string; filename: string; sizeMB: number }) => {
       console.log('File picked:', data);
       refreshStatus();
     };
-    const hFile = AndroidBridge.on('onMigrationFilePicked', hFilePicked);
+    const hFile = AndroidBridge.on('onLocalAssetPicked', hFilePicked);
+    const hMigrationFile = AndroidBridge.on('onMigrationFilePicked', hFilePicked);
 
     return () => {
       AndroidBridge.off('onInstallProgress', hProgress);
       AndroidBridge.off('onInstallComplete', hComplete);
       AndroidBridge.off('onInstallError', hError);
-      AndroidBridge.off('onMigrationFilePicked', hFile);
+      AndroidBridge.off('onLocalAssetPicked', hFile);
+      AndroidBridge.off('onMigrationFilePicked', hMigrationFile);
     };
   }, []);
 
@@ -58,6 +60,10 @@ export function useInstallation() {
     AndroidBridge.pickMigrationFile();
   };
 
+  const pickPayload = () => {
+    AndroidBridge.pickPayloadFile();
+  };
+
   return {
     status,
     progress,
@@ -65,6 +71,7 @@ export function useInstallation() {
     isDone,
     error,
     install,
+    pickPayload,
     pickMigration
   };
 }

@@ -9,6 +9,10 @@ export interface InstallationStatus {
   migrationAvailable: boolean;
   freeSpaceMB: number;
   requiredSpaceMB: number;
+  payloadSource?: 'apk' | 'local' | 'missing';
+  migrationSource?: 'apk' | 'local' | 'missing';
+  payloadSizeBytes?: number;
+  migrationSizeBytes?: number;
 }
 
 export interface InstallProgress {
@@ -40,6 +44,10 @@ export const AndroidBridge = {
 
   pickMigrationFile: () => {
     window.OpenClaw?.pickMigrationFile();
+  },
+
+  pickPayloadFile: () => {
+    window.OpenClaw?.pickPayloadFile();
   },
 
   startGateway: () => {
