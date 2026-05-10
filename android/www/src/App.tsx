@@ -84,8 +84,9 @@ export function App() {
     </div>
   )
 
-  // 1. Redirigir a setup si no está instalado
-  if (!setupState.installed && !path.startsWith('/setup')) {
+  // 1. Redirigir a setup si no está instalado (SOLO si no estamos en Android)
+  // En Android, el native InstallationBottomSheet se encarga.
+  if (!setupState.installed && !path.startsWith('/setup') && !bridge.isAvailable()) {
     navigate('/setup')
   } 
   // 2. Redirigir a terminal nativa para onboarding si está instalado pero no configurado

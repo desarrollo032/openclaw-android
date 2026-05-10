@@ -298,6 +298,7 @@ class InstallationBottomSheet : BottomSheetDialogFragment() {
     // ESTADO 3: INSTALANDO
     // ══════════════════════════════════════════════════════════════
 
+    @Suppress("UNUSED_PARAMETER")
     private fun runInstallation(detection: AssetDetectionResult) {
         isInstalling = true
         updateCancelability()
@@ -491,8 +492,8 @@ class InstallationBottomSheet : BottomSheetDialogFragment() {
 
     // ── UI helpers ────────────────────────────────────────────────
 
-    private fun Float.dp(): Float = this * (resources?.displayMetrics?.density ?: 3f)
-    private fun Int.dp(): Int = (this * (resources?.displayMetrics?.density ?: 3f)).toInt()
+    private fun Float.dp(): Float = this * (resources.displayMetrics.density)
+    private fun Int.dp(): Int = (this * (resources.displayMetrics.density)).toInt()
     private fun lp() = LinearLayout.LayoutParams(-1, -2)
     private fun csl(c: String) = ColorStateList.valueOf(Color.parseColor(c))
     private fun ui(block: () -> Unit) { activity?.runOnUiThread(block) }

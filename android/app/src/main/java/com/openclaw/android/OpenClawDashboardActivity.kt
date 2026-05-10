@@ -71,19 +71,22 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         dashboardToken = intent.getStringExtra(EXTRA_DASHBOARD_TOKEN)
             ?: OpenClawGatewayService.currentToken
 
-        // PASO 1 — Dashboard visible INMEDIATAMENTE (sin condiciones)
+        // PASO 1 — UI Base (WebView) visible SIEMPRE
         setContentView(buildLayout())
         setupWebView()
 
-        // Check if gateway is already running
+        // Cargamos la URL del dashboard inmediatamente
+        webView.loadUrl(DASHBOARD_URL)
+        webView.visibility = View.VISIBLE
+
+        // Sincronizamos el estado inicial (para que el bridge devuelva el estado correcto)
         if (OpenClawGatewayService.isRunning()) {
             setGwState(GwState.RUNNING)
-            showWebView()
         } else {
             setGwState(GwState.STOPPED)
         }
 
-        // Observe gateway state from the service
+        // Observar cambios en el servicio para actualizar la WebUI via bridge/eventos
         lifecycleScope.launch {
             OpenClawGatewayService.state.collect { state ->
                 when (state) {
@@ -92,17 +95,18 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                     GatewayState.READY      -> {
                         dashboardToken = OpenClawGatewayService.currentToken
                         setGwState(GwState.RUNNING)
-                        showWebView()
+                        // Notificar a la web que el gateway está listo
+                        webView.evaluateJavascript("window.__oc && window.__oc.emit('gateway_ready', {})", null)
                     }
                     GatewayState.FAILED     -> setGwState(GwState.ERROR)
+                    GatewayState.STOPPED    -> setGwState(GwState.STOPPED)
                 }
             }
         }
 
-        // PASO 2 — Verificar instalación DESPUÉS de que el dashboard renderice
-        // El sheet aparece con delay para que el usuario vea el dashboard detrás
+        // PASO 2 — El sheet aparece DESPUÉS de que el dashboard (WebView) haya cargado
         lifecycleScope.launch {
-            delay(300) // esperar render del dashboard
+            delay(500) // Un poco más de tiempo para asegurar render
             if (!OpenClawInstaller.isPayloadReady(this@OpenClawDashboardActivity)) {
                 showInstallationSheet(mandatory = true)
             }
@@ -210,7 +214,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 if (alive) {
                     dashboardToken = OpenClawGatewayService.currentToken
                     setGwState(GwState.RUNNING)
-                    showWebView()
                     return@launch
                 }
                 val elapsed = i * 2
@@ -230,16 +233,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     // -- WebView --
 
-    private fun showWebView() {
-        pollJob?.cancel()
-        runOnUiThread {
-            dashboardPanel.visibility = View.GONE
-            webView.visibility = View.VISIBLE
-            webView.alpha = 0f
-            webView.animate().alpha(1f).setDuration(400).start()
-            webView.loadUrl(DASHBOARD_URL)
-        }
-    }
+
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
@@ -323,19 +317,21 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#0d0d12"))
         }
 
-        // WebView (full screen, hidden until gateway responds)
+        // WebView (full screen)
         webView = WebView(this).apply {
             layoutParams = FrameLayout.LayoutParams(-1, -1)
-            visibility   = View.GONE
+            setBackgroundColor(Color.parseColor("#080810")) // Fondo oscuro preventivo
+            visibility   = View.VISIBLE
         }
         frame.addView(webView)
 
-        // Dashboard panel
+        // Dashboard panel (fallback - oculto por defecto)
         dashboardPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity     = Gravity.CENTER
             layoutParams = FrameLayout.LayoutParams(-1, -1)
             setPadding(32.dp(), 32.dp(), 32.dp(), 32.dp())
+            visibility = View.GONE
         }
 
         val card = LinearLayout(this).apply {
@@ -465,8 +461,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             GwState.RUNNING -> {
                 // Stop gateway
                 OpenClawGatewayService.stop(this)
-                webView.visibility       = View.GONE
-                dashboardPanel.visibility = View.VISIBLE
                 setGwState(GwState.STOPPED)
             }
             GwState.STARTING -> {

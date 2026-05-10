@@ -324,6 +324,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     // ── Context menu (long press) ────────────────────────────────
 
+    @Suppress("UNUSED_PARAMETER")
     private fun showContextMenu(x: Float, y: Float) {
         val popup = PopupMenu(this, terminalView, Gravity.NO_GRAVITY)
         popup.menu.apply {
