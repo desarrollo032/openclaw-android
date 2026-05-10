@@ -40,7 +40,7 @@ export function Terminal() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { 
+  useEffect(() => {
     if (scrollRef.current) {
       const scrollElement = scrollRef.current;
       // Use requestAnimationFrame for smoother scrolling
@@ -87,14 +87,14 @@ export function Terminal() {
 
   const runCmd = useCallback((cmd: string) => {
     if (!cmd.trim()) return
-    
+
     // Immediate visual feedback
     append({ type: 'cmd', text: cmd })
     setSuggestions([])
     setInput('')
     setHistIdx(-1)
     setCmdHistory(prev => [cmd, ...prev.slice(0, 49)])
-    
+
     // Scroll to bottom immediately
     setTimeout(() => {
       if (scrollRef.current) {
@@ -115,7 +115,7 @@ export function Terminal() {
 
     // Execute command with immediate feedback
     const result = bridge.callJson<{ stdout?: string; stderr?: string }>('runCommand', cmd)
-    
+
     // Process results immediately
     if (result?.stdout) {
       append({ type: 'out', text: result.stdout })
@@ -183,7 +183,7 @@ export function Terminal() {
   const renderRow = (keys: KeyDef[]) => (
     <div style={S.kbRow}>
       {keys.map((k, i) => (
-        <button 
+        <button
           key={i}
           style={{ ...S.kbKey, flex: k.flex ?? 1, background: k.bg, color: k.fg }}
           onPointerDown={e => { e.preventDefault(); k.onPress() }}
@@ -211,8 +211,8 @@ export function Terminal() {
       {suggestions.length > 0 && (
         <div className="terminal-suggestions">
           {suggestions.map((s, i) => (
-            <button 
-              key={i} 
+            <button
+              key={i}
               className="terminal-suggestion"
               onPointerDown={e => { e.preventDefault(); setInput(s); setSuggestions([]) }}
               onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.95)'; e.currentTarget.style.opacity = '0.8'; }}
@@ -227,7 +227,7 @@ export function Terminal() {
 
       {/* Input area & Keyboard */}
       <div className="terminal-keyboard-area" style={S.keyboardArea}>
-        
+
         {/* Quick Commands (hidden scrollbar) */}
         <div className="terminal-quick-cmds no-scrollbar" style={S.quickCmds}>
           {[
@@ -243,8 +243,8 @@ export function Terminal() {
             { label: 'logs',     cmd: 'openclaw logs',       color: '#94a3b8' },
             { label: 'node -v',  cmd: 'node -v',             color: '#86efac' },
           ].map(q => (
-            <button 
-              key={q.cmd} 
+            <button
+              key={q.cmd}
               style={{ ...S.quickCmdBtn, color: q.color, borderColor: q.color + '30', background: q.color + '10' }}
               onPointerDown={e => { e.preventDefault(); runCmd(q.cmd) }}
               onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.92)'; }}
@@ -269,10 +269,14 @@ export function Terminal() {
               if (e.key === 'ArrowDown') { e.preventDefault(); histDown() }
             }}
             placeholder={t('chat_placeholder')}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
           />
-          <button 
+          <button
             className="terminal-send-btn"
-            style={S.sendBtn} 
+            style={S.sendBtn}
             onPointerDown={e => { e.preventDefault(); runCmd(input) }}
             onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.92)'; }}
             onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; }}
@@ -283,9 +287,9 @@ export function Terminal() {
 
         {/* Action Row */}
         <div className="terminal-action-row" style={S.actionRow}>
-          <button 
+          <button
             className="terminal-action-btn"
-            style={S.actionBtn} 
+            style={S.actionBtn}
             onPointerDown={e => {
               e.preventDefault()
               try { navigator.clipboard?.readText?.().then(txt => { if (txt) setInput(p => p + txt) }) } catch {/**/ }
@@ -294,7 +298,7 @@ export function Terminal() {
             onTouchEnd={e => { e.currentTarget.style.opacity = '1'; }}
             aria-label="Pegar desde portapapeles"
           >📋 Pegar</button>
-          <button 
+          <button
             className="terminal-action-btn"
             style={{ ...S.actionBtn, color: '#f87171' }}
             onPointerDown={e => { e.preventDefault(); setInput('') }}
@@ -310,9 +314,9 @@ export function Terminal() {
           {renderRow(row2)}
           {renderRow(row3)}
         </div>
-        
+
       </div>
-      
+
       {/* Hide scrollbars globally for classes that use them */}
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -324,12 +328,12 @@ export function Terminal() {
 
 const S: Record<string, React.CSSProperties> = {
   root:   { display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)', overflow:'hidden' },
-  output: { 
-    flex:1, 
-    overflowY:'auto', 
-    padding:'12px 14px', 
-    fontFamily:"'JetBrains Mono','Courier New',monospace", 
-    lineHeight:1.7, 
+  output: {
+    flex:1,
+    overflowY:'auto',
+    padding:'12px 14px',
+    fontFamily:"'JetBrains Mono','Courier New',monospace",
+    lineHeight:1.7,
     WebkitOverflowScrolling:'touch',
     // Performance optimizations
     willChange: 'auto',
@@ -339,40 +343,35 @@ const S: Record<string, React.CSSProperties> = {
     scrollPadding: '10px'
   },
   line:   { marginBottom:4, whiteSpace:'pre-wrap', wordBreak:'break-all' },
-  
+
   suggestions: { display:'flex', flexWrap:'wrap', gap:6, padding:'8px 12px', background:'var(--surface)', borderTop:'1px solid var(--border)' },
   suggestion:  { background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:8, color:'#a5b4fc', padding:'6px 10px', cursor:'pointer', fontWeight: 600 },
-  
+
   keyboardArea: { background:'rgba(8,8,16,0.95)', borderTop:'1px solid var(--border)', backdropFilter:'blur(16px)', flexShrink:0, display: 'flex', flexDirection: 'column' },
-  
+
   quickCmds: { display:'flex', gap:6, overflowX:'auto', padding:'10px 12px 6px', WebkitOverflowScrolling:'touch' },
   quickCmdBtn: { flexShrink:0, padding:'6px 12px', borderRadius:'var(--r-full)', border:'1px solid', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', letterSpacing:'0.3px', transition: 'transform 0.1s' },
-  
+
   inputRow: { display:'flex', alignItems:'center', gap:8, background:'var(--surface)', borderRadius:12, border:'1px solid var(--border2)', padding:'6px 12px', margin:'6px 12px', boxShadow: 'var(--sh-inset)' },
   prompt:   { color:'#6366f1', fontWeight:800, fontFamily:"'JetBrains Mono',monospace", flexShrink:0 },
-  input:    { 
-    flex:1, 
-    background:'transparent', 
-    border:'none', 
-    outline:'none', 
-    color:'var(--text)', 
-    fontFamily:"'JetBrains Mono',monospace", 
-    padding:'4px 0', 
+  input:    {
+    flex:1,
+    background:'transparent',
+    border:'none',
+    outline:'none',
+    color:'var(--text)',
+    fontFamily:"'JetBrains Mono',monospace",
+    padding:'4px 0',
     caretColor:'#6366f1',
     // Performance optimizations
     willChange: 'auto',
     contain: 'layout' as any,
-    // Prevent input lag
-    autoComplete: 'off' as any,
-    autoCorrect: 'off' as any,
-    autoCapitalize: 'off' as any,
-    spellCheck: false
   },
   sendBtn:  { background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', borderRadius:'var(--r-full)', color:'#fff', width:34, height:34, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow: '0 4px 12px rgba(99,102,241,0.4)' },
-  
+
   actionRow: { display:'flex', gap:12, padding:'0 16px 8px' },
   actionBtn: { background:'transparent', border:'none', color:'var(--text3)', fontWeight:700, cursor:'pointer', padding:'4px' },
-  
+
   keyboard: { padding:'0 6px 10px' },
   kbRow:  { display:'flex', gap:4, marginBottom:4 },
   kbKey:  { minHeight:38, borderRadius:8, border:'1px solid rgba(255,255,255,0.05)', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', userSelect:'none', WebkitUserSelect:'none', padding:'0 10px', letterSpacing:'0.2px' },

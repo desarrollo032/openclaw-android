@@ -159,10 +159,11 @@ object OpenClawInstaller {
         ok
     }
 
-    suspend fun fixPermissions(base: File) = withContext(Dispatchers.IO) {
-        try {
-            // Forzar permisos de ejecución en el payload con APIs de plataforma
-            if (base.exists()) {
+    suspend fun fixPermissions(base: File) {
+        withContext(Dispatchers.IO) {
+            if (!base.exists()) return@withContext
+
+            try {
                 Log.i("Installer", "Aplicando permisos globales a: ${base.absolutePath}")
                 base.walkTopDown().forEach { file ->
                     try {
@@ -170,24 +171,22 @@ object OpenClawInstaller {
                         file.setWritable(true, false)
                         if (file.isDirectory || file.path.contains("/bin/") || file.path.contains("/lib/") || file.name.endsWith(".sh")) {
                             file.setExecutable(true, false)
-                        } else {
-                            // Keep readable for non-executable files
                         }
                         file.chmodWithOs()
                     } catch (e: Exception) {
                         Log.w("Installer", "chmod failed on ${file.absolutePath}: ${e.message}")
                     }
                 }
+            } catch (e: Exception) {
+                Log.e("Installer", "Error aplicando chmod global", e)
             }
-        } catch (e: Exception) {
-            Log.e("Installer", "Error aplicando chmod global", e)
         }
     }
 
     fun deployScripts(context: Context, base: File) {
         val binDir = File(base, "bin")
         if (!binDir.exists()) binDir.mkdirs()
-        
+
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val linker = "$nativeDir/libldlinux.so"
         val nodeLib = "$nativeDir/libnode.so"
@@ -202,11 +201,11 @@ object OpenClawInstaller {
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
             LINKER="$linker"
             NODE_LIB="$nodeLib"
-            
+
             exec "${'$'}LINKER" "${'$'}NODE_LIB" "${'$'}@"
         """.trimIndent())
         nodeWrapper.chmodWithOs()
-        
+
         // Crear wrapper para 'openclaw' (Dinámico y usa sh)
         val ocPathRel = "lib/node_modules/openclaw/openclaw.mjs"
         val openClawWrapper = File(binDir, "openclaw")
@@ -218,7 +217,7 @@ object OpenClawInstaller {
             exec sh "${'$'}BIN_DIR/node" "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
         """.trimIndent())
         openClawWrapper.chmodWithOs()
-        
+
         // Crear wrapper para 'npm' (Dinámico y usa sh)
         val npmPathRel = "lib/node_modules/npm/bin/npm-cli.js"
         val npmWrapper = File(binDir, "npm")
