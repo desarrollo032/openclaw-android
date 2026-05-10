@@ -189,13 +189,27 @@ class OpenClawGatewayService : Service() {
             val tmpDir    = File(cacheDir, "tmp").apply { mkdirs() }
             val configDir = OpenClawInstaller.getConfigDir(this)
 
-            listOf(loader, nodeExec, openclaw).forEach { f ->
+            listOf(loader, nodeExec).forEach { f ->
                 if (!f.exists()) {
                     OpenClawLogger.log(TAG, "Missing: ${f.absolutePath}")
                     _state.value = GatewayState.FAILED
                     updateNotification()
                     return
                 }
+                if (!f.canExecute()) {
+                    OpenClawLogger.log(TAG, "Fixing exec bit for ${f.absolutePath}")
+                    f.setExecutable(true, false)
+                }
+            }
+            if (!openclaw.exists()) {
+                OpenClawLogger.log(TAG, "Missing: ${openclaw.absolutePath}")
+                _state.value = GatewayState.FAILED
+                updateNotification()
+                return
+            }
+            if (!openclaw.canRead()) {
+                OpenClawLogger.log(TAG, "Fixing read bit for ${openclaw.absolutePath}")
+                openclaw.setReadable(true, false)
             }
 
             val pb = ProcessBuilder(

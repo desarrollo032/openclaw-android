@@ -196,9 +196,9 @@ export function Terminal() {
   )
 
   return (
-    <div style={S.root}>
+    <div className="terminal-container" style={S.root}>
       {/* Output */}
-      <div ref={scrollRef} className="no-scrollbar" style={S.output}>
+      <div ref={scrollRef} className="terminal-output no-scrollbar" style={S.output}>
         {history.map((h, i) => (
           <div key={i} style={{ ...S.line, color: h.type === 'cmd' ? '#4ade80' : h.type === 'err' ? '#f87171' : '#e2e8f0', fontWeight: h.type === 'cmd' ? 600 : 400 }}>
             {h.type === 'cmd' && <span style={{ color: '#6366f1' }}>$ </span>}
@@ -209,11 +209,11 @@ export function Terminal() {
 
       {/* Autocomplete suggestions */}
       {suggestions.length > 0 && (
-        <div style={S.suggestions}>
+        <div className="terminal-suggestions">
           {suggestions.map((s, i) => (
             <button 
               key={i} 
-              style={S.suggestion}
+              className="terminal-suggestion"
               onPointerDown={e => { e.preventDefault(); setInput(s); setSuggestions([]) }}
               onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.95)'; e.currentTarget.style.opacity = '0.8'; }}
               onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.opacity = '1'; }}
@@ -226,10 +226,10 @@ export function Terminal() {
       )}
 
       {/* Input area & Keyboard */}
-      <div style={S.keyboardArea}>
+      <div className="terminal-keyboard-area" style={S.keyboardArea}>
         
         {/* Quick Commands (hidden scrollbar) */}
-        <div className="no-scrollbar" style={S.quickCmds}>
+        <div className="terminal-quick-cmds no-scrollbar" style={S.quickCmds}>
           {[
             { label: 'gateway',  cmd: 'openclaw gateway',    color: '#60a5fa' },
             { label: 'status',   cmd: 'openclaw status',     color: '#4ade80' },
@@ -257,9 +257,9 @@ export function Terminal() {
         </div>
 
         {/* Input prompt */}
-        <div style={S.inputRow}>
-          <span style={S.prompt}>$</span>
-          <input ref={inputRef} style={S.input}
+        <div className="terminal-input-row" style={S.inputRow}>
+          <span className="terminal-prompt" style={S.prompt}>$</span>
+          <input ref={inputRef} className="terminal-input" style={S.input}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
@@ -271,6 +271,7 @@ export function Terminal() {
             placeholder={t('chat_placeholder')}
           />
           <button 
+            className="terminal-send-btn"
             style={S.sendBtn} 
             onPointerDown={e => { e.preventDefault(); runCmd(input) }}
             onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.92)'; }}
@@ -281,8 +282,9 @@ export function Terminal() {
         </div>
 
         {/* Action Row */}
-        <div style={S.actionRow}>
+        <div className="terminal-action-row" style={S.actionRow}>
           <button 
+            className="terminal-action-btn"
             style={S.actionBtn} 
             onPointerDown={e => {
               e.preventDefault()
@@ -293,6 +295,7 @@ export function Terminal() {
             aria-label="Pegar desde portapapeles"
           >📋 Pegar</button>
           <button 
+            className="terminal-action-btn"
             style={{ ...S.actionBtn, color: '#f87171' }}
             onPointerDown={e => { e.preventDefault(); setInput('') }}
             onTouchStart={e => { e.currentTarget.style.opacity = '0.6'; }}
@@ -302,7 +305,7 @@ export function Terminal() {
         </div>
 
         {/* Keyboard layout */}
-        <div style={S.keyboard}>
+        <div className="terminal-keyboard" style={S.keyboard}>
           {renderRow(row1)}
           {renderRow(row2)}
           {renderRow(row3)}
@@ -319,31 +322,14 @@ export function Terminal() {
   )
 }
 
-interface TerminalStyles extends Record<string, React.CSSProperties> {
-  output: React.CSSProperties & { 
-    contain?: string;
-    scrollBehavior?: string;
-    scrollPadding?: string;
-  };
-  input: React.CSSProperties & {
-    willChange?: string;
-    contain?: string;
-    autoComplete?: string;
-    autoCorrect?: string;
-    autoCapitalize?: string;
-    spellCheck?: boolean;
-  };
-}
-
-const S: TerminalStyles = {
+const S: Record<string, React.CSSProperties> = {
   root:   { display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)', overflow:'hidden' },
   output: { 
     flex:1, 
     overflowY:'auto', 
     padding:'12px 14px', 
     fontFamily:"'JetBrains Mono','Courier New',monospace", 
-    fontSize:12.5, 
-    lineHeight:1.6, 
+    lineHeight:1.7, 
     WebkitOverflowScrolling:'touch',
     // Performance optimizations
     willChange: 'auto',
@@ -355,15 +341,15 @@ const S: TerminalStyles = {
   line:   { marginBottom:4, whiteSpace:'pre-wrap', wordBreak:'break-all' },
   
   suggestions: { display:'flex', flexWrap:'wrap', gap:6, padding:'8px 12px', background:'var(--surface)', borderTop:'1px solid var(--border)' },
-  suggestion:  { background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:8, color:'#a5b4fc', fontSize:11, padding:'6px 10px', cursor:'pointer', fontWeight: 600 },
+  suggestion:  { background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:8, color:'#a5b4fc', padding:'6px 10px', cursor:'pointer', fontWeight: 600 },
   
   keyboardArea: { background:'rgba(8,8,16,0.95)', borderTop:'1px solid var(--border)', backdropFilter:'blur(16px)', flexShrink:0, display: 'flex', flexDirection: 'column' },
   
   quickCmds: { display:'flex', gap:6, overflowX:'auto', padding:'10px 12px 6px', WebkitOverflowScrolling:'touch' },
-  quickCmdBtn: { flexShrink:0, padding:'6px 12px', borderRadius:'var(--r-full)', border:'1px solid', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', letterSpacing:'0.3px', transition: 'transform 0.1s' },
+  quickCmdBtn: { flexShrink:0, padding:'6px 12px', borderRadius:'var(--r-full)', border:'1px solid', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', letterSpacing:'0.3px', transition: 'transform 0.1s' },
   
   inputRow: { display:'flex', alignItems:'center', gap:8, background:'var(--surface)', borderRadius:12, border:'1px solid var(--border2)', padding:'6px 12px', margin:'6px 12px', boxShadow: 'var(--sh-inset)' },
-  prompt:   { color:'#6366f1', fontWeight:800, fontSize:15, fontFamily:"'JetBrains Mono',monospace", flexShrink:0 },
+  prompt:   { color:'#6366f1', fontWeight:800, fontFamily:"'JetBrains Mono',monospace", flexShrink:0 },
   input:    { 
     flex:1, 
     background:'transparent', 
@@ -371,7 +357,6 @@ const S: TerminalStyles = {
     outline:'none', 
     color:'var(--text)', 
     fontFamily:"'JetBrains Mono',monospace", 
-    fontSize:13, 
     padding:'4px 0', 
     caretColor:'#6366f1',
     // Performance optimizations
@@ -383,12 +368,12 @@ const S: TerminalStyles = {
     autoCapitalize: 'off' as any,
     spellCheck: false
   },
-  sendBtn:  { background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', borderRadius:'var(--r-full)', color:'#fff', width:34, height:34, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow: '0 4px 12px rgba(99,102,241,0.4)' },
+  sendBtn:  { background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', borderRadius:'var(--r-full)', color:'#fff', width:34, height:34, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow: '0 4px 12px rgba(99,102,241,0.4)' },
   
   actionRow: { display:'flex', gap:12, padding:'0 16px 8px' },
-  actionBtn: { background:'transparent', border:'none', color:'var(--text3)', fontSize:12, fontWeight:700, cursor:'pointer', padding:'4px' },
+  actionBtn: { background:'transparent', border:'none', color:'var(--text3)', fontWeight:700, cursor:'pointer', padding:'4px' },
   
   keyboard: { padding:'0 6px 10px' },
   kbRow:  { display:'flex', gap:4, marginBottom:4 },
-  kbKey:  { height:38, borderRadius:8, border:'1px solid rgba(255,255,255,0.05)', fontSize:11, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', userSelect:'none', WebkitUserSelect:'none', padding:0, letterSpacing:'0.2px' },
+  kbKey:  { minHeight:38, borderRadius:8, border:'1px solid rgba(255,255,255,0.05)', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', userSelect:'none', WebkitUserSelect:'none', padding:'0 10px', letterSpacing:'0.2px' },
 }

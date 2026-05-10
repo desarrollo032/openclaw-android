@@ -193,40 +193,49 @@ object OpenClawInstaller {
 
         // Crear wrapper para 'node' (Dinámico)
         val nodeWrapper = File(binDir, "node")
+        if (nodeWrapper.exists()) nodeWrapper.delete()
         nodeWrapper.writeText("""
             #!/system/bin/sh
             # Detectar ruta de forma dinámica
             BIN_DIR=${'$'}(dirname "${'$'}0")
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
-            NATIVE_DIR=$nativeDir
+            LINKER="$linker"
+            NODE_LIB="$nodeLib"
             
-            exec $linker $nodeLib "${'$'}@"
+            exec "${'$'}LINKER" "${'$'}NODE_LIB" "${'$'}@"
         """.trimIndent())
+        nodeWrapper.chmodWithOs()
         
         // Crear wrapper para 'openclaw' (Dinámico y usa sh)
-        val ocPathRel = "lib/node_modules/openclaw/bin/openclaw.js"
-        File(binDir, "openclaw").writeText("""
+        val ocPathRel = "lib/node_modules/openclaw/openclaw.mjs"
+        val openClawWrapper = File(binDir, "openclaw")
+        if (openClawWrapper.exists()) openClawWrapper.delete()
+        openClawWrapper.writeText("""
             #!/system/bin/sh
             BIN_DIR=${'$'}(dirname "${'$'}0")
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
-            exec sh ${'$'}BIN_DIR/node ${'$'}PAYLOAD_DIR/$ocPathRel "${'$'}@"
+            exec sh "${'$'}BIN_DIR/node" "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
         """.trimIndent())
+        openClawWrapper.chmodWithOs()
         
         // Crear wrapper para 'npm' (Dinámico y usa sh)
         val npmPathRel = "lib/node_modules/npm/bin/npm-cli.js"
-        File(binDir, "npm").writeText("""
+        val npmWrapper = File(binDir, "npm")
+        if (npmWrapper.exists()) npmWrapper.delete()
+        npmWrapper.writeText("""
             #!/system/bin/sh
             BIN_DIR=${'$'}(dirname "${'$'}0")
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
-            exec sh ${'$'}BIN_DIR/node ${'$'}PAYLOAD_DIR/$npmPathRel "${'$'}@"
+            exec sh "${'$'}BIN_DIR/node" "${'$'}PAYLOAD_DIR/$npmPathRel" "${'$'}@"
         """.trimIndent())
+        npmWrapper.chmodWithOs()
 
         // Crear .mkshrc para alias automáticos en el terminal
         val mkshrc = File(base, ".mkshrc")
         mkshrc.writeText("""
-            alias node='sh ${File(binDir, "node").absolutePath}'
-            alias npm='sh ${File(binDir, "npm").absolutePath}'
-            alias openclaw='sh ${File(binDir, "openclaw").absolutePath}'
+            alias node='sh "${File(binDir, "node").absolutePath}"'
+            alias npm='sh "${File(binDir, "npm").absolutePath}"'
+            alias openclaw='sh "${File(binDir, "openclaw").absolutePath}"'
             export PATH=${binDir.absolutePath}:${'$'}PATH
         """.trimIndent())
 
