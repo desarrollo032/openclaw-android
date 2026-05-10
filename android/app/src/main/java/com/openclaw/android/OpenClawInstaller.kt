@@ -161,29 +161,25 @@ object OpenClawInstaller {
 
     suspend fun fixPermissions(base: File) = withContext(Dispatchers.IO) {
         try {
-            // Forzar permisos de ejecución vía shell nativo (chmod)
-            val binDir = File(base, "bin")
-            if (binDir.exists()) {
-                Runtime.getRuntime().exec(arrayOf("chmod", "-R", "755", binDir.absolutePath)).waitFor()
+            // Forzar permisos de ejecución RECURSIVOS en TODO el payload
+            if (base.exists()) {
+                Log.i("Installer", "Aplicando permisos globales a: ${base.absolutePath}")
+                Runtime.getRuntime().exec(arrayOf("chmod", "-R", "755", base.absolutePath)).waitFor()
             }
         } catch (e: Exception) {
-            Log.e("Installer", "Error aplicando chmod nativo", e)
+            Log.e("Installer", "Error aplicando chmod global", e)
         }
 
-        // Refuerzo preventivo por código Java
+        // Refuerzo preventivo por código Java para carpetas y archivos críticos
         base.setExecutable(true, false)
         base.setReadable(true, false)
-        listOf(File(base, "glibc/lib"), File(base, "bin")).forEach { dir ->
-            if (dir.exists()) {
-                dir.walkTopDown().filter { it.isFile }.forEach { f ->
-                    f.setReadable(true, false)
+        base.walkTopDown().forEach { f ->
+            try {
+                f.setReadable(true, false)
+                if (f.isDirectory || f.path.contains("/bin/") || f.path.contains("/lib/")) {
                     f.setExecutable(true, false)
                 }
-            }
-        }
-        base.walkTopDown().filter { it.isDirectory }.forEach { d ->
-            d.setExecutable(true, false)
-            d.setReadable(true, false)
+            } catch (e: Exception) { /* Ignorar fallos individuales */ }
         }
     }
 
