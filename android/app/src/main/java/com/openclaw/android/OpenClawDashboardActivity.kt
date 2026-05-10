@@ -68,6 +68,10 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             cacheMode = WebSettings.LOAD_NO_CACHE
             // Habilitar acceso a archivos para que React cargue sus assets locales
             allowFileAccess = true
+            @Suppress("DEPRECATION")
+            allowFileAccessFromFileURLs = true
+            @Suppress("DEPRECATION")
+            allowUniversalAccessFromFileURLs = true
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
