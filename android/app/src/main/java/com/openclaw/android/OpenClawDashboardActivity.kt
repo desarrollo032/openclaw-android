@@ -63,13 +63,27 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     }
 
     private fun handleMigrationFilePicked(uri: Uri) {
-        val filename = uri.path?.substringAfterLast('/') ?: "file.tar.gz"
+        // Obtener nombre real del archivo desde la URI
+        var filename = "archivo.tar.gz"
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (nameIndex != -1 && cursor.moveToFirst()) {
+                filename = cursor.getString(nameIndex)
+            }
+        }
+
         val size = try {
             contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
         } catch (e: Exception) { 0L }
         
+        val sizeMB = size / 1024 / 1024
+        
+        // Mostrar confirmación visual nativa
+        android.widget.Toast.makeText(this, "Archivo seleccionado: $filename (${sizeMB}MB)", android.widget.Toast.LENGTH_LONG).show()
+        Log.i(TAG, "File picked: $filename, size: $sizeMB MB")
+
         androidBridge?.notifyReact("onMigrationFilePicked", 
-            "{\"filename\":\"$filename\", \"sizeMB\":${size / 1024 / 1024}}")
+            "{\"filename\":\"$filename\", \"sizeMB\":$sizeMB}")
     }
 
     @SuppressLint("SetJavaScriptEnabled")
