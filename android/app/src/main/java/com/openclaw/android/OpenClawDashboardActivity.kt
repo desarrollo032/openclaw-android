@@ -38,6 +38,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         }
 
         setupWebView()
+        binding.webView.clearCache(true)
         binding.webView.loadUrl(DASHBOARD_URL)
 
         lifecycleScope.launch {
@@ -65,6 +66,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
+            cacheMode = WebSettings.LOAD_NO_CACHE
             // Habilitar acceso a archivos para que React cargue sus assets locales
             allowFileAccess = true
             allowFileAccessFromFileURLs = true
