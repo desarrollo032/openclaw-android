@@ -221,6 +221,15 @@ object OpenClawInstaller {
             exec sh ${'$'}BIN_DIR/node ${'$'}PAYLOAD_DIR/$npmPathRel "${'$'}@"
         """.trimIndent())
 
+        // Crear .mkshrc para alias automáticos en el terminal
+        val mkshrc = File(base, ".mkshrc")
+        mkshrc.writeText("""
+            alias node='sh ${File(binDir, "node").absolutePath}'
+            alias npm='sh ${File(binDir, "npm").absolutePath}'
+            alias openclaw='sh ${File(binDir, "openclaw").absolutePath}'
+            export PATH=${binDir.absolutePath}:${'$'}PATH
+        """.trimIndent())
+
         try {
             context.assets.list("scripts")?.forEach { name ->
                 context.assets.open("scripts/$name").use { input ->
