@@ -10,7 +10,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import androidx.webkit.WebViewAssetLoader
 import com.openclaw.android.databinding.ActivityDashboardBinding
 import kotlinx.coroutines.launch
 
@@ -19,12 +18,12 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     private lateinit var binding: ActivityDashboardBinding
     private var androidBridge: AndroidBridge? = null
     
-    // Exponer filePicker como internal para el Bridge
     internal lateinit var filePicker: ActivityResultLauncher<String>
 
     companion object {
         private const val TAG = "Dashboard"
-        private const val DASHBOARD_URL = "https://openclaw.local/www/index.html"
+        // Ruta directa a los assets compilados de React
+        private const val DASHBOARD_URL = "file:///android_asset/www/index.html"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,7 +31,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         binding = ActivityDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Registrar el filePicker
         filePicker = registerForActivityResult(
             ActivityResultContracts.GetContent()
         ) { uri: Uri? ->
@@ -42,7 +40,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         setupWebView()
         binding.webView.loadUrl(DASHBOARD_URL)
 
-        // Sincronizar estado del Gateway con la WebUI
         lifecycleScope.launch {
             OpenClawGatewayService.state.collect { state ->
                 if (state == GatewayState.READY) {
@@ -64,30 +61,28 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        val assetLoader = WebViewAssetLoader.Builder()
-            .setDomain("openclaw.local")
-            .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
-
         binding.webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
+            // Habilitar acceso a archivos para que React cargue sus assets locales
             allowFileAccess = true
             allowFileAccessFromFileURLs = true
             allowUniversalAccessFromFileURLs = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
         androidBridge = AndroidBridge(this, binding.webView, lifecycleScope)
         binding.webView.addJavascriptInterface(androidBridge!!, "AndroidBridge")
         
         binding.webView.webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                val url = request?.url?.toString() ?: return null
-                if (url.startsWith("https://openclaw.local/")) {
-                    return assetLoader.shouldInterceptRequest(request.url)
-                }
-                return null
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                Log.d(TAG, "Dashboard loaded: $url")
+            }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                Log.e(TAG, "WebView Error: ${error?.description} at ${request?.url}")
             }
         }
         
