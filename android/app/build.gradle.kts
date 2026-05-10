@@ -132,6 +132,21 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    // ── Test Configuration ────────────────────────────────────────────────────
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.testLogging {
+                    events("passed", "skipped", "failed", "standardOut", "standardError")
+                    showExceptions = true
+                    showCauses = true
+                    showStackTraces = true
+                }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -152,8 +167,27 @@ dependencies {
     implementation(files("libs/terminal-view.aar"))
 
 
+    // ── Unit Testing ─────────────────────────────────────────────────────────
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.0")
+    testImplementation("org.junit.jupiter:junit-jupiter-engine:5.10.0")
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("io.kotest:kotest-runner-junit5:5.8.0")
+    testImplementation("io.kotest:kotest-assertions-core:5.8.0")
+    testImplementation("io.kotest:kotest-property:5.8.0")
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
+    testImplementation("org.robolectric:robolectric:4.11.1")
+
+    // ── Integration & UI Testing ─────────────────────────────────────────────
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.ext:junit-ktx:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test.espresso:espresso-intents:3.5.1")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:rules:1.5.0")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.2.0")
+    androidTestImplementation("com.google.dagger:hilt-android-testing:2.50")
+    androidTestImplementation("io.mockk:mockk-android:1.13.8")
 }
 
