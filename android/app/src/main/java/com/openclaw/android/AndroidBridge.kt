@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
@@ -30,15 +31,35 @@ class AndroidBridge(
 ) {
 
     private var pendingFileCallbackId: String? = null
+    private var pendingAssetPick: String? = null
+
+    private val payloadOverrideFile: File
+        get() = File(activity.cacheDir, "openclaw_payload_override.tar.xz")
+
+    private val migrationOverrideFile: File
+        get() = File(activity.cacheDir, "openclaw_migration_override.tar.gz")
 
     @JavascriptInterface
     fun getSetupStatus(): String {
         val payloadReady = OpenClawInstaller.isPayloadReady(activity)
         val onboardComplete = OpenClawInstaller.isOnboardComplete(activity)
+        val assets = AssetDetector.detectSync(activity)
+        val payloadOverride = payloadOverrideFile.takeIf { it.exists() && it.length() > 0L }
+        val migrationOverride = migrationOverrideFile.takeIf { it.exists() && it.length() > 0L }
         return JSONObject().apply {
             put("bootstrapInstalled", payloadReady)
             put("platformInstalled", if (payloadReady) "openclaw" else "")
             put("onboardComplete", onboardComplete)
+            put("payloadReady", payloadReady)
+            put("payloadAvailable", assets.payloadAvailable || payloadOverride != null)
+            put("payloadSizeBytes", payloadOverride?.length() ?: assets.payloadSizeBytes)
+            put("payloadSource", if (payloadOverride != null) "local" else if (assets.payloadAvailable) "apk" else "missing")
+            put("migrationAvailable", assets.migrationAvailable || migrationOverride != null)
+            put("migrationSizeBytes", migrationOverride?.length() ?: assets.migrationSizeBytes)
+            put("migrationSource", if (migrationOverride != null) "local" else if (assets.migrationAvailable) "apk" else "missing")
+            put("freeSpaceMB", assets.freeSpaceBytes / 1024 / 1024)
+            put("requiredSpaceMB", 400)
+            put("hasEnoughSpace", assets.hasEnoughSpace)
         }.toString()
     }
 
@@ -55,8 +76,12 @@ class AndroidBridge(
     @JavascriptInterface
     fun startSetup() {
         scope.launch(Dispatchers.IO) {
-            OpenClawInstaller.installDetailed(
+            val payloadOverride = payloadOverrideFile.takeIf { it.exists() && it.length() > 0L }
+            val migrationOverride = migrationOverrideFile.takeIf { it.exists() && it.length() > 0L }
+            OpenClawInstaller.installDetailedFromFiles(
                 context = activity,
+                payloadFile = payloadOverride,
+                migrationFile = migrationOverride,
                 onProgress = { progressJson ->
                     notifyReact("onInstallProgress", progressJson)
                 },
@@ -73,6 +98,7 @@ class AndroidBridge(
     @JavascriptInterface
     fun pickFile(callbackId: String) {
         pendingFileCallbackId = callbackId
+        pendingAssetPick = null
         activity.runOnUiThread {
             if (activity is OpenClawDashboardActivity) {
                 activity.filePicker.launch("*/*")
@@ -110,9 +136,56 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun pickMigrationFile() {
+        pendingAssetPick = "migration"
+        pendingFileCallbackId = null
+        activity.runOnUiThread {
+            if (activity is OpenClawDashboardActivity) {
+                activity.filePicker.launch("application/gzip")
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun pickPayloadFile() {
+        pendingAssetPick = "payload"
+        pendingFileCallbackId = null
         activity.runOnUiThread {
             if (activity is OpenClawDashboardActivity) {
                 activity.filePicker.launch("*/*")
+            }
+        }
+    }
+
+    fun handlePickedFile(uri: Uri) {
+        pendingFileCallbackId?.let { callbackId ->
+            dispatchNativeFilePicked(callbackId, uri, true)
+            pendingFileCallbackId = null
+            return
+        }
+
+        val type = pendingAssetPick ?: "migration"
+        pendingAssetPick = null
+        scope.launch(Dispatchers.IO) {
+            try {
+                val target = if (type == "payload") payloadOverrideFile else migrationOverrideFile
+                copyUriToFile(uri, target)
+                val metadata = getUriMetadata(uri, target)
+                notifyReact("onLocalAssetPicked", JSONObject().apply {
+                    put("type", type)
+                    put("filename", metadata.first)
+                    put("sizeMB", metadata.second / 1024 / 1024)
+                    put("source", "local")
+                }.toString())
+                if (type == "migration") {
+                    notifyReact("onMigrationFilePicked", JSONObject().apply {
+                        put("filename", metadata.first)
+                        put("sizeMB", metadata.second / 1024 / 1024)
+                    }.toString())
+                }
+            } catch (e: Exception) {
+                notifyReact("onInstallError", JSONObject().apply {
+                    put("error", "No se pudo cargar el archivo local: ${e.message ?: "error desconocido"}")
+                }.toString())
             }
         }
     }
@@ -321,12 +394,44 @@ class AndroidBridge(
 
     private fun copyUriToTempFile(uri: Uri, fileName: String): File {
         val tempFile = File(activity.cacheDir, fileName)
+        copyUriToFile(uri, tempFile)
+        return tempFile
+    }
+
+    private fun copyUriToFile(uri: Uri, targetFile: File) {
+        targetFile.parentFile?.mkdirs()
         activity.contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(tempFile).use { output ->
+            FileOutputStream(targetFile).use { output ->
                 input.copyTo(output)
             }
         } ?: throw IllegalArgumentException("Cannot open URI: $uri")
-        return tempFile
+    }
+
+    private fun getUriMetadata(uri: Uri, fallbackFile: File): Pair<String, Long> {
+        var filename = fallbackFile.name
+        activity.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex != -1 && cursor.moveToFirst()) {
+                filename = cursor.getString(nameIndex)
+            }
+        }
+        val size = try {
+            activity.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: fallbackFile.length()
+        } catch (_: Exception) {
+            fallbackFile.length()
+        }
+        return filename to size
+    }
+
+    private fun dispatchNativeFilePicked(callbackId: String, uri: Uri, success: Boolean) {
+        val escapedUri = JSONObject.quote(uri.toString())
+        val successJson = if (success) "true" else "false"
+        activity.runOnUiThread {
+            webView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('native:file_picked_$callbackId', { detail: { uri: $escapedUri, success: $successJson } }));",
+                null
+            )
+        }
     }
 
     private fun File.sizeRecursively(): Long {

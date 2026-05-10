@@ -14,13 +14,11 @@ import androidx.webkit.WebViewAssetLoader
 import com.openclaw.android.databinding.ActivityDashboardBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 class OpenClawDashboardActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityDashboardBinding
     private var androidBridge: AndroidBridge? = null
-    private var pendingFileCallbackId: String? = null
     private val assetLoader by lazy {
         WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))

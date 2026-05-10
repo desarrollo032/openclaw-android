@@ -1,7 +1,6 @@
 package com.openclaw.android
 
 import android.content.Context
-import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -86,7 +85,7 @@ object OpenClawInstaller {
         onProgress: (String) -> Unit,
         onComplete: () -> Unit,
         onError: (String) -> Unit
-    ) = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         try {
             val base = getPayloadDir(context)
             base.deleteRecursivelySafe()
@@ -140,6 +139,88 @@ object OpenClawInstaller {
         }
     }
 
+    suspend fun installDetailedFromFiles(
+        context: Context,
+        payloadFile: File?,
+        migrationFile: File?,
+        onProgress: (String) -> Unit,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit
+    ): Unit = withContext(Dispatchers.IO) {
+        try {
+            val base = getPayloadDir(context)
+            base.deleteRecursivelySafe()
+            base.mkdirs()
+
+            val payloadOk = if (payloadFile != null) {
+                payloadFile.inputStream().use { raw ->
+                    val tracked = ProgressInputStream(raw, payloadFile.length()) { read, total ->
+                        onProgress(progressJson(1, payloadFile.name, read, total, ""))
+                    }
+                    extractTarXzFromStream(tracked, base)
+                }
+            } else {
+                context.extractTarXz(PAYLOAD_ASSET_NAME, base) { _, read, total, currentFile ->
+                    onProgress(progressJson(1, PAYLOAD_ASSET_NAME, read, total, currentFile))
+                }
+            }
+            if (!payloadOk) throw Exception("Fallo en extraccion de ${payloadFile?.name ?: PAYLOAD_ASSET_NAME}")
+
+            deployScripts(context, base)
+            fixPermissions(base)
+
+            val migrationOk = if (migrationFile != null) {
+                migrationFile.inputStream().use { raw ->
+                    val tracked = ProgressInputStream(raw, migrationFile.length()) { read, total ->
+                        onProgress(progressJson(2, migrationFile.name, read, total, ""))
+                    }
+                    extractTarGzFromStream(tracked, context.filesDir)
+                }
+            } else if (assetExists(context, MIGRATION_ASSET_NAME)) {
+                context.extractTarGz(MIGRATION_ASSET_NAME, context.filesDir) { _, read, total, currentFile ->
+                    onProgress(progressJson(2, MIGRATION_ASSET_NAME, read, total, currentFile))
+                }
+            } else {
+                true
+            }
+            if (!migrationOk) {
+                throw Exception("Fallo en extraccion de ${migrationFile?.name ?: MIGRATION_ASSET_NAME}")
+            }
+
+            OpenClawTerminalManager(context).createBusyboxSymlinks()
+
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
+
+            onComplete()
+        } catch (e: Exception) {
+            onError(e.message ?: "Error desconocido")
+        }
+    }
+
+    private fun progressJson(step: Int, stepName: String, read: Long, total: Long, currentFile: String): String {
+        val safeTotal = total.coerceAtLeast(0L)
+        val percent = if (total > 0) ((read * 100) / total).toInt().coerceIn(0, 100) else 0
+        return JSONObject().apply {
+            put("step", step)
+            put("totalSteps", 2)
+            put("extractedMB", read / 1024 / 1024)
+            put("totalMB", safeTotal / 1024 / 1024)
+            put("percent", percent)
+            put("currentFile", currentFile)
+            put("stepName", stepName)
+        }.toString()
+    }
+
+    private fun assetExists(context: Context, filename: String): Boolean {
+        return try {
+            context.assets.open(filename).close()
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun installPayload(
         context: Context,
         onProgress: (msg: String, pct: Int) -> Unit
@@ -154,7 +235,7 @@ object OpenClawInstaller {
             deployScripts(context, base)
             fixPermissions(base)
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                   .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
+                .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
         }
         ok
     }
