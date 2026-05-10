@@ -7,7 +7,7 @@ export default defineConfig({
 
   build: {
     target:     'chrome67',          // Chrome WebView API 31+ compat
-    outDir:     '../app/src/main/assets/www',  // Output directo al APK
+    outDir:     'dist',  // Volvemos al estándar para evitar conflictos con Gradle
     assetsDir:  'assets',
     sourcemap:  false,
     minify:     'esbuild',
