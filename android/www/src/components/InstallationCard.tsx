@@ -60,11 +60,13 @@ export function InstallationCard() {
             </div>
 
             <button 
-              className="btn-primary" 
+              className={`btn-primary ${isInstalling ? 'btn-loading' : ''}`}
               onClick={install}
-              disabled={!status.payloadAvailable || status.freeSpaceMB < 400}
+              disabled={!status.payloadAvailable || status.freeSpaceMB < 400 || isInstalling}
+              aria-label={isInstalling ? 'Instalando entorno' : 'Instalar entorno OpenClaw'}
+              aria-busy={isInstalling}
             >
-              INSTALAR AHORA
+              {isInstalling ? 'Instalando...' : 'INSTALAR AHORA'}
             </button>
           </div>
         )}
@@ -90,7 +92,15 @@ export function InstallationCard() {
         {error && (
           <div className="card-body">
             <p className="error-msg">{error}</p>
-            <button className="btn-primary" onClick={install}>↺ REINTENTAR</button>
+            <button 
+              className={`btn-primary ${isInstalling ? 'btn-loading' : ''}`}
+              onClick={install}
+              disabled={isInstalling}
+              aria-label="Reintentar instalación"
+              aria-busy={isInstalling}
+            >
+              {isInstalling ? 'Reintentando...' : '↺ REINTENTAR'}
+            </button>
           </div>
         )}
       </div>

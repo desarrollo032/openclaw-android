@@ -8,7 +8,7 @@
  *   - Footer con versión del paquete
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { bridge } from '../lib/bridge'
 import { GatewayStatus } from '../components/GatewayStatus'
 import { InstallationCard } from '../components/InstallationCard'
@@ -49,7 +49,7 @@ export function Dashboard() {
   }, [])
 
   // Suscribirse a eventos nativos
-  useState(() => {
+  useEffect(() => {
     const onFilePicked = (e: Event) => {
       const detail = (e as CustomEvent).detail
       if (typeof detail === 'string') {
@@ -60,15 +60,23 @@ export function Dashboard() {
 
     window.addEventListener('onMigrationFilePicked', onFilePicked)
     
-    window.addEventListener('onGatewayReady', () => {
+    const onGatewayReady = () => {
       refreshVersions()
-    })
+    }
+    window.addEventListener('onGatewayReady', onGatewayReady)
     
     // Intento inicial
     refreshVersions()
-    setTimeout(refreshVersions, 2000)
-    setTimeout(refreshVersions, 5000)
-  })
+    const t1 = setTimeout(refreshVersions, 2000)
+    const t2 = setTimeout(refreshVersions, 5000)
+
+    return () => {
+      window.removeEventListener('onMigrationFilePicked', onFilePicked)
+      window.removeEventListener('onGatewayReady', onGatewayReady)
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [refreshVersions])
 
   const appInfo = bridge.isAvailable()
     ? bridge.callJson<AppInfo>('getAppInfo')

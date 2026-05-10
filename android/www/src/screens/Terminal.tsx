@@ -137,9 +137,13 @@ export function Terminal() {
   const renderRow = (keys: KeyDef[]) => (
     <div style={S.kbRow}>
       {keys.map((k, i) => (
-        <button key={i}
+        <button 
+          key={i}
           style={{ ...S.kbKey, flex: k.flex ?? 1, background: k.bg, color: k.fg }}
           onPointerDown={e => { e.preventDefault(); k.onPress() }}
+          onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.95)'; e.currentTarget.style.opacity = '0.8'; }}
+          onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.opacity = '1'; }}
+          aria-label={`Tecla ${k.label}`}
         >{k.label}</button>
       ))}
     </div>
@@ -161,8 +165,14 @@ export function Terminal() {
       {suggestions.length > 0 && (
         <div style={S.suggestions}>
           {suggestions.map((s, i) => (
-            <button key={i} style={S.suggestion}
-              onPointerDown={e => { e.preventDefault(); setInput(s); setSuggestions([]) }}>
+            <button 
+              key={i} 
+              style={S.suggestion}
+              onPointerDown={e => { e.preventDefault(); setInput(s); setSuggestions([]) }}
+              onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.95)'; e.currentTarget.style.opacity = '0.8'; }}
+              onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.opacity = '1'; }}
+              aria-label={`Autocompletar con ${s}`}
+            >
               {s}
             </button>
           ))}
@@ -187,8 +197,14 @@ export function Terminal() {
             { label: 'logs',     cmd: 'openclaw logs',       color: '#94a3b8' },
             { label: 'node -v',  cmd: 'node -v',             color: '#86efac' },
           ].map(q => (
-            <button key={q.cmd} style={{ ...S.quickCmdBtn, color: q.color, borderColor: q.color + '30', background: q.color + '10' }}
-              onPointerDown={e => { e.preventDefault(); runCmd(q.cmd) }}>
+            <button 
+              key={q.cmd} 
+              style={{ ...S.quickCmdBtn, color: q.color, borderColor: q.color + '30', background: q.color + '10' }}
+              onPointerDown={e => { e.preventDefault(); runCmd(q.cmd) }}
+              onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.92)'; }}
+              onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+              aria-label={`Ejecutar comando ${q.label}`}
+            >
               {q.label}
             </button>
           ))}
@@ -208,17 +224,35 @@ export function Terminal() {
             }}
             placeholder={t('chat_placeholder')}
           />
-          <button style={S.sendBtn} onPointerDown={e => { e.preventDefault(); runCmd(input) }}>▶</button>
+          <button 
+            style={S.sendBtn} 
+            onPointerDown={e => { e.preventDefault(); runCmd(input) }}
+            onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.92)'; }}
+            onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+            aria-label="Ejecutar comando"
+            disabled={!input.trim()}
+          >▶</button>
         </div>
 
         {/* Action Row */}
         <div style={S.actionRow}>
-          <button style={S.actionBtn} onPointerDown={e => {
-            e.preventDefault()
-            try { navigator.clipboard?.readText?.().then(txt => { if (txt) setInput(p => p + txt) }) } catch {/**/ }
-          }}>📋 Pegar</button>
-          <button style={{ ...S.actionBtn, color: '#f87171' }}
-            onPointerDown={e => { e.preventDefault(); setInput('') }}>✕ Limpiar</button>
+          <button 
+            style={S.actionBtn} 
+            onPointerDown={e => {
+              e.preventDefault()
+              try { navigator.clipboard?.readText?.().then(txt => { if (txt) setInput(p => p + txt) }) } catch {/**/ }
+            }}
+            onTouchStart={e => { e.currentTarget.style.opacity = '0.6'; }}
+            onTouchEnd={e => { e.currentTarget.style.opacity = '1'; }}
+            aria-label="Pegar desde portapapeles"
+          >📋 Pegar</button>
+          <button 
+            style={{ ...S.actionBtn, color: '#f87171' }}
+            onPointerDown={e => { e.preventDefault(); setInput('') }}
+            onTouchStart={e => { e.currentTarget.style.opacity = '0.6'; }}
+            onTouchEnd={e => { e.currentTarget.style.opacity = '1'; }}
+            aria-label="Limpiar entrada"
+          >✕ Limpiar</button>
         </div>
 
         {/* Keyboard layout */}

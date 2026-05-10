@@ -82,15 +82,30 @@ export function GatewayStatus() {
         </div>
 
         <div style={{ display: 'flex', gap: 6 }}>
-          <button style={S.iconBtn}
+          <button 
+            style={{ ...S.iconBtn, ...(isLoading ? S.iconBtnLoading : {}) }}
             onClick={refresh}
-            title="Actualizar">
+            disabled={isLoading}
+            title="Actualizar"
+            aria-label="Actualizar estado"
+          >
             <span style={{ display: 'inline-block', animation: isLoading ? 'spin 0.7s linear infinite' : 'none' }}>↻</span>
           </button>
-          <button style={{ ...S.restartBtn, opacity: restarting ? 0.6 : 1 }}
+          <button 
+            style={{ 
+              ...S.restartBtn, 
+              opacity: restarting ? 0.6 : 1,
+              cursor: restarting ? 'not-allowed' : 'pointer',
+            }}
             onClick={handleRestart}
-            disabled={restarting}>
-            {restarting ? '⟳' : '⟳'} Reiniciar
+            disabled={restarting || reachability === 'unreachable'}
+            aria-label="Reiniciar gateway"
+          >
+            {restarting ? (
+              <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span> Reiniciando...</>
+            ) : (
+              <>⟳ Reiniciar</>
+            )}
           </button>
         </div>
       </div>
@@ -156,12 +171,19 @@ const S: Record<string, React.CSSProperties> = {
     width: 32, height: 32, borderRadius: 9, border: '1px solid var(--border)',
     background: 'var(--glass)', color: 'var(--text2)', fontSize: 16,
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', position: 'relative', overflow: 'hidden',
+    WebkitTapHighlightColor: 'transparent',
+  },
+  iconBtnLoading: {
+    cursor: 'not-allowed', opacity: 0.6,
   },
   restartBtn: {
     display: 'flex', alignItems: 'center', gap: 5,
     padding: '6px 12px', borderRadius: 9,
     border: '1px solid rgba(248,113,113,0.25)', background: 'var(--red-dim)',
     color: 'var(--red)', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)', position: 'relative', overflow: 'hidden',
+    WebkitTapHighlightColor: 'transparent',
   },
   statsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 },
   statCell:  { display: 'flex', alignItems: 'center', gap: 7, background: 'var(--glass)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' },

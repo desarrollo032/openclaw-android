@@ -309,10 +309,22 @@ export function Chat() {
             📎
           </button>
           <button
-            style={{ ...S.sendBtn, opacity: (!input.trim() || typing) ? 0.5 : 1 }}
+            style={{ 
+              ...S.sendBtn, 
+              opacity: (!input.trim() || typing) ? 0.4 : 1,
+              transform: typing ? 'scale(0.95)' : undefined,
+              cursor: (!input.trim() || typing) ? 'not-allowed' : 'pointer',
+            }}
             onClick={() => handleSend()}
-            disabled={!input.trim() || typing}>
-            <span style={{ fontSize: 18 }}>↑</span>
+            disabled={!input.trim() || typing}
+            aria-label={typing ? 'Enviando mensaje...' : 'Enviar mensaje'}
+            aria-busy={typing}
+          >
+            {typing ? (
+              <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
+            ) : (
+              <span style={{ fontSize: 18 }}>↑</span>
+            )}
           </button>
         </div>
 
@@ -324,7 +336,12 @@ export function Chat() {
               : <><span style={{ color: '#f87171' }}>●</span> Gateway inactivo</>}
           </span>
           {messages.length > 0 && (
-            <button style={S.clearBtn} onClick={clearChat}>
+            <button 
+              style={S.clearBtn} 
+              onClick={clearChat}
+              disabled={typing}
+              aria-label="Borrar historial de chat"
+            >
               🗑 {t('chat_clear')}
             </button>
           )}

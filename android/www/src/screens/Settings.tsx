@@ -109,7 +109,16 @@ export function Settings() {
       {/* ── Model selector ── */}
       <div style={S.sectionHeader}>
         <span style={S.sectionLabel}>MODELO DE IA</span>
-        <button style={S.iconBtn} onClick={load}>{modelsLoading ? '↻' : '↻ Actualizar'}</button>
+        <button 
+          style={{ ...S.iconBtn, opacity: modelsLoading ? 0.6 : 1 }} 
+          onClick={load}
+          disabled={modelsLoading}
+          aria-label={modelsLoading ? 'Cargando modelos...' : 'Actualizar lista de modelos'}
+          aria-busy={modelsLoading}
+        >
+          <span style={{ display: 'inline-block', animation: modelsLoading ? 'spin 0.7s linear infinite' : 'none' }}>↻</span>
+          {modelsLoading ? ' Actualizando...' : ' Actualizar'}
+        </button>
       </div>
 
       <div style={S.card}>
@@ -123,7 +132,19 @@ export function Settings() {
             <div style={S.emptyState}>
               <span style={{ fontSize: 24, marginBottom: 8 }}>⚠️</span>
               <span style={{ textAlign: 'center' }}>No se encontraron modelos. Verifica el gateway.</span>
-              <button style={{ ...S.actionBtn, width: 'auto', padding: '6px 16px', marginTop: 12 }} onClick={load}>Reintentar</button>
+              <button 
+                style={{ ...S.actionBtn, width: 'auto', padding: '6px 16px', marginTop: 12, opacity: modelsLoading ? 0.6 : 1 }} 
+                onClick={load}
+                disabled={modelsLoading}
+                aria-label="Reintentar cargar modelos"
+                aria-busy={modelsLoading}
+              >
+                {modelsLoading ? (
+                  <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 4 }}>⟳</span>Reintentando...</>
+                ) : (
+                  'Reintentar'
+                )}
+              </button>
             </div>
           ) : (
             <>
@@ -206,8 +227,18 @@ export function Settings() {
             <div style={S.sliderLabels}><span>4K</span><span>200K</span></div>
           </div>
 
-          <button style={S.primaryBtn} onClick={handleSaveParams} disabled={saving}>
-            {saving ? 'Guardando...' : 'Guardar parámetros'}
+          <button 
+            style={{ ...S.primaryBtn, opacity: saving ? 0.7 : 1 }} 
+            onClick={handleSaveParams} 
+            disabled={saving}
+            aria-label={saving ? 'Guardando parámetros...' : 'Guardar parámetros de IA'}
+            aria-busy={saving}
+          >
+            {saving ? (
+              <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 6 }}>⟳</span>Guardando...</>
+            ) : (
+              'Guardar parámetros'
+            )}
           </button>
         </div>
       </div>
