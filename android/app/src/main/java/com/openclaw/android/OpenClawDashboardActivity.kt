@@ -10,21 +10,28 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.webkit.WebViewAssetLoader
 import com.openclaw.android.databinding.ActivityDashboardBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 class OpenClawDashboardActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityDashboardBinding
     private var androidBridge: AndroidBridge? = null
+    private var pendingFileCallbackId: String? = null
+    private val assetLoader by lazy {
+        WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+    }
     
     internal lateinit var filePicker: ActivityResultLauncher<String>
 
     companion object {
         private const val TAG = "Dashboard"
-        // Ruta directa a los assets compilados de React
-        private const val DASHBOARD_URL = "file:///android_asset/www/index.html"
+        private const val DASHBOARD_URL = "https://appassets.androidplatform.net/assets/www/index.html"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,7 +53,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         filePicker = registerForActivityResult(
             ActivityResultContracts.GetContent()
         ) { uri: Uri? ->
-            uri?.let { handleMigrationFilePicked(it) }
+            uri?.let { handleFilePicked(it) }
         }
 
         setupWebView()
@@ -60,6 +67,15 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun handleFilePicked(uri: Uri) {
+        pendingFileCallbackId?.let { callbackId ->
+            dispatchNativeFilePicked(callbackId, uri, true)
+            pendingFileCallbackId = null
+            return
+        }
+        handleMigrationFilePicked(uri)
     }
 
     private fun handleMigrationFilePicked(uri: Uri) {
@@ -86,18 +102,21 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             "{\"filename\":\"$filename\", \"sizeMB\":$sizeMB}")
     }
 
+    private fun dispatchNativeFilePicked(callbackId: String, uri: Uri, success: Boolean) {
+        val escapedUri = JSONObject.quote(uri.toString())
+        val successJson = if (success) "true" else "false"
+        binding.webView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('native:file_picked_$callbackId', { detail: { uri: $escapedUri, success: $successJson } }));",
+            null
+        )
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         binding.webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             cacheMode = WebSettings.LOAD_NO_CACHE
-            // Habilitar acceso a archivos para que React cargue sus assets locales
-            allowFileAccess = true
-            @Suppress("DEPRECATION")
-            allowFileAccessFromFileURLs = true
-            @Suppress("DEPRECATION")
-            allowUniversalAccessFromFileURLs = true
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
 
@@ -105,6 +124,10 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         binding.webView.addJavascriptInterface(androidBridge!!, "OpenClaw")
         
         binding.webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                return request?.url?.let { assetLoader.shouldInterceptRequest(it) }
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 Log.d(TAG, "Dashboard loaded: $url")

@@ -1,6 +1,12 @@
 package com.openclaw.android
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -9,10 +15,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * AndroidBridge
- * Expone métodos nativos a React via window.AndroidBridge.
+ * Expone métodos nativos a React via window.OpenClaw.
  * Maneja eventos asíncronos via notifyReact (CustomEvents).
  */
 class AndroidBridge(
@@ -21,23 +29,32 @@ class AndroidBridge(
     private val scope: CoroutineScope
 ) {
 
+    private var pendingFileCallbackId: String? = null
+
     @JavascriptInterface
-    fun checkInstallation(): String {
-        val isReady = OpenClawInstaller.isPayloadReady(activity)
-        val assets = AssetDetector.detectSync(activity)
+    fun getSetupStatus(): String {
+        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        val onboardComplete = OpenClawInstaller.isOnboardComplete(activity)
         return JSONObject().apply {
-            put("payloadReady", isReady)
-            put("payloadAvailable", assets.payloadAvailable)
-            put("migrationAvailable", assets.migrationAvailable)
-            put("freeSpaceMB", assets.freeSpaceBytes / 1024 / 1024)
-            put("requiredSpaceMB", 400)
+            put("bootstrapInstalled", payloadReady)
+            put("platformInstalled", if (payloadReady) "openclaw" else "")
+            put("onboardComplete", onboardComplete)
         }.toString()
     }
 
     @JavascriptInterface
+    fun checkInstallation(): String {
+        return getSetupStatus()
+    }
+
+    @JavascriptInterface
     fun startInstallation() {
+        startSetup()
+    }
+
+    @JavascriptInterface
+    fun startSetup() {
         scope.launch(Dispatchers.IO) {
-            // Nota: El instalador debe soportar estos callbacks JSON
             OpenClawInstaller.installDetailed(
                 context = activity,
                 onProgress = { progressJson ->
@@ -47,9 +64,47 @@ class AndroidBridge(
                     notifyReact("onInstallComplete", "{\"success\":true}")
                 },
                 onError = { error ->
-                    notifyReact("onInstallError", "{\"error\":\"$error\"}")
+                    notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString())
                 }
             )
+        }
+    }
+
+    @JavascriptInterface
+    fun pickFile(callbackId: String) {
+        pendingFileCallbackId = callbackId
+        activity.runOnUiThread {
+            if (activity is OpenClawDashboardActivity) {
+                activity.filePicker.launch("*/*")
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun installFromUri(payloadUri: String, configUri: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val payloadFile = copyUriToTempFile(Uri.parse(payloadUri), "payload_manual.tar.xz")
+                payloadFile.inputStream().use { stream ->
+                    val payloadDir = OpenClawInstaller.getPayloadDir(activity)
+                    payloadDir.deleteRecursivelySafe()
+                    payloadDir.mkdirs()
+                    extractTarXzFromStream(stream, payloadDir)
+                    OpenClawInstaller.deployScripts(activity, payloadDir)
+                    OpenClawInstaller.fixPermissions(payloadDir)
+                }
+
+                if (configUri.isNotBlank()) {
+                    val configFile = copyUriToTempFile(Uri.parse(configUri), "config_manual.tar.gz")
+                    configFile.inputStream().use { stream ->
+                        extractTarGzFromStream(stream, activity.filesDir)
+                    }
+                }
+
+                notifyReact("onInstallComplete", "{\"success\":true}")
+            } catch (e: Exception) {
+                notifyReact("onInstallError", JSONObject().apply { put("error", e.message ?: "Error desconocido") }.toString())
+            }
         }
     }
 
@@ -156,17 +211,126 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun getStorageInfo(): String {
-        val assets = AssetDetector.detectSync(activity)
+    fun getApkUpdateInfo(): String {
         return JSONObject().apply {
-            put("freeSpaceMB", assets.freeSpaceBytes / 1024 / 1024)
-            put("totalSpaceMB", 0) // No crítico para el dashboard actual
+            put("updateAvailable", false)
         }.toString()
+    }
+
+    @JavascriptInterface
+    fun getBatteryOptimizationStatus(): String {
+        val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val isIgnoring = powerManager.isIgnoringBatteryOptimizations(activity.packageName)
+        return JSONObject().apply {
+            put("isIgnoring", isIgnoring)
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun requestBatteryOptimizationExclusion() {
+        activity.runOnUiThread {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${activity.packageName}")
+            }
+            activity.startActivity(intent)
+        }
+    }
+
+    @JavascriptInterface
+    fun openSystemSettings(page: String) {
+        activity.runOnUiThread {
+            val intent = when (page) {
+                "app_info" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${activity.packageName}")
+                }
+                "developer" -> Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                else -> Intent(Settings.ACTION_SETTINGS)
+            }
+            activity.startActivity(intent)
+        }
+    }
+
+    @JavascriptInterface
+    fun copyToClipboard(text: String) {
+        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("OpenClaw", text))
+    }
+
+    @JavascriptInterface
+    fun getStorageInfo(): String {
+        val payloadDir = OpenClawInstaller.getPayloadDir(activity)
+        val wwwDir = File(activity.filesDir, "www")
+        val totalBytes = activity.filesDir.totalSpace
+        val freeBytes = activity.filesDir.freeSpace
+        return JSONObject().apply {
+            put("totalBytes", totalBytes)
+            put("freeBytes", freeBytes)
+            put("bootstrapBytes", payloadDir.sizeRecursively())
+            put("wwwBytes", wwwDir.sizeRecursively())
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun clearCache() {
+        activity.runOnUiThread {
+            webView.clearCache(true)
+        }
+        activity.cacheDir.deleteRecursivelySafe()
+    }
+
+    @JavascriptInterface
+    fun openUrl(url: String) {
+        activity.runOnUiThread {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            activity.startActivity(intent)
+        }
+    }
+
+    @JavascriptInterface
+    fun getInstalledTools(): String {
+        return "[]"
+    }
+
+    @JavascriptInterface
+    fun installTool(id: String) {
+        notifyReact("install_progress", "{\"target\":\"$id\", \"progress\":1, \"message\": \"Instalación completada\"}")
+    }
+
+    @JavascriptInterface
+    fun uninstallTool(id: String) {
+        notifyReact("install_progress", "{\"target\":\"$id\", \"progress\":1, \"message\": \"Desinstalación completada\"}")
     }
 
     @JavascriptInterface
     fun getGatewayToken(): String {
         return OpenClawGatewayService.currentToken
+    }
+
+    @JavascriptInterface
+    fun getGatewayLogs(): String {
+        return JSONObject().apply { put("logs", emptyList<String>()) }.toString()
+    }
+
+    @JavascriptInterface
+    fun clearGatewayLogs() {}
+
+    @JavascriptInterface
+    fun getGatewayUptime(): String {
+        return JSONObject().apply { put("uptimeSeconds", 0) }.toString()
+    }
+
+    private fun copyUriToTempFile(uri: Uri, fileName: String): File {
+        val tempFile = File(activity.cacheDir, fileName)
+        activity.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(tempFile).use { output ->
+                input.copyTo(output)
+            }
+        } ?: throw IllegalArgumentException("Cannot open URI: $uri")
+        return tempFile
+    }
+
+    private fun File.sizeRecursively(): Long {
+        return if (!exists()) 0 else walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
 
     /**

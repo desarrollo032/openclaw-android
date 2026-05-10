@@ -161,25 +161,24 @@ object OpenClawInstaller {
 
     suspend fun fixPermissions(base: File) = withContext(Dispatchers.IO) {
         try {
-            // Forzar permisos de ejecución RECURSIVOS en TODO el payload
+            // Forzar permisos de ejecución en el payload con APIs de plataforma
             if (base.exists()) {
                 Log.i("Installer", "Aplicando permisos globales a: ${base.absolutePath}")
-                Runtime.getRuntime().exec(arrayOf("chmod", "-R", "755", base.absolutePath)).waitFor()
+                base.walkTopDown().forEach { file ->
+                    try {
+                        file.setReadable(true, false)
+                        file.setWritable(true, false)
+                        if (file.isDirectory || file.path.contains("/bin/") || file.path.contains("/lib/") || file.name.endsWith(".sh")) {
+                            file.setExecutable(true, false)
+                        }
+                        file.chmodWithOs()
+                    } catch (e: Exception) {
+                        Log.w("Installer", "chmod failed on ${file.absolutePath}: ${e.message}")
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e("Installer", "Error aplicando chmod global", e)
-        }
-
-        // Refuerzo preventivo por código Java para carpetas y archivos críticos
-        base.setExecutable(true, false)
-        base.setReadable(true, false)
-        base.walkTopDown().forEach { f ->
-            try {
-                f.setReadable(true, false)
-                if (f.isDirectory || f.path.contains("/bin/") || f.path.contains("/lib/")) {
-                    f.setExecutable(true, false)
-                }
-            } catch (e: Exception) { /* Ignorar fallos individuales */ }
         }
     }
 
