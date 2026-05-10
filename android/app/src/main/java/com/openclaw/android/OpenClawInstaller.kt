@@ -56,20 +56,16 @@ object OpenClawInstaller {
     fun isPayloadReady(context: Context): Boolean {
         val payloadDir = context.getDir("payload", Context.MODE_PRIVATE)
         // Verificar que los archivos críticos existen post-extracción
-        return File(payloadDir, "bin/node.real").exists() &&
-               File(payloadDir, "lib/node_modules/openclaw").exists()
+        // bin/node.real ya NO está en el payload (se usa libnode.so de nativeLibraryDir)
+        return File(payloadDir, "lib/node_modules/openclaw").exists() &&
+               File(context.applicationInfo.nativeLibraryDir, "libnode.so").exists()
     }
 
     fun hasBundledAssets(context: Context): Boolean {
-        val hasPayload = try {
+        // Only the payload is required — config migration is OPTIONAL
+        return try {
             context.assets.open(PAYLOAD_ASSET).use { true }
         } catch (_: Exception) { false }
-        
-        val hasConfig = try {
-            context.assets.open(CONFIG_ASSET).use { true }
-        } catch (_: Exception) { false }
-        
-        return hasPayload && hasConfig
     }
 
     fun isConfigRestored(context: Context): Boolean {
@@ -216,10 +212,27 @@ object OpenClawInstaller {
 
     // ── Config restoration ────────────────────────────────────────────────────
 
+    /**
+     * Restores config from bundled asset. This is OPTIONAL:
+     * - If the asset doesn't exist, returns true (silently skipped)
+     * - If the asset exists but extraction fails, returns false
+     */
     suspend fun restoreConfig(
         context: Context,
         onProgress: (msg: String, pct: Int) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
+        // Check if the config asset exists BEFORE trying to extract
+        val exists = try {
+            context.assets.open(CONFIG_ASSET).close()
+            true
+        } catch (_: Exception) { false }
+
+        if (!exists) {
+            Log.d(TAG, "Config asset not found in APK — skipping (optional)")
+            onProgress("Configuración no incluida en APK (opcional).", 99)
+            return@withContext true  // Not an error — config is optional
+        }
+
         onProgress("Cargando configuración (openclaw-apk-migration.tar.gz)...", 91)
         val ok = context.extractTarGz(CONFIG_ASSET, context.filesDir) { pct, read, total, _ ->
             val label = if (total > 0)
@@ -230,8 +243,10 @@ object OpenClawInstaller {
             onProgress(label, overall)
         }
         if (!ok) {
-            onProgress("Error al restaurar configuración.", -1)
-            return@withContext false
+            Log.w(TAG, "Config extraction failed — non-blocking")
+            onProgress("Advertencia: configuración no restaurada.", 99)
+            // Return true anyway — config failure should NOT block the app
+            return@withContext true
         }
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()

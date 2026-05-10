@@ -1,4 +1,4 @@
-﻿package com.openclaw.android
+package com.openclaw.android
 
 import android.content.Intent
 import android.os.Bundle
@@ -8,12 +8,13 @@ import androidx.appcompat.app.AppCompatActivity
 /**
  * Entry point - pure router, never shows its own UI.
  *
- * Flujo:
- *  - Si el payload ya fue extraido -> Dashboard (sin iniciar gateway automaticamente)
- *  - Si no -> InstallationActivity
+ * Flujo corregido:
+ *  - SIEMPRE abre OpenClawDashboardActivity como primera pantalla
+ *  - Si el payload no está instalado, pasa un extra para que el dashboard
+ *    muestre el InstallationBottomSheet automáticamente
  *
  * MainActivity no tiene layout propio - solo routing con finish().
- * El gateway NUNCA se inicia aqui - el usuario lo controla desde el Dashboard.
+ * El gateway NUNCA se inicia aquí - el usuario lo controla desde el Dashboard.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -22,12 +23,10 @@ class MainActivity : AppCompatActivity() {
 
         val payloadReady = OpenClawInstaller.isPayloadReady(this)
 
-        Log.i("MainActivity", "payloadReady=$payloadReady")
+        Log.i("MainActivity", "payloadReady=$payloadReady → always opening Dashboard")
 
-        val intent = if (payloadReady) {
-            Intent(this, OpenClawDashboardActivity::class.java)
-        } else {
-            Intent(this, InstallationActivity::class.java)
+        val intent = Intent(this, OpenClawDashboardActivity::class.java).apply {
+            putExtra(OpenClawDashboardActivity.EXTRA_NEEDS_INSTALL, !payloadReady)
         }
         startActivity(intent)
         finish() // MainActivity no queda en el back stack

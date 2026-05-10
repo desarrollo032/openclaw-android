@@ -27,6 +27,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_DASHBOARD_TOKEN = "DASHBOARD_TOKEN"
+        const val EXTRA_NEEDS_INSTALL   = "NEEDS_INSTALL"
     }
 
     // Gateway states for UI
@@ -96,6 +97,12 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // Show installation bottom sheet if payload is not ready
+        val needsInstall = intent.getBooleanExtra(EXTRA_NEEDS_INSTALL, false)
+        if (needsInstall && !OpenClawInstaller.isPayloadReady(this)) {
+            showInstallationSheet(mandatory = true)
+        }
     }
 
     override fun onDestroy() {
@@ -117,6 +124,24 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             .setPositiveButton("Salir") { _, _ -> finish() }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+
+    // -- Installation Bottom Sheet --
+
+    /**
+     * Shows the InstallationBottomSheet OVER the dashboard.
+     * @param mandatory If true, the sheet cannot be dismissed until install completes.
+     */
+    fun showInstallationSheet(mandatory: Boolean = true) {
+        val sheet = InstallationBottomSheet.newInstance(mandatory)
+        sheet.setOnInstallComplete {
+            Log.i(DASH_TAG, "Installation complete — refreshing dashboard state")
+        }
+        sheet.setOnGatewayRequested {
+            Log.i(DASH_TAG, "User requested gateway start after install")
+            onGatewayButtonClick()
+        }
+        sheet.show(supportFragmentManager, "install_sheet")
     }
 
     // -- Gateway state UI --
