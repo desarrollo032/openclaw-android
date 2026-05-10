@@ -11,6 +11,7 @@
 import { useState, useCallback } from 'react'
 import { bridge } from '../lib/bridge'
 import { GatewayStatus } from '../components/GatewayStatus'
+import { InstallationCard } from '../components/InstallationCard'
 import { t } from '../i18n'
 
 interface AppInfo { versionName: string; versionCode: number; packageName: string }
@@ -63,6 +64,8 @@ export function Dashboard() {
 
   return (
     <div style={S.page}>
+      {/* ── 0. Installation card (React widget) ── */}
+      <InstallationCard />
 
       {/* ── 1. Gateway status card ── */}
       <GatewayStatus />

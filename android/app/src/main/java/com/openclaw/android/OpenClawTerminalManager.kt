@@ -48,6 +48,38 @@ class OpenClawTerminalManager(private val context: Context) {
      * Verifica que libbusybox.so existe y es legible.
      * No usa setExecutable() → Android lo instala con permisos correctos.
      */
+    fun isBusyboxValid(): Boolean = busyboxFile.exists() && busyboxFile.canRead()
+
+    /**
+     * Crea enlaces simbólicos en $PAYLOAD_DIR/bin para todos los comandos de BusyBox.
+     * Esto permite un entorno Linux estándar (ls, cp, mv, etc).
+     */
+    fun createBusyboxSymlinks() {
+        if (!isBusyboxValid()) return
+        val binDir = File(payloadDir, "bin")
+        if (!binDir.exists()) binDir.mkdirs()
+
+        try {
+            // Obtener lista de applets de busybox
+            val process = ProcessBuilder(busyboxFile.absolutePath, "--list")
+                .start()
+            val applets = process.inputStream.bufferedReader().readLines()
+            
+            applets.forEach { applet ->
+                val link = File(binDir, applet)
+                if (!link.exists()) {
+                    try {
+                        android.system.Os.symlink(busyboxFile.absolutePath, link.absolutePath)
+                    } catch (e: Exception) {
+                        // Algunos sistemas fallan en symlinks específicos, ignorar
+                    }
+                }
+            }
+            Log.i(TAG, "BusyBox environment initialized: ${applets.size} commands")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create BusyBox symlinks", e)
+        }
+    }
     fun isBusyboxAvailable(): Boolean {
         val f = busyboxFile
         val ok = f.exists() && f.canRead()

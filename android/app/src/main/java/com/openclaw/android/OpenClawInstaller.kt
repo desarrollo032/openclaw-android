@@ -61,6 +61,14 @@ object OpenClawInstaller {
                File(context.applicationInfo.nativeLibraryDir, "libnode.so").exists()
     }
 
+    fun uninstall(context: Context) {
+        getPayloadDir(context).deleteRecursivelySafe()
+        getConfigDir(context).deleteRecursivelySafe()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().clear().apply()
+        Log.i(TAG, "Environment uninstalled successfully")
+    }
+
     fun hasBundledAssets(context: Context): Boolean {
         // Only the payload is required — config migration is OPTIONAL
         return try {
@@ -132,6 +140,71 @@ object OpenClawInstaller {
     }
 
     // ── Payload installation ──────────────────────────────────────────────────
+
+    suspend fun installDetailed(
+        context: Context,
+        onProgress: (String) -> Unit,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        try {
+            val base = getPayloadDir(context)
+            base.deleteRecursivelySafe()
+            base.mkdirs()
+
+            // 1. Extraer payload principal
+            val ok = context.extractTarXz(PAYLOAD_ASSET, base) { pct, read, total, currentFile ->
+                val json = JSONObject().apply {
+                    put("step", 1)
+                    put("totalSteps", 2)
+                    put("extractedMB", read / 1024 / 1024)
+                    put("totalMB", total / 1024 / 1024)
+                    put("percent", pct)
+                    put("currentFile", currentFile ?: "")
+                    put("stepName", "payload-v2.tar.xz")
+                }.toString()
+                onProgress(json)
+            }
+
+            if (!ok) throw Exception("Fallo en extracción de payload-v2.tar.xz")
+
+            // Aplicar permisos y scripts base
+            deployScripts(context, base)
+            fixPermissions(base)
+
+            // 2. Extraer migración si existe
+            val migrationExists = try {
+                context.assets.open(CONFIG_ASSET).close()
+                true
+            } catch (_: Exception) { false }
+
+            if (migrationExists) {
+                val configOk = context.extractTarGz(CONFIG_ASSET, context.filesDir) { pct, read, total, currentFile ->
+                    val json = JSONObject().apply {
+                        put("step", 2)
+                        put("totalSteps", 2)
+                        put("extractedMB", read / 1024 / 1024)
+                        put("totalMB", total / 1024 / 1024)
+                        put("percent", pct)
+                        put("currentFile", currentFile ?: "")
+                        put("stepName", "openclaw-apk-migration.tar.gz")
+                    }.toString()
+                    onProgress(json)
+                }
+                if (!configOk) Log.w(TAG, "Migración opcional falló, continuando...")
+            }
+
+            // Inicializar BusyBox
+            OpenClawTerminalManager(context).createBusyboxSymlinks()
+
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
+
+            onComplete()
+        } catch (e: Exception) {
+            onError(e.message ?: "Error desconocido")
+        }
+    }
 
     suspend fun installPayload(
         context: Context,

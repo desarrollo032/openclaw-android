@@ -94,16 +94,20 @@ android {
     defaultConfig {
         applicationId = "com.openclaw.android"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = gitVersionCode
         versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    buildFeatures {
+        viewBinding = true
+    }
+
     // Prevent aapt from compressing binary archives — critical for large assets
     androidResources {
-        noCompress += listOf("xz", "tar", "gz")
+        noCompress += listOf("xz", "gz", "tar", "tar.xz", "tar.gz")
     }
 
     packaging {
