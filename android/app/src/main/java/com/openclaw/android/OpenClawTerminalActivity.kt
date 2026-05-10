@@ -283,8 +283,13 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     override fun onTextChanged(s: TerminalSession) {
         refreshTerminal()
     }
-    override fun onCopyTextToClipboard(s: TerminalSession, t: String) {}
-    override fun onPasteTextFromClipboard(s: TerminalSession) {}
+    override fun onCopyTextToClipboard(s: TerminalSession, t: String) {
+        copyTextToClipboard(t)
+    }
+
+    override fun onPasteTextFromClipboard(s: TerminalSession) {
+        pasteTextFromClipboard()
+    }
     override fun getTerminalCursorStyle() = 0
     override fun onBell(s: TerminalSession) {}
     override fun onColorsChanged(s: TerminalSession) {
@@ -308,6 +313,30 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         terminalView.post {
             terminalView.onScreenUpdated()
             terminalView.postInvalidateOnAnimation()
+        }
+    }
+
+    private fun copyTextToClipboard(text: String) {
+        if (text.isBlank()) return
+        runOnUiThread {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("OpenClaw Terminal", text))
+            Toast.makeText(this, "Copiado", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun pasteTextFromClipboard() {
+        runOnUiThread {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)
+                ?.coerceToText(this)
+                ?.toString()
+                .orEmpty()
+            if (text.isNotEmpty()) {
+                terminalSession?.write(text)
+                refreshTerminal()
+            }
         }
     }
 

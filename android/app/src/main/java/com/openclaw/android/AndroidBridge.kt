@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -66,6 +67,11 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun checkInstallation(): String {
+        return getSetupStatus()
+    }
+
+    @JavascriptInterface
+    fun getBootstrapStatus(): String {
         return getSetupStatus()
     }
 
@@ -232,6 +238,38 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun showWebView() {
+        // Dashboard already runs inside this WebView. Kept for frontend compatibility.
+    }
+
+    @JavascriptInterface
+    fun createSession(): String {
+        return JSONObject().apply { put("id", "native") }.toString()
+    }
+
+    @JavascriptInterface
+    fun switchSession(id: String) {
+        // Native terminal sessions are owned by OpenClawTerminalActivity.
+    }
+
+    @JavascriptInterface
+    fun closeSession(id: String) {
+        // Native terminal sessions are owned by OpenClawTerminalActivity.
+    }
+
+    @JavascriptInterface
+    fun getTerminalSessions(): String {
+        return JSONArray().toString()
+    }
+
+    @JavascriptInterface
+    fun writeToTerminal(id: String, data: String) {
+        if (data.isNotBlank()) {
+            launchInteractiveCommand(data)
+        }
+    }
+
+    @JavascriptInterface
     fun launchInteractiveCommand(command: String) {
         activity.runOnUiThread {
             OpenClawTerminalActivity.launchWithCommand(activity, command)
@@ -266,6 +304,19 @@ class AndroidBridge(
                 put("stderr", e.message)
                 put("exitCode", 1)
             }.toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun runCommandAsync(callbackId: String, command: String) {
+        scope.launch(Dispatchers.IO) {
+            val result = runCommand(command)
+            activity.runOnUiThread {
+                webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('native:command_result_$callbackId', { detail: $result }));",
+                    null
+                )
+            }
         }
     }
 
@@ -438,6 +489,91 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun saveToolSelections(json: String) {
+        // Tool selections are currently informational in the mobile dashboard.
+    }
+
+    @JavascriptInterface
+    fun isToolInstalled(id: String): String {
+        return JSONObject().apply {
+            put("id", id)
+            put("installed", false)
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun getAvailablePlatforms(): String {
+        return JSONArray().apply {
+            put(JSONObject().apply {
+                put("id", "openclaw")
+                put("name", "OpenClaw")
+                put("icon", "OC")
+                put("desc", "Runtime local de OpenClaw para Android")
+            })
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun getInstalledPlatforms(): String {
+        return JSONArray().apply {
+            if (OpenClawInstaller.isPayloadReady(activity)) {
+                put(JSONObject().apply {
+                    put("id", "openclaw")
+                    put("name", "OpenClaw")
+                })
+            }
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun getActivePlatform(): String {
+        return JSONObject().apply {
+            put("id", if (OpenClawInstaller.isPayloadReady(activity)) "openclaw" else "")
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun installPlatform(id: String) {
+        notifyReact("install_progress", JSONObject().apply {
+            put("target", id)
+            put("progress", 1)
+            put("message", "Plataforma lista")
+        }.toString())
+    }
+
+    @JavascriptInterface
+    fun uninstallPlatform(id: String) {
+        notifyReact("install_progress", JSONObject().apply {
+            put("target", id)
+            put("progress", 1)
+            put("message", "La plataforma base se mantiene instalada")
+        }.toString())
+    }
+
+    @JavascriptInterface
+    fun switchPlatform(id: String) {
+        notifyReact("install_progress", JSONObject().apply {
+            put("target", id)
+            put("progress", 1)
+            put("message", "Plataforma activa")
+        }.toString())
+    }
+
+    @JavascriptInterface
+    fun checkForUpdates(): String {
+        return JSONArray().toString()
+    }
+
+    @JavascriptInterface
+    fun applyUpdate(component: String) {
+        notifyReact("install_progress", JSONObject().apply {
+            put("target", component)
+            put("progress", 1)
+            put("message", "Sin actualizaciones pendientes")
+        }.toString())
+    }
+
+    @JavascriptInterface
     fun installTool(id: String) {
         notifyReact("install_progress", "{\"target\":\"$id\", \"progress\":1, \"message\": \"Instalación completada\"}")
     }
@@ -453,16 +589,52 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun getGatewayLogs(): String {
-        return JSONObject().apply { put("logs", emptyList<String>()) }.toString()
+    fun getGatewayUrl(): String {
+        return "http://127.0.0.1:18789"
     }
 
     @JavascriptInterface
-    fun clearGatewayLogs() {}
+    fun getGatewayLogs(): String {
+        OpenClawLogger.init(activity)
+        val lines = OpenClawLogger.getRecentLogs(200)
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        return JSONObject().apply {
+            put("logs", JSONArray().apply {
+                lines.forEach { line ->
+                    put(JSONObject().apply {
+                        put("level", inferLogLevel(line))
+                        put("message", line)
+                        put("timestamp", System.currentTimeMillis())
+                    })
+                }
+            })
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun clearGatewayLogs() {
+        OpenClawLogger.init(activity)
+        OpenClawLogger.clearLogs()
+    }
 
     @JavascriptInterface
     fun getGatewayUptime(): String {
-        return JSONObject().apply { put("uptimeSeconds", 0) }.toString()
+        val seconds = OpenClawGatewayService.getUptimeSeconds()
+        return JSONObject().apply {
+            put("seconds", seconds)
+            put("uptimeSeconds", seconds)
+        }.toString()
+    }
+
+    private fun inferLogLevel(line: String): String {
+        return when {
+            line.contains("error", ignoreCase = true) || line.contains("failed", ignoreCase = true) -> "error"
+            line.contains("warn", ignoreCase = true) -> "warn"
+            line.contains("debug", ignoreCase = true) -> "debug"
+            else -> "info"
+        }
     }
 
     private fun copyUriToTempFile(uri: Uri, fileName: String): File {

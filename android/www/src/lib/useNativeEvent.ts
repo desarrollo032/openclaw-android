@@ -11,7 +11,13 @@ export function useNativeEvent(type: string, handler: (data: unknown) => void): 
     const listener = (e: Event) => {
       handler((e as CustomEvent).detail)
     }
-    window.addEventListener('native:' + type, listener)
-    return () => window.removeEventListener('native:' + type, listener)
+    const nativeEvent = 'native:' + type
+    const androidEvent = 'android:' + type
+    window.addEventListener(nativeEvent, listener)
+    window.addEventListener(androidEvent, listener)
+    return () => {
+      window.removeEventListener(nativeEvent, listener)
+      window.removeEventListener(androidEvent, listener)
+    }
   }, [type, handler])
 }

@@ -8,7 +8,6 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useRoute } from '../lib/router'
 import { bridge } from '../lib/bridge'
 import { LogsViewer } from '../components/LogsViewer'
-import { useLogs } from '../hooks/useLogs'
 import { useGatewayStatus } from '../hooks/useGatewayStatus'
 
 type Tab = 'gateway' | 'native'
@@ -26,10 +25,11 @@ function formatUptime(secs: number): string {
 export function Logs() {
   const { navigate } = useRoute()
   const { health, reachability } = useGatewayStatus()
-  const { logs: nativeLogs, refresh: refreshNative, clear: clearNative, isLoading: nativeLoading } = useLogs(200)
 
   const [tab,    setTab]    = useState<Tab>('native')
   const [copied, setCopied] = useState(false)
+  const [nativeLogs, setNativeLogs] = useState<NativeLog[]>([])
+  const [nativeLoading, setNativeLoading] = useState(false)
   const [uptimeSecs] = useState(() => {
     try {
       const up = bridge.callJson<{ seconds: number }>('getGatewayUptime')
@@ -37,18 +37,43 @@ export function Logs() {
     } catch { return 0 }
   })
 
+  const refreshNative = useCallback(() => {
+    setNativeLoading(true)
+    try {
+      const data = bridge.callJson<{ logs?: NativeLog[] }>('getGatewayLogs')
+      setNativeLogs(data?.logs ?? [])
+    } finally {
+      setNativeLoading(false)
+    }
+  }, [])
+
+  const clearNative = useCallback(async () => {
+    bridge.call('clearGatewayLogs')
+    setNativeLogs([])
+  }, [])
+
+  useEffect(() => {
+    refreshNative()
+    const interval = window.setInterval(refreshNative, 4000)
+    return () => window.clearInterval(interval)
+  }, [refreshNative])
+
   const copyNative = useCallback(() => {
     const text = nativeLogs.map(l => l.message).join('\n')
-    try { navigator.clipboard?.writeText(text) }
-    catch { bridge.call('copyToClipboard', text) }
+    try {
+      const write = navigator.clipboard?.writeText(text)
+      if (write && typeof write.catch === 'function') {
+        write.catch(() => bridge.call('copyToClipboard', text))
+      } else {
+        bridge.call('copyToClipboard', text)
+      }
+    } catch { bridge.call('copyToClipboard', text) }
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }, [nativeLogs])
 
   const clearNativeLogs = useCallback(async () => {
     if (!confirm('¿Limpiar los logs nativos?')) return
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    bridge.call('clearGatewayLogs' as any)
     await clearNative()
   }, [clearNative])
 
