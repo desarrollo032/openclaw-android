@@ -194,18 +194,36 @@ object OpenClawInstaller {
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val linker = "$nativeDir/libldlinux.so"
         val nodeLib = "$nativeDir/libnode.so"
-        
-        // Crear wrapper para 'node'
+
+        // Crear wrapper para 'node' (Dinámico)
         val nodeWrapper = File(binDir, "node")
-        nodeWrapper.writeText("#!/system/bin/sh\nexec $linker $nodeLib \"$@\"")
+        nodeWrapper.writeText("""
+            #!/system/bin/sh
+            # Detectar ruta de forma dinámica
+            BIN_DIR=${'$'}(dirname "${'$'}0")
+            PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
+            NATIVE_DIR=$nativeDir
+            
+            exec $linker $nodeLib "${'$'}@"
+        """.trimIndent())
         
-        // Crear wrapper para 'openclaw'
-        val ocPath = File(base, "lib/node_modules/openclaw/bin/openclaw.js").absolutePath
-        File(binDir, "openclaw").writeText("#!/system/bin/sh\nexec ${nodeWrapper.absolutePath} $ocPath \"$@\"")
+        // Crear wrapper para 'openclaw' (Dinámico y usa sh)
+        val ocPathRel = "lib/node_modules/openclaw/bin/openclaw.js"
+        File(binDir, "openclaw").writeText("""
+            #!/system/bin/sh
+            BIN_DIR=${'$'}(dirname "${'$'}0")
+            PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
+            exec sh ${'$'}BIN_DIR/node ${'$'}PAYLOAD_DIR/$ocPathRel "${'$'}@"
+        """.trimIndent())
         
-        // Crear wrapper para 'npm'
-        val npmPath = File(base, "lib/node_modules/npm/bin/npm-cli.js").absolutePath
-        File(binDir, "npm").writeText("#!/system/bin/sh\nexec ${nodeWrapper.absolutePath} $npmPath \"$@\"")
+        // Crear wrapper para 'npm' (Dinámico y usa sh)
+        val npmPathRel = "lib/node_modules/npm/bin/npm-cli.js"
+        File(binDir, "npm").writeText("""
+            #!/system/bin/sh
+            BIN_DIR=${'$'}(dirname "${'$'}0")
+            PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
+            exec sh ${'$'}BIN_DIR/node ${'$'}PAYLOAD_DIR/$npmPathRel "${'$'}@"
+        """.trimIndent())
 
         try {
             context.assets.list("scripts")?.forEach { name ->
