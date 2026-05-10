@@ -24,7 +24,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "Dashboard"
-        private const val DASHBOARD_URL = "https://openclaw.local/index.html"
+        private const val DASHBOARD_URL = "https://openclaw.local/www/index.html"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,6 +65,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         val assetLoader = WebViewAssetLoader.Builder()
+            .setDomain("openclaw.local")
             .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
