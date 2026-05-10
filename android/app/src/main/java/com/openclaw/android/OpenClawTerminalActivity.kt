@@ -38,9 +38,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private lateinit var titleView: TextView
     private lateinit var rootFrame: FrameLayout
 
-    private var currentFontSizeSp = 18f
-    private val MIN_FONT_SP = 14f
-    private val MAX_FONT_SP = 32f
+    private var currentFontSizeSp = 32f
+    private val MIN_FONT_SP = 32f
+    private val MAX_FONT_SP = 48f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

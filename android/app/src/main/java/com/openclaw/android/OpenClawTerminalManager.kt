@@ -77,6 +77,7 @@ class OpenClawTerminalManager(private val context: Context) {
         val glibcLib  = "$payload/glibc/lib"
         val tmpDir    = context.cacheDir.absolutePath
         val ocHome    = File(context.filesDir, ".openclaw").absolutePath
+        val shellRc   = ensureShellRc()
 
         val path = "$payload/bin:$native:/system/bin"
         val ldLibPath = "$native:$glibcLib"
@@ -88,6 +89,7 @@ class OpenClawTerminalManager(private val context: Context) {
             "LD_LIBRARY_PATH=$ldLibPath",
             "TMPDIR=$tmpDir",
             "OPENCLAW_HOME=$ocHome",
+            "ENV=${shellRc.absolutePath}",
             "PS1=$ ",
             "NODE_PATH=$payload/lib/node_modules",
             "SSL_CERT_FILE=$payload/etc/tls/cert.pem",
@@ -96,6 +98,19 @@ class OpenClawTerminalManager(private val context: Context) {
             "OA_GLIBC=1",
             "CONTAINER=1"
         )
+    }
+
+    private fun ensureShellRc(): File {
+        val payload = payloadDir.absolutePath
+        val rc = File(context.filesDir, "openclaw-terminal.rc")
+        rc.writeText("""
+            PS1='$ '
+            openclaw() { sh "$payload/bin/openclaw" "$@"; }
+            node() { sh "$payload/bin/node" "$@"; }
+            npm() { sh "$payload/bin/npm" "$@"; }
+            export PS1
+        """.trimIndent())
+        return rc
     }
 
     fun createSession(client: TerminalSessionClient): TerminalSession? {

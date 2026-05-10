@@ -11,6 +11,7 @@ interface AppInfo {
 
 interface SystemInfo {
   nodeVersion?: string
+  npmVersion?: string
   openclawVersion?: string
   gitVersion?: string
 }
@@ -33,11 +34,13 @@ export function SettingsAbout() {
 
       const systemInfo = bridge.callJson<SystemInfo>('getSystemInfo') ?? {}
       const nodeV = { stdout: systemInfo.nodeVersion && systemInfo.nodeVersion !== 'unknown' ? systemInfo.nodeVersion : '' }
+      const npmV = { stdout: systemInfo.npmVersion && systemInfo.npmVersion !== 'unknown' ? systemInfo.npmVersion : '' }
       const gitV = { stdout: systemInfo.gitVersion === 'no incluido' ? 'No incluido' : systemInfo.gitVersion || '' }
       const oaV = { stdout: systemInfo.openclawVersion && systemInfo.openclawVersion !== 'unknown' ? systemInfo.openclawVersion : '' }
       
       setScriptVersion(oaV?.stdout?.trim() || '—')
       setRuntimeInfo({
+        'npm': npmV?.stdout?.trim() || 'No incluido',
         'Node.js': nodeV?.stdout?.trim() || '—',
         'git': gitV?.stdout?.trim()?.replace('git version ', '') || '—',
       })

@@ -310,19 +310,20 @@ class AndroidBridge(
             "unknown"
         }
 
-        val openclawVersion = try {
-            val pkgJson = File(payloadDir, "lib/node_modules/openclaw/package.json")
-            if (pkgJson.exists()) {
-                JSONObject(pkgJson.readText()).optString("version", "unknown")
-            } else {
-                "unknown"
-            }
-        } catch (_: Exception) {
-            "unknown"
-        }
+        val openclawVersion = readPackageVersion(
+            payloadDir,
+            "lib/node_modules/openclaw/package.json"
+        ) ?: "unknown"
+
+        val npmVersion = readPackageVersion(
+            payloadDir,
+            "lib/node_modules/npm/package.json",
+            "lib/node_modules/openclaw/node_modules/npm/package.json"
+        ) ?: "no incluido"
 
         return JSONObject().apply {
             put("nodeVersion", nodeVersion)
+            put("npmVersion", npmVersion)
             put("openclawVersion", openclawVersion)
             put("gitVersion", "no incluido")
             put("busyboxAvailable", File(nativeDir, "libbusybox.so").canExecute())
@@ -330,6 +331,21 @@ class AndroidBridge(
             put("nativeLibDir", nativeDir.absolutePath)
             put("payloadDir", payloadDir.absolutePath)
         }.toString()
+    }
+
+    private fun readPackageVersion(payloadDir: File, vararg relativePaths: String): String? {
+        return relativePaths.firstNotNullOfOrNull { relativePath ->
+            try {
+                val pkgJson = File(payloadDir, relativePath)
+                if (pkgJson.exists()) {
+                    JSONObject(pkgJson.readText()).optString("version").ifBlank { null }
+                } else {
+                    null
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     @JavascriptInterface

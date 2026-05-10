@@ -17,6 +17,7 @@ import { t } from '../i18n'
 interface AppInfo { versionName: string; versionCode: number; packageName: string }
 interface SystemInfo {
   nodeVersion?: string
+  npmVersion?: string
   openclawVersion?: string
   gitVersion?: string
 }
@@ -38,6 +39,7 @@ const MGMT_ROWS = [
 
 export function Dashboard() {
   const [nodeVer, setNodeVer] = useState<string | null>(null)
+  const [npmVer,  setNpmVer]  = useState<string | null>(null)
   const [ocVer,   setOcVer]   = useState<string | null>(null)
   const [gitVer,  setGitVer]  = useState<string | null>(null)
   const [lastFile, setLastFile] = useState<string | null>(null)
@@ -66,6 +68,7 @@ export function Dashboard() {
         const data = await res.json()
         info = {
           nodeVersion: data.nodeVersion,
+          npmVersion: data.npmVersion,
           openclawVersion: data.version,
           gitVersion: 'no incluido',
         }
@@ -76,6 +79,7 @@ export function Dashboard() {
 
     info ??= getBridgeSystemInfo()
     setNodeVer(info.nodeVersion && info.nodeVersion !== 'unknown' ? info.nodeVersion : 'unknown')
+    setNpmVer(info.npmVersion && info.npmVersion !== 'unknown' ? info.npmVersion : 'no incluido')
     setOcVer(info.openclawVersion && info.openclawVersion !== 'unknown' ? info.openclawVersion : 'unknown')
     setGitVer(info.gitVersion || 'no incluido')
   }, [getBridgeSystemInfo])
@@ -122,6 +126,7 @@ export function Dashboard() {
 
   const envTools = [
     { icon: '⬡',  label: 'Node.js',   value: nodeVer,  color: '#6366f1', installed: !!nodeVer && nodeVer !== 'unknown' },
+    { icon: 'npm', label: 'npm',       value: npmVer === 'no incluido' ? 'No incluido' : npmVer, color: '#ef4444', installed: !!npmVer && npmVer !== 'no incluido' && npmVer !== 'unknown' },
     { icon: '⎇',  label: 'git',       value: gitVer === 'no incluido' ? 'No incluido' : gitVer, color: '#22d3ee', installed: false },
     { icon: '🦀', label: 'openclaw',  value: ocVer,    color: '#f97316', installed: !!ocVer && ocVer !== 'unknown'  },
   ]
