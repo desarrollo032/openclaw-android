@@ -5,10 +5,14 @@ import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
 private const val TAG = "OpenClawInstaller"
+
+const val PAYLOAD_ASSET_NAME = "payload-v2.tar.xz"
+const val MIGRATION_ASSET_NAME = "openclaw-apk-migration.tar.gz"
 
 // SharedPreferences keys
 private const val PREFS_NAME            = "openclaw_install"
@@ -16,47 +20,15 @@ private const val KEY_PAYLOAD_INSTALLED = "payload_installed"
 private const val KEY_CONFIG_RESTORED   = "config_restored"
 private const val KEY_ONBOARD_COMPLETE  = "onboard_complete"
 
-// Asset names
-private const val PAYLOAD_ASSET = "payload-v2.tar.xz"
-private const val CONFIG_ASSET  = "openclaw-apk-migration.tar.gz"
-
-/**
- * SHA-256 esperado del archivo payload-v2.tar.xz empaquetado en el APK.
- * REEMPLAZAR con el hash real antes de cada release:
- *   sha256sum payload-v2.tar.xz   (Linux/Mac)
- *   Get-FileHash payload-v2.tar.xz -Algorithm SHA256  (Windows PowerShell)
- *
- * Mientras sea el placeholder, la verificación se omite con una advertencia.
- */
 private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
 
 object OpenClawInstaller {
 
-    // ── Directory helpers ─────────────────────────────────────────────────────
-
     fun getPayloadDir(context: Context): File = context.getDir("payload", Context.MODE_PRIVATE)
     fun getConfigDir(context: Context):  File = File(context.filesDir, ".openclaw")
 
-    /**
-     * The glibc dynamic linker, packaged as a native .so so Android installs
-     * it in nativeLibraryDir (which has execute permission on Android 12+).
-     * Pass context.applicationInfo.nativeLibraryDir as [nativeDir].
-     */
-    fun getLoaderFile(nativeDir: String): File = File(nativeDir, "libldlinux.so")
-
-    /**
-     * The node binary, packaged as a native .so so Android installs it in
-     * nativeLibraryDir (which has execute permission on Android 12+).
-     * Pass context.applicationInfo.nativeLibraryDir as [nativeDir].
-     */
-    fun getNodeFile(nativeDir: String): File = File(nativeDir, "libnode.so")
-
-    // ── Readiness checks ──────────────────────────────────────────────────────
-
     fun isPayloadReady(context: Context): Boolean {
         val payloadDir = context.getDir("payload", Context.MODE_PRIVATE)
-        // Verificar que los archivos críticos existen post-extracción
-        // bin/node.real ya NO está en el payload (se usa libnode.so de nativeLibraryDir)
         return File(payloadDir, "lib/node_modules/openclaw").exists() &&
                File(context.applicationInfo.nativeLibraryDir, "libnode.so").exists()
     }
@@ -70,76 +42,44 @@ object OpenClawInstaller {
     }
 
     fun hasBundledAssets(context: Context): Boolean {
-        // Only the payload is required — config migration is OPTIONAL
         return try {
-            context.assets.open(PAYLOAD_ASSET).use { true }
+            context.assets.open(PAYLOAD_ASSET_NAME).use { true }
         } catch (_: Exception) { false }
     }
 
     fun isConfigRestored(context: Context): Boolean {
-        // If onboard was completed, config is implicitly restored
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_ONBOARD_COMPLETE, false)) return true
         if (prefs.getBoolean(KEY_CONFIG_RESTORED, false)) return true
-
-        // Check if the file physically exists
         val jsonExists = File(getConfigDir(context), "openclaw.json").exists()
         if (jsonExists) {
-            Log.i(TAG, "Config exists but flag missing — auto-repairing prefs")
             prefs.edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
             return true
         }
         return false
     }
 
-
-    // ── Payload integrity ─────────────────────────────────────────────────────
-
-    /**
-     * Verifica la integridad del payload empaquetado en assets/ calculando su
-     * SHA-256 en streaming (chunks de 8 KB, sin cargar los ~186 MB en RAM).
-     *
-     * Retorna true si:
-     *  - El hash coincide con PAYLOAD_SHA256, O
-     *  - PAYLOAD_SHA256 es el placeholder (skip con advertencia — dev mode)
-     *
-     * Retorna false si el archivo está corrupto o no existe.
-     *
-     * IMPORTANTE: Llamar desde Dispatchers.IO — bloquea varios segundos.
-     */
     fun verifyPayloadIntegrity(context: Context): Boolean {
-        // Si el hash es el placeholder, omitir verificación con advertencia
         if (PAYLOAD_SHA256 == "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE") {
-            Log.w(TAG, "SHA-256 verification SKIPPED — placeholder hash detected (dev mode)")
+            Log.w(TAG, "SHA-256 verification SKIPPED (dev mode)")
             return true
         }
-
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(8 * 1024) // 8 KB chunks
-            context.assets.open(PAYLOAD_ASSET).use { stream ->
+            val buffer = ByteArray(8 * 1024)
+            context.assets.open(PAYLOAD_ASSET_NAME).use { stream ->
                 var read: Int
                 while (stream.read(buffer).also { read = it } != -1) {
                     digest.update(buffer, 0, read)
                 }
             }
             val computed = digest.digest().joinToString("") { "%02x".format(it) }
-            val match = computed.equals(PAYLOAD_SHA256, ignoreCase = true)
-            if (!match) {
-                Log.e(TAG, "SHA-256 MISMATCH!")
-                Log.e(TAG, "  Expected: $PAYLOAD_SHA256")
-                Log.e(TAG, "  Computed: $computed")
-            } else {
-                Log.i(TAG, "SHA-256 OK: $computed")
-            }
-            match
+            computed.equals(PAYLOAD_SHA256, ignoreCase = true)
         } catch (e: Exception) {
             Log.e(TAG, "verifyPayloadIntegrity failed", e)
             false
         }
     }
-
-    // ── Payload installation ──────────────────────────────────────────────────
 
     suspend fun installDetailed(
         context: Context,
@@ -152,8 +92,7 @@ object OpenClawInstaller {
             base.deleteRecursivelySafe()
             base.mkdirs()
 
-            // 1. Extraer payload principal
-            val ok = context.extractTarXz(PAYLOAD_ASSET, base) { pct, read, total, currentFile ->
+            val ok = context.extractTarXz(PAYLOAD_ASSET_NAME, base) { pct, read, total, currentFile ->
                 val json = JSONObject().apply {
                     put("step", 1)
                     put("totalSteps", 2)
@@ -161,25 +100,22 @@ object OpenClawInstaller {
                     put("totalMB", total / 1024 / 1024)
                     put("percent", pct)
                     put("currentFile", currentFile ?: "")
-                    put("stepName", "payload-v2.tar.xz")
+                    put("stepName", PAYLOAD_ASSET_NAME)
                 }.toString()
                 onProgress(json)
             }
+            if (!ok) throw Exception("Fallo en extracción de $PAYLOAD_ASSET_NAME")
 
-            if (!ok) throw Exception("Fallo en extracción de payload-v2.tar.xz")
-
-            // Aplicar permisos y scripts base
             deployScripts(context, base)
             fixPermissions(base)
 
-            // 2. Extraer migración si existe
             val migrationExists = try {
-                context.assets.open(CONFIG_ASSET).close()
+                context.assets.open(MIGRATION_ASSET_NAME).close()
                 true
             } catch (_: Exception) { false }
 
             if (migrationExists) {
-                val configOk = context.extractTarGz(CONFIG_ASSET, context.filesDir) { pct, read, total, currentFile ->
+                context.extractTarGz(MIGRATION_ASSET_NAME, context.filesDir) { pct, read, total, currentFile ->
                     val json = JSONObject().apply {
                         put("step", 2)
                         put("totalSteps", 2)
@@ -187,14 +123,12 @@ object OpenClawInstaller {
                         put("totalMB", total / 1024 / 1024)
                         put("percent", pct)
                         put("currentFile", currentFile ?: "")
-                        put("stepName", "openclaw-apk-migration.tar.gz")
+                        put("stepName", MIGRATION_ASSET_NAME)
                     }.toString()
                     onProgress(json)
                 }
-                if (!configOk) Log.w(TAG, "Migración opcional falló, continuando...")
             }
 
-            // Inicializar BusyBox
             OpenClawTerminalManager(context).createBusyboxSymlinks()
 
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -210,276 +144,59 @@ object OpenClawInstaller {
         context: Context,
         onProgress: (msg: String, pct: Int) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Preparando directorio...", 0)
         val base = getPayloadDir(context)
         base.deleteRecursivelySafe()
         base.mkdirs()
-
-        onProgress("Cargando payload principal (payload-v2.tar.xz)...", 10)
-        val ok = context.extractTarXz(PAYLOAD_ASSET, base) { pct, read, total, _ ->
-            val label = if (total > 0)
-                "Extrayendo... ${formatBytes(read)} / ${formatBytes(total)}"
-            else
-                "Extrayendo... ${formatBytes(read)}"
-            val overall = if (pct >= 0) 1 + (pct * 84 / 100) else -1
-            onProgress(label, overall)
+        val ok = context.extractTarXz(PAYLOAD_ASSET_NAME, base) { pct, _, _, _ ->
+            onProgress("Extrayendo...", pct)
         }
-        if (!ok) {
-            onProgress("Error al extraer payload.", -1)
-            return@withContext false
+        if (ok) {
+            deployScripts(context, base)
+            fixPermissions(base)
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                   .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
         }
-
-        onProgress("Aplicando permisos y scripts...", 86)
-        deployScripts(context, base)
-        fixPermissions(base)
-
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-               .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
-        onProgress("Payload instalado.", 90)
-        true
+        ok
     }
-
-    suspend fun installPayloadFromUri(
-        context: Context,
-        uri: Uri,
-        onProgress: (msg: String, pct: Int) -> Unit
-    ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Preparando directorio...", 0)
-        val base = getPayloadDir(context)
-        base.deleteRecursivelySafe()
-        base.mkdirs()
-
-        val total = try {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
-        } catch (e: Exception) { -1L }
-
-        onProgress("Extrayendo payload desde archivo...", 1)
-        val stream = context.contentResolver.openInputStream(uri)
-            ?: run { onProgress("No se pudo abrir el archivo.", -1); return@withContext false }
-
-        val tracked = ProgressInputStream(stream, total) { read, tot ->
-            val pct = if (tot > 0) ((read * 100) / tot).toInt() else -1
-            val label = if (tot > 0)
-                "Extrayendo... ${formatBytes(read)} / ${formatBytes(tot)}"
-            else
-                "Extrayendo... ${formatBytes(read)}"
-            val overall = if (pct >= 0) 1 + (pct * 84 / 100) else -1
-            onProgress(label, overall)
-        }
-
-        val ok = tracked.use { extractTarXzFromStream(it, base) }
-        if (!ok) {
-            onProgress("Error al extraer payload.", -1)
-            return@withContext false
-        }
-
-        onProgress("Aplicando permisos y scripts...", 86)
-        deployScripts(context, base)
-        fixPermissions(base)
-
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-               .edit().putBoolean(KEY_PAYLOAD_INSTALLED, true).apply()
-        onProgress("Payload instalado.", 90)
-        true
-    }
-
-    // ── Config restoration ────────────────────────────────────────────────────
-
-    /**
-     * Restores config from bundled asset. This is OPTIONAL:
-     * - If the asset doesn't exist, returns true (silently skipped)
-     * - If the asset exists but extraction fails, returns false
-     */
-    suspend fun restoreConfig(
-        context: Context,
-        onProgress: (msg: String, pct: Int) -> Unit
-    ): Boolean = withContext(Dispatchers.IO) {
-        // Check if the config asset exists BEFORE trying to extract
-        val exists = try {
-            context.assets.open(CONFIG_ASSET).close()
-            true
-        } catch (_: Exception) { false }
-
-        if (!exists) {
-            Log.d(TAG, "Config asset not found in APK — skipping (optional)")
-            onProgress("Configuración no incluida en APK (opcional).", 99)
-            return@withContext true  // Not an error — config is optional
-        }
-
-        onProgress("Cargando configuración (openclaw-apk-migration.tar.gz)...", 91)
-        val ok = context.extractTarGz(CONFIG_ASSET, context.filesDir) { pct, read, total, _ ->
-            val label = if (total > 0)
-                "Config... ${formatBytes(read)} / ${formatBytes(total)}"
-            else
-                "Config... ${formatBytes(read)}"
-            val overall = if (pct >= 0) 91 + (pct * 7 / 100) else -1
-            onProgress(label, overall)
-        }
-        if (!ok) {
-            Log.w(TAG, "Config extraction failed — non-blocking")
-            onProgress("Advertencia: configuración no restaurada.", 99)
-            // Return true anyway — config failure should NOT block the app
-            return@withContext true
-        }
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-               .edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
-        onProgress("Configuración restaurada.", 99)
-        true
-    }
-
-    suspend fun restoreConfigFromUri(
-        context: Context,
-        uri: Uri,
-        onProgress: (msg: String, pct: Int) -> Unit
-    ): Boolean = withContext(Dispatchers.IO) {
-        onProgress("Restaurando configuración desde archivo...", 91)
-        val stream = context.contentResolver.openInputStream(uri)
-            ?: run { onProgress("No se pudo abrir el archivo.", -1); return@withContext false }
-
-        val ok = stream.use { extractTarGzFromStream(it, context.filesDir) }
-        if (!ok) {
-            onProgress("Error al restaurar configuración.", -1)
-            return@withContext false
-        }
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-               .edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
-        onProgress("Configuración restaurada.", 99)
-        true
-    }
-
-    // ── Permissions ───────────────────────────────────────────────────────────
 
     suspend fun fixPermissions(base: File) = withContext(Dispatchers.IO) {
         base.setExecutable(true, false)
         base.setReadable(true, false)
-
-        val critical = listOf(
-            File(base, "lib/node_modules/openclaw/openclaw.mjs"),
-        )
-        critical.forEach { f ->
-            if (f.exists()) {
-                val rx = f.setReadable(true, false)
-                val wx = f.setWritable(true, false)
-                val ex = f.setExecutable(true, false)
-                Log.i(TAG, "chmod ${f.name}: r=$rx w=$wx x=$ex canExec=${f.canExecute()}")
-            } else {
-                Log.e(TAG, "fixPermissions: MISSING ${f.absolutePath}")
-            }
-        }
-
-        // Note: libldlinux.so and libnode.so live in nativeLibraryDir —
-        // Android installs them with correct execute permissions automatically.
-
-        // chmod all .so files and all binaries in glibc/lib and bin
         listOf(File(base, "glibc/lib"), File(base, "bin")).forEach { dir ->
-            dir.walkTopDown().filter { it.isFile }.forEach { f ->
-                f.setReadable(true, false)
-                f.setExecutable(true, false)
+            if (dir.exists()) {
+                dir.walkTopDown().filter { it.isFile }.forEach { f ->
+                    f.setReadable(true, false)
+                    f.setExecutable(true, false)
+                }
             }
         }
-
-        // All directories must be traversable
         base.walkTopDown().filter { it.isDirectory }.forEach { d ->
             d.setExecutable(true, false)
             d.setReadable(true, false)
         }
-
-        Log.i(TAG, "fixPermissions done. base=${base.absolutePath}")
     }
 
     private fun deployScripts(context: Context, base: File) {
         val binDir = File(base, "bin")
         if (!binDir.exists()) binDir.mkdirs()
-
         try {
-            val scripts = context.assets.list("scripts") ?: emptyArray()
-            scripts.forEach { name ->
+            context.assets.list("scripts")?.forEach { name ->
                 context.assets.open("scripts/$name").use { input ->
-                    File(binDir, name).outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+                    File(binDir, name).outputStream().use { input.copyTo(it) }
                 }
-                Log.i(TAG, "Deployed script: $name to ${binDir.absolutePath}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to deploy scripts from assets", e)
+            Log.e(TAG, "Failed to deploy scripts", e)
         }
     }
 
-    // ── Uninstall ─────────────────────────────────────────────────────────────
-
-    fun uninstall(context: Context) {
-        getPayloadDir(context).deleteRecursivelySafe()
-        getConfigDir(context).deleteRecursivelySafe()
-        File(context.filesDir, "tmp").deleteRecursivelySafe()
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-               .edit().clear().apply()
-        Log.i(TAG, "Uninstalled.")
-    }
-
-    // ── Onboard check ─────────────────────────────────────────────────────────
-
     fun isOnboardComplete(context: Context): Boolean {
-        // Primary check: explicit flag set when `openclaw onboard` exits with code 0
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_ONBOARD_COMPLETE, false)) return true
-
-        // Fallback: inspect openclaw.json for a configured gateway or agent model,
-        // which only exists after a real onboard run (not just the migration skeleton).
-        val json = File(getConfigDir(context), "openclaw.json")
-        if (!json.exists()) return false
-        return try {
-            val text = json.readText()
-            // Must have gateway section with auth token OR agents section with a primary model
-            // The migration config only has skills/wizard/meta — no gateway or agents
-            (text.contains("\"gateway\"") && text.contains("\"token\"")) ||
-            (text.contains("\"agents\"")  && text.contains("\"primary\""))
-        } catch (e: Exception) { false }
+        return prefs.getBoolean(KEY_ONBOARD_COMPLETE, false)
     }
 
     fun markOnboardComplete(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                .edit().putBoolean(KEY_ONBOARD_COMPLETE, true).apply()
-        Log.i(TAG, "Onboard marked complete")
-    }
-
-    // ── Version ───────────────────────────────────────────────────────────────
-
-    fun getInstalledVersion(context: Context): String? {
-        val pkg = File(getPayloadDir(context), "lib/node_modules/openclaw/package.json")
-        if (!pkg.exists()) return null
-        return try {
-            "\"version\":\\s*\"([^\"]+)\"".toRegex()
-                .find(pkg.readText())?.groupValues?.get(1)
-        } catch (e: Exception) { null }
-    }
-
-    // ── Asset detection ──────────────────────────────────────────────────
-
-    /**
-     * Detecta qué assets de instalación están disponibles dentro del APK.
-     * Usado por InstallationActivity para mostrar la lista al usuario.
-     */
-    fun detectAvailableAssets(context: Context): List<AssetInfo> {
-        val assetList = listOf(
-            PAYLOAD_ASSET to "Node.js + glibc + OpenClaw (~186MB)",
-            CONFIG_ASSET  to "Configuración personal (~5MB)"
-        )
-        return assetList.map { (filename, description) ->
-            val available = try {
-                context.assets.open(filename).close()
-                true
-            } catch (e: Exception) { false }
-            AssetInfo(filename, description, available)
-        }
     }
 }
-
-/**
- * Información sobre un asset de instalación detectado en el APK.
- */
-data class AssetInfo(
-    val filename: String,
-    val description: String,
-    val available: Boolean
-)

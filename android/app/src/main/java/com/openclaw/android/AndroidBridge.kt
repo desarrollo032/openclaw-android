@@ -56,12 +56,8 @@ class AndroidBridge(
     @JavascriptInterface
     fun pickMigrationFile() {
         activity.runOnUiThread {
-            // Se asume que la activity tiene implementado un método de pick
             if (activity is OpenClawDashboardActivity) {
-                activity.pickMigrationFile { filename, sizeMB ->
-                    notifyReact("onMigrationFilePicked", 
-                        "{\"filename\":\"$filename\", \"sizeMB\":$sizeMB}")
-                }
+                activity.filePicker.launch("*/*")
             }
         }
     }

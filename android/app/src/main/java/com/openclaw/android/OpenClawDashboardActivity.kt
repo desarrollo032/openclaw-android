@@ -1,11 +1,11 @@
 package com.openclaw.android
 
 import android.annotation.SuppressLint
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.webkit.*
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -19,19 +19,8 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     private lateinit var binding: ActivityDashboardBinding
     private var androidBridge: AndroidBridge? = null
     
-    private var migrationCallback: ((String, Int) -> Unit)? = null
-
-    private val filePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            val filename = it.path?.substringAfterLast('/') ?: "file.tar.gz"
-            val size = try {
-                contentResolver.openFileDescriptor(it, "r")?.use { fd -> fd.statSize } ?: 0L
-            } catch (e: Exception) { 0L }
-            migrationCallback?.invoke(filename, (size / 1024 / 1024).toInt())
-        }
-    }
+    // Exponer filePicker como internal para el Bridge
+    internal lateinit var filePicker: ActivityResultLauncher<String>
 
     companion object {
         private const val TAG = "Dashboard"
@@ -42,6 +31,13 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Registrar el filePicker
+        filePicker = registerForActivityResult(
+            ActivityResultContracts.GetContent()
+        ) { uri: Uri? ->
+            uri?.let { handleMigrationFilePicked(it) }
+        }
 
         setupWebView()
         binding.webView.loadUrl(DASHBOARD_URL)
@@ -54,6 +50,16 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun handleMigrationFilePicked(uri: Uri) {
+        val filename = uri.path?.substringAfterLast('/') ?: "file.tar.gz"
+        val size = try {
+            contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
+        } catch (e: Exception) { 0L }
+        
+        androidBridge?.notifyReact("onMigrationFilePicked", 
+            "{\"filename\":\"$filename\", \"sizeMB\":${size / 1024 / 1024}}")
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -85,11 +91,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         }
         
         binding.webView.webChromeClient = WebChromeClient()
-    }
-
-    fun pickMigrationFile(callback: (String, Int) -> Unit) {
-        migrationCallback = callback
-        filePickerLauncher.launch("*/*")
     }
 
     @Deprecated("Deprecated in Java")
