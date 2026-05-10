@@ -98,6 +98,21 @@ class AndroidBridge(
         }
     }
 
+    @JavascriptInterface
+    fun showTerminal() {
+        openTerminal()
+    }
+
+    @JavascriptInterface
+    fun launchInteractiveCommand(command: String) {
+        activity.runOnUiThread {
+            val intent = Intent(activity, OpenClawTerminalActivity::class.java).apply {
+                putExtra("initial_command", command)
+            }
+            activity.startActivity(intent)
+        }
+    }
+
     /**
      * Enviar eventos de Android -> React via CustomEvent
      */

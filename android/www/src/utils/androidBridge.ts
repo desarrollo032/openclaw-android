@@ -52,6 +52,14 @@ export const AndroidBridge = {
   openTerminal: () => {
     window.AndroidBridge?.openTerminal();
   },
+  
+  showTerminal: () => {
+    window.AndroidBridge?.showTerminal();
+  },
+
+  launchInteractiveCommand: (cmd: string) => {
+    window.AndroidBridge?.launchInteractiveCommand(cmd);
+  },
 
   getAuthToken: (): string => {
     return window.AndroidBridge?.getAuthToken() ?? window.__OPENCLAW_TOKEN ?? '';

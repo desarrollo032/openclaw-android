@@ -12,6 +12,8 @@ declare global {
       getGatewayState(): string;
       notifyReady(): void;
       openTerminal(): void;
+      showTerminal(): void;
+      launchInteractiveCommand(command: string): void;
     };
     __oc?: {
       emit(type: string, data: unknown): void;
