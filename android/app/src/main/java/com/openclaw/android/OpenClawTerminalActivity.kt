@@ -57,48 +57,89 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     private fun buildLayout(): View {
-        rootFrame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        rootFrame = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0a0a0f")) }
 
-        // Toolbar (48dp)
+        // Toolbar (56dp)
         rootFrame.addView(buildToolbar())
 
-        // TerminalView - Padding inferior de 60dp para evitar que la barra tape el texto
+        // TerminalView
         terminalView = TerminalView(this, null).apply {
             id = R.id.terminal_view
             setBackgroundColor(Color.BLACK)
             isFocusable = true
             isFocusableInTouchMode = true
-            setPadding(dp(12), 0, dp(12), dp(60))
+            setPadding(dp(12), dp(8), dp(12), dp(12))
             layoutParams = FrameLayout.LayoutParams(-1, -1).apply {
-                topMargin = dp(48)
+                topMargin = dp(56)
+                bottomMargin = dp(48)
             }
         }
         rootFrame.addView(terminalView)
 
-        // Barra de teclas especiales (52dp) con Scroll Horizontal
+        // Barra de teclas especiales (48dp)
         rootFrame.addView(buildSpecialKeysBar())
 
         return rootFrame
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun buildSpecialKeysBar(): HorizontalScrollView {
+        val scroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(Color.parseColor("#0f172a"))
+            layoutParams = FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM)
+        }
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+
+        val keys = listOf(
+            "TAB" to { send(9) },
+            "ESC" to { send(27) },
+            "CTRL" to { terminalView.toggleControlKeyDown() },
+            "ALT" to { terminalView.toggleAltKeyDown() },
+            "↑" to { arrow(KeyEvent.KEYCODE_DPAD_UP) },
+            "↓" to { arrow(KeyEvent.KEYCODE_DPAD_DOWN) },
+            "←" to { arrow(KeyEvent.KEYCODE_DPAD_LEFT) },
+            "→" to { arrow(KeyEvent.KEYCODE_DPAD_RIGHT) },
+            "HOME" to { send(1) },
+            "END" to { send(5) },
+            "KBD" to { toggleKbd() }
+        )
+
+        keys.forEach { (label, action) ->
+            bar.addView(TextView(this).apply {
+                text = label; textSize = 13f; typeface = Typeface.create("sans-serif-bold", Typeface.NORMAL)
+                setTextColor(Color.parseColor("#cbd5e1")); gravity = Gravity.CENTER
+                minWidth = dp(52); minHeight = dp(48)
+                setPadding(dp(8), 0, dp(8), 0)
+                background = RippleDrawable(ColorStateList.valueOf(Color.parseColor("#1e293b")), null, null)
+                setOnClickListener { action() }
+            })
+        }
+        scroll.addView(bar)
+        return scroll
     }
 
     private fun buildToolbar(): LinearLayout {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#0d0d1a"))
-            setPadding(dp(12), 0, dp(8), 0)
-            layoutParams = FrameLayout.LayoutParams(-1, dp(48), Gravity.TOP)
+            setBackgroundColor(Color.parseColor("#0a0a14"))
+            setPadding(dp(16), 0, dp(8), 0)
+            layoutParams = FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP)
         }
+
         statusDot = View(this).apply {
             background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL; setColor(Color.parseColor("#6b7280"))
+                shape = GradientDrawable.OVAL; setColor(Color.parseColor("#4ade80"))
+                setStroke(dp(1), Color.parseColor("#22c55e"))
             }
-            layoutParams = LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(8) }
+            layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(12) }
         }
         bar.addView(statusDot)
 
         titleView = TextView(this).apply {
-            text = "Terminal"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            text = "Terminal"; textSize = 16f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
         }
@@ -139,48 +180,6 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private fun changeFontSize(delta: Float) {
         currentFontSizeSp = (currentFontSizeSp + delta).coerceIn(MIN_FONT, MAX_FONT)
         terminalView.setTextSize(currentFontSizeSp.toInt())
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun buildSpecialKeysBar(): HorizontalScrollView {
-        val scroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(Color.parseColor("#111128"))
-            layoutParams = FrameLayout.LayoutParams(-1, dp(52), Gravity.BOTTOM)
-        }
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val keys = listOf(
-            "TAB" to { send(9) }, "ESC" to { send(27) },
-            "CTRL" to { /* toggle ctrl logic if needed */ },
-            "ALT" to { /* toggle alt logic */ },
-            "↑" to { arrow(KeyEvent.KEYCODE_DPAD_UP) },
-            "↓" to { arrow(KeyEvent.KEYCODE_DPAD_DOWN) },
-            "←" to { arrow(KeyEvent.KEYCODE_DPAD_LEFT) },
-            "→" to { arrow(KeyEvent.KEYCODE_DPAD_RIGHT) },
-            "HOME" to { send(1) }, "END" to { send(5) },
-            "PGUP" to { arrow(KeyEvent.KEYCODE_PAGE_UP) },
-            "PGDN" to { arrow(KeyEvent.KEYCODE_PAGE_DOWN) },
-            "INS" to { arrow(KeyEvent.KEYCODE_INSERT) },
-            "DEL" to { arrow(KeyEvent.KEYCODE_FORWARD_DEL) },
-            "KBD" to { toggleKbd() }
-        )
-
-        keys.forEach { (label, action) ->
-            bar.addView(TextView(this).apply {
-                text = label; textSize = 14f; typeface = Typeface.MONOSPACE
-                setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                minWidth = dp(48); minHeight = dp(52)
-                setPadding(dp(8), 0, dp(8), 0)
-                background = RippleDrawable(ColorStateList.valueOf(Color.parseColor("#444466")), null, ColorDrawable(Color.WHITE))
-                setOnClickListener { action() }
-            })
-        }
-        scroll.addView(bar)
-        return scroll
     }
 
     private fun send(byte: Int) { terminalSession?.write(byteArrayOf(byte.toByte()), 0, 1) }

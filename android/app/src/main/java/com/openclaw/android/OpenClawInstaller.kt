@@ -179,6 +179,22 @@ object OpenClawInstaller {
     private fun deployScripts(context: Context, base: File) {
         val binDir = File(base, "bin")
         if (!binDir.exists()) binDir.mkdirs()
+        
+        val nativeDir = context.applicationInfo.nativeLibraryDir
+        val linker = "$nativeDir/libldlinux.so"
+        val nodeLib = "$nativeDir/libnode.so"
+        
+        // Crear wrapper para 'node'
+        File(binDir, "node").writeText("#!/system/bin/sh\nexec $linker $nodeLib \"$@\"")
+        
+        // Crear wrapper para 'openclaw'
+        val ocPath = File(base, "lib/node_modules/openclaw/bin/openclaw.js").absolutePath
+        File(binDir, "openclaw").writeText("#!/system/bin/sh\nexec $linker $nodeLib $ocPath \"$@\"")
+        
+        // Crear wrapper para 'npm'
+        val npmPath = File(base, "lib/node_modules/npm/bin/npm-cli.js").absolutePath
+        File(binDir, "npm").writeText("#!/system/bin/sh\nexec $linker $nodeLib $npmPath \"$@\"")
+
         try {
             context.assets.list("scripts")?.forEach { name ->
                 context.assets.open("scripts/$name").use { input ->
@@ -186,7 +202,7 @@ object OpenClawInstaller {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to deploy scripts", e)
+            Log.e(TAG, "Failed to deploy assets/scripts", e)
         }
     }
 
