@@ -16,59 +16,56 @@ private const val TAG = "AssetDetector"
 const val PAYLOAD_ASSET_NAME = "payload-v2.tar.xz"
 const val MIGRATION_ASSET_NAME = "openclaw-apk-migration.tar.gz"
 
-/**
- * Result of scanning the APK's assets/ folder and the device filesystem.
- * All sizes in bytes. [payloadContents] and [migrationContents] are populated
- * lazily via [AssetDetector.listTarContents].
- */
 data class AssetDetectionResult(
     val payloadAvailable: Boolean,
     val migrationAvailable: Boolean,
     val payloadSizeBytes: Long,
     val migrationSizeBytes: Long,
     val freeSpaceBytes: Long,
-    val requiredSpaceBytes: Long = 400L * 1024 * 1024, // 400 MB
+    val requiredSpaceBytes: Long = 400L * 1024 * 1024,
     val payloadContents: List<String>,
     val migrationContents: List<String>
 ) {
     val hasEnoughSpace: Boolean get() = freeSpaceBytes > requiredSpaceBytes
 }
 
-/**
- * AssetDetector — módulo dedicado a la detección de assets.
- *
- * Responsabilidades:
- *  - Detectar presencia de payload y migration en assets/
- *  - Listar contenido de tars SIN extraer (solo headers)
- *  - Calcular espacio libre en filesDir
- *  - Verificar integridad post-instalación (archivos reales en disco)
- *
- * REGLAS:
- *  - NUNCA hardcodear /data/data/ → usa context.getDir() / filesDir
- *  - SIEMPRE Dispatchers.IO para operaciones de archivo
- *  - isPayloadReady() verifica archivos REALES, no SharedPreferences
- */
 object AssetDetector {
 
     /**
-     * Detección completa: qué assets están en el APK, su tamaño,
-     * espacio libre disponible, y lista parcial de contenidos del tar.
-     *
-     * Tiempo esperado: < 2 segundos (solo lee headers, no extrae).
+     * Detección completa con diagnóstico robusto.
      * DEBE llamarse desde Dispatchers.IO.
      */
     suspend fun detect(context: Context): AssetDetectionResult = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Starting asset detection...")
+        // ── DIAGNÓSTICO: listar todos los assets del APK ──
+        val rootAssets = try {
+            context.assets.list("") ?: emptyArray()
+        } catch (_: Exception) { emptyArray() }
+        Log.d(TAG, "Assets en raíz del APK: ${rootAssets.toList()}")
 
-        val payloadAvailable = isAssetPresent(context, PAYLOAD_ASSET_NAME)
-        val migrationAvailable = isAssetPresent(context, MIGRATION_ASSET_NAME)
+        // Listar subdirectorios conocidos
+        listOf("www", "scripts", "webkit").forEach { dir ->
+            try {
+                val files = context.assets.list(dir)
+                if (!files.isNullOrEmpty()) {
+                    Log.d(TAG, "assets/$dir/: ${files.take(10).toList()}${if (files.size > 10) " (+${files.size - 10} más)" else ""}")
+                }
+            } catch (_: Exception) { /* dir no existe */ }
+        }
+
+        // ── Detección robusta de cada asset ──
+        val payloadAvailable = assetExists(context, PAYLOAD_ASSET_NAME)
+        val migrationAvailable = assetExists(context, MIGRATION_ASSET_NAME)
+
+        Log.d(TAG, "Detección: payload=$payloadAvailable, migration=$migrationAvailable")
 
         val payloadSize = if (payloadAvailable) getAssetSize(context, PAYLOAD_ASSET_NAME) else 0L
         val migrationSize = if (migrationAvailable) getAssetSize(context, MIGRATION_ASSET_NAME) else 0L
 
+        Log.d(TAG, "Tamaños: payload=${formatBytes(payloadSize)}, migration=${formatBytes(migrationSize)}")
+
         val freeSpace = getFreeSpace(context)
 
-        // List tar contents (headers only — fast, ~1s for 186MB xz)
+        // List tar contents (headers only — no extraction)
         val payloadContents = if (payloadAvailable) {
             try { listTarContents(context, PAYLOAD_ASSET_NAME) }
             catch (e: Exception) {
@@ -101,25 +98,79 @@ object AssetDetector {
         )
     }
 
+    // ── Robust asset detection ────────────────────────────────────────
+
     /**
-     * Lista el contenido de un tar (xz o gz) leyendo SOLO los headers.
-     * No extrae ningún archivo — rápido y sin consumo de RAM significativo.
-     *
-     * Para tar.xz: descomprime XZ en streaming y lee headers tar.
-     * Para tar.gz: descomprime GZIP en streaming y lee headers tar.
-     *
-     * Limita a los primeros 200 entries para evitar lecturas excesivas.
+     * Búsqueda robusta de un asset. Intenta:
+     *  1. Abrir por nombre exacto
+     *  2. Buscar en la lista del directorio raíz (case-insensitive)
+     *  3. Buscar en subdirectorios comunes
      */
+    private fun assetExists(context: Context, filename: String): Boolean {
+        // Intento 1 — nombre exacto
+        try {
+            context.assets.open(filename).close()
+            Log.d(TAG, "assetExists($filename): FOUND (exact match)")
+            return true
+        } catch (_: Exception) { /* no encontrado por nombre exacto */ }
+
+        // Intento 2 — búsqueda case-insensitive en el directorio raíz
+        try {
+            val allFiles = context.assets.list("") ?: emptyArray()
+            val match = allFiles.find { it.equals(filename, ignoreCase = true) }
+            if (match != null) {
+                Log.w(TAG, "assetExists($filename): FOUND via case-insensitive match → '$match'")
+                return true
+            }
+        } catch (_: Exception) { /* error listando */ }
+
+        // Intento 3 — buscar en subdirectorios comunes
+        val searchDirs = listOf("assets", "www", "scripts")
+        for (dir in searchDirs) {
+            try {
+                context.assets.open("$dir/$filename").close()
+                Log.w(TAG, "assetExists($filename): FOUND in subdirectory '$dir/'")
+                return true
+            } catch (_: Exception) { /* no encontrado en este dir */ }
+        }
+
+        Log.w(TAG, "assetExists($filename): NOT FOUND (tried exact, case-insensitive, subdirs)")
+        return false
+    }
+
+    /**
+     * Returns the actual name of an asset in the APK (handles case differences).
+     * Returns null if not found.
+     */
+    private fun resolveAssetName(context: Context, filename: String): String? {
+        // Exact match
+        try {
+            context.assets.open(filename).close()
+            return filename
+        } catch (_: Exception) {}
+
+        // Case-insensitive in root
+        try {
+            val allFiles = context.assets.list("") ?: emptyArray()
+            return allFiles.find { it.equals(filename, ignoreCase = true) }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
+    // ── Tar listing ──────────────────────────────────────────────────
+
     suspend fun listTarContents(context: Context, assetName: String): List<String> =
         withContext(Dispatchers.IO) {
             val maxEntries = 200
             val entries = mutableListOf<String>()
+            val resolved = resolveAssetName(context, assetName) ?: assetName
 
-            context.assets.open(assetName).use { raw ->
+            context.assets.open(resolved).use { raw ->
                 val decompressed = when {
-                    assetName.endsWith(".tar.xz") -> XZCompressorInputStream(raw.buffered(1 shl 16))
-                    assetName.endsWith(".tar.gz") -> GZIPInputStream(raw.buffered(1 shl 16))
-                    else -> throw IllegalArgumentException("Unsupported format: $assetName")
+                    resolved.endsWith(".tar.xz") -> XZCompressorInputStream(raw.buffered(1 shl 16))
+                    resolved.endsWith(".tar.gz") -> GZIPInputStream(raw.buffered(1 shl 16))
+                    else -> throw IllegalArgumentException("Unsupported format: $resolved")
                 }
 
                 TarArchiveInputStream(decompressed).use { tarIn ->
@@ -140,10 +191,8 @@ object AssetDetector {
             entries
         }
 
-    /**
-     * Espacio libre disponible en el filesystem de filesDir.
-     * Usa StatFs — preciso y sin permisos especiales.
-     */
+    // ── Free space ───────────────────────────────────────────────────
+
     fun getFreeSpace(context: Context): Long {
         return try {
             val stat = StatFs(context.filesDir.path)
@@ -154,10 +203,8 @@ object AssetDetector {
         }
     }
 
-    /**
-     * Verifica si el payload principal ya fue extraído y está íntegro.
-     * Comprueba archivos REALES en disco — NUNCA SharedPreferences como única fuente.
-     */
+    // ── Payload readiness ────────────────────────────────────────────
+
     fun isPayloadReady(context: Context): Boolean {
         val payloadDir = context.getDir("payload", Context.MODE_PRIVATE)
         val openclawExists = File(payloadDir, "lib/node_modules/openclaw/openclaw.mjs").exists()
@@ -165,34 +212,37 @@ object AssetDetector {
         return openclawExists && nodeExists
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────
-
-    private fun isAssetPresent(context: Context, assetName: String): Boolean {
-        return try {
-            context.assets.open(assetName).close()
-            true
-        } catch (_: Exception) { false }
-    }
+    // ── Asset size ────────────────────────────────────────────────────
 
     /**
-     * Returns the raw compressed size of an asset in the APK.
-     * Uses openFd() which gives the on-disk size. Returns -1 if unavailable
-     * (e.g., asset is stored compressed by aapt — but we have noCompress in gradle).
+     * Returns the size of an asset. Uses openFd() first (fast).
+     * Falls back to streaming read if aapt compressed the file
+     * (shouldn't happen with noCompress but just in case).
      */
     private fun getAssetSize(context: Context, assetName: String): Long {
-        return try {
-            context.assets.openFd(assetName).use { it.length }
-        } catch (_: Exception) {
-            // Fallback: read and count bytes (slower but works for compressed assets)
-            try {
-                context.assets.open(assetName).use { stream ->
-                    var total = 0L
-                    val buf = ByteArray(8192)
-                    var n: Int
-                    while (stream.read(buf).also { n = it } != -1) { total += n }
-                    total
-                }
-            } catch (_: Exception) { -1L }
+        val resolved = resolveAssetName(context, assetName) ?: assetName
+
+        // openFd() — fast, gives on-disk size for uncompressed assets
+        try {
+            return context.assets.openFd(resolved).use { it.length }
+        } catch (e: Exception) {
+            Log.d(TAG, "openFd($resolved) failed (may be compressed by aapt): ${e.message}")
         }
+
+        // Fallback: stream and count bytes
+        try {
+            return context.assets.open(resolved).use { stream ->
+                var total = 0L
+                val buf = ByteArray(8192)
+                var n: Int
+                while (stream.read(buf).also { n = it } != -1) { total += n }
+                Log.d(TAG, "getAssetSize($resolved) via streaming: ${formatBytes(total)}")
+                total
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getAssetSize($resolved) failed completely: ${e.message}")
+        }
+
+        return -1L
     }
 }

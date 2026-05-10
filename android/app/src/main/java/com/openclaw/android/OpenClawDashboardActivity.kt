@@ -71,6 +71,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         dashboardToken = intent.getStringExtra(EXTRA_DASHBOARD_TOKEN)
             ?: OpenClawGatewayService.currentToken
 
+        // PASO 1 — Dashboard visible INMEDIATAMENTE (sin condiciones)
         setContentView(buildLayout())
         setupWebView()
 
@@ -98,10 +99,13 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             }
         }
 
-        // Show installation bottom sheet if payload is not ready
-        val needsInstall = intent.getBooleanExtra(EXTRA_NEEDS_INSTALL, false)
-        if (needsInstall && !OpenClawInstaller.isPayloadReady(this)) {
-            showInstallationSheet(mandatory = true)
+        // PASO 2 — Verificar instalación DESPUÉS de que el dashboard renderice
+        // El sheet aparece con delay para que el usuario vea el dashboard detrás
+        lifecycleScope.launch {
+            delay(300) // esperar render del dashboard
+            if (!OpenClawInstaller.isPayloadReady(this@OpenClawDashboardActivity)) {
+                showInstallationSheet(mandatory = true)
+            }
         }
     }
 
