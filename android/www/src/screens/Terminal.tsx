@@ -40,7 +40,19 @@ export function Terminal() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight) }, [history])
+  useEffect(() => { 
+    if (scrollRef.current) {
+      const scrollElement = scrollRef.current;
+      // Use requestAnimationFrame for smoother scrolling
+      const scroll = () => {
+        scrollElement.scrollTop = scrollElement.scrollHeight;
+        scrollElement.scrollLeft = 0;
+        // Force a repaint
+        scrollElement.offsetHeight;
+      };
+      requestAnimationFrame(scroll);
+    }
+  }, [history])
 
   useEffect(() => {
     const h = (e: Event) => { const cmd = (e as CustomEvent<string>).detail; if (cmd) runCmd(cmd) }
@@ -75,11 +87,20 @@ export function Terminal() {
 
   const runCmd = useCallback((cmd: string) => {
     if (!cmd.trim()) return
+    
+    // Immediate visual feedback
     append({ type: 'cmd', text: cmd })
     setSuggestions([])
     setInput('')
     setHistIdx(-1)
     setCmdHistory(prev => [cmd, ...prev.slice(0, 49)])
+    
+    // Scroll to bottom immediately
+    setTimeout(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    }, 10);
 
     const parts = cmd.trim().split(/\s+/)
     const isOC = parts[0] === 'openclaw' || parts[0] === 'oa'
@@ -92,10 +113,35 @@ export function Terminal() {
       return
     }
 
+    // Execute command with immediate feedback
     const result = bridge.callJson<{ stdout?: string; stderr?: string }>('runCommand', cmd)
-    if (result?.stdout) append({ type: 'out', text: result.stdout })
-    if (result?.stderr) append({ type: 'err', text: result.stderr })
-    if (!result) append({ type: 'err', text: 'Bridge no disponible.' })
+    
+    // Process results immediately
+    if (result?.stdout) {
+      append({ type: 'out', text: result.stdout })
+      // Auto-scroll to show new output
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, 50);
+    }
+    if (result?.stderr) {
+      append({ type: 'err', text: result.stderr })
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, 50);
+    }
+    if (!result) {
+      append({ type: 'err', text: 'Bridge no disponible.' })
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, 50);
+    }
   }, [cmdHistory]) // eslint-disable-line
 
   // ── Keyboard ─────────────────────────────────────────────────────────────
@@ -273,9 +319,39 @@ export function Terminal() {
   )
 }
 
-const S: Record<string, React.CSSProperties> = {
+interface TerminalStyles extends Record<string, React.CSSProperties> {
+  output: React.CSSProperties & { 
+    contain?: string;
+    scrollBehavior?: string;
+    scrollPadding?: string;
+  };
+  input: React.CSSProperties & {
+    willChange?: string;
+    contain?: string;
+    autoComplete?: string;
+    autoCorrect?: string;
+    autoCapitalize?: string;
+    spellCheck?: boolean;
+  };
+}
+
+const S: TerminalStyles = {
   root:   { display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)', overflow:'hidden' },
-  output: { flex:1, overflowY:'auto', padding:'12px 14px', fontFamily:"'JetBrains Mono','Courier New',monospace", fontSize:12.5, lineHeight:1.6, WebkitOverflowScrolling:'touch' },
+  output: { 
+    flex:1, 
+    overflowY:'auto', 
+    padding:'12px 14px', 
+    fontFamily:"'JetBrains Mono','Courier New',monospace", 
+    fontSize:12.5, 
+    lineHeight:1.6, 
+    WebkitOverflowScrolling:'touch',
+    // Performance optimizations
+    willChange: 'auto',
+    contain: 'layout' as any,
+    // Better scrolling performance
+    scrollBehavior: 'smooth',
+    scrollPadding: '10px'
+  },
   line:   { marginBottom:4, whiteSpace:'pre-wrap', wordBreak:'break-all' },
   
   suggestions: { display:'flex', flexWrap:'wrap', gap:6, padding:'8px 12px', background:'var(--surface)', borderTop:'1px solid var(--border)' },
@@ -288,7 +364,25 @@ const S: Record<string, React.CSSProperties> = {
   
   inputRow: { display:'flex', alignItems:'center', gap:8, background:'var(--surface)', borderRadius:12, border:'1px solid var(--border2)', padding:'6px 12px', margin:'6px 12px', boxShadow: 'var(--sh-inset)' },
   prompt:   { color:'#6366f1', fontWeight:800, fontSize:15, fontFamily:"'JetBrains Mono',monospace", flexShrink:0 },
-  input:    { flex:1, background:'transparent', border:'none', outline:'none', color:'var(--text)', fontFamily:"'JetBrains Mono',monospace", fontSize:13, padding:'4px 0', caretColor:'#6366f1' },
+  input:    { 
+    flex:1, 
+    background:'transparent', 
+    border:'none', 
+    outline:'none', 
+    color:'var(--text)', 
+    fontFamily:"'JetBrains Mono',monospace", 
+    fontSize:13, 
+    padding:'4px 0', 
+    caretColor:'#6366f1',
+    // Performance optimizations
+    willChange: 'auto',
+    contain: 'layout' as any,
+    // Prevent input lag
+    autoComplete: 'off' as any,
+    autoCorrect: 'off' as any,
+    autoCapitalize: 'off' as any,
+    spellCheck: false
+  },
   sendBtn:  { background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', borderRadius:'var(--r-full)', color:'#fff', width:34, height:34, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow: '0 4px 12px rgba(99,102,241,0.4)' },
   
   actionRow: { display:'flex', gap:12, padding:'0 16px 8px' },
