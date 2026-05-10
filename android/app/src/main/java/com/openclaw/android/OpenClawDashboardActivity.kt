@@ -75,7 +75,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         }
 
         androidBridge = AndroidBridge(this, binding.webView, lifecycleScope)
-        binding.webView.addJavascriptInterface(androidBridge!!, "AndroidBridge")
+        binding.webView.addJavascriptInterface(androidBridge!!, "OpenClaw")
         
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {

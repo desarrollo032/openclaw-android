@@ -80,13 +80,11 @@ tasks.register<Copy>("bundleScripts") {
 }
 
 // Vinculación robusta: asegurar que el frontend compile antes de procesar assets
-tasks.named("generateDebugAssets") {
-    dependsOn("buildWebUI")
-    dependsOn("bundleScripts")
-}
-tasks.named("generateReleaseAssets") {
-    dependsOn("buildWebUI")
-    dependsOn("bundleScripts")
+tasks.whenTaskAdded {
+    if (name == "mergeDebugAssets" || name == "mergeReleaseAssets") {
+        dependsOn("buildWebUI")
+        dependsOn("bundleScripts")
+    }
 }
 
 android {

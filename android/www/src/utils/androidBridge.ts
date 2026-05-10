@@ -22,47 +22,64 @@ export interface InstallProgress {
 }
 
 export const AndroidBridge = {
-  isAvailable: () => typeof window.AndroidBridge !== 'undefined',
+  isAvailable: () => typeof window.OpenClaw !== 'undefined',
 
   checkInstallation: (): InstallationStatus | null => {
-    if (!AndroidBridge.isAvailable() || !window.AndroidBridge) return null;
+    const bridge = window.OpenClaw;
+    if (!bridge) return null;
     try {
-      return JSON.parse(window.AndroidBridge.checkInstallation());
+      return JSON.parse(bridge.checkInstallation());
     } catch {
       return null;
     }
   },
 
   startInstallation: () => {
-    window.AndroidBridge?.startInstallation();
+    window.OpenClaw?.startInstallation();
   },
 
   pickMigrationFile: () => {
-    window.AndroidBridge?.pickMigrationFile();
+    window.OpenClaw?.pickMigrationFile();
   },
 
   startGateway: () => {
-    window.AndroidBridge?.startGateway();
+    window.OpenClaw?.startGateway();
   },
 
   stopGateway: () => {
-    window.AndroidBridge?.stopGateway();
+    window.OpenClaw?.stopGateway();
   },
 
   openTerminal: () => {
-    window.AndroidBridge?.openTerminal();
+    window.OpenClaw?.openTerminal();
   },
   
   showTerminal: () => {
-    window.AndroidBridge?.showTerminal();
+    window.OpenClaw?.showTerminal();
   },
 
   launchInteractiveCommand: (cmd: string) => {
-    window.AndroidBridge?.launchInteractiveCommand(cmd);
+    window.OpenClaw?.launchInteractiveCommand(cmd);
+  },
+
+  runCommand: (cmd: string): string => {
+    return window.OpenClaw?.runCommand(cmd) ?? '';
+  },
+
+  getAppInfo: (): string => {
+    return window.OpenClaw?.getAppInfo() ?? '';
+  },
+
+  getStorageInfo: (): string => {
+    return window.OpenClaw?.getStorageInfo() ?? '';
+  },
+
+  getGatewayToken: (): string => {
+    return window.OpenClaw?.getGatewayToken() ?? '';
   },
 
   getAuthToken: (): string => {
-    return window.AndroidBridge?.getAuthToken() ?? window.__OPENCLAW_TOKEN ?? '';
+    return window.OpenClaw?.getAuthToken() ?? window.__OPENCLAW_TOKEN ?? '';
   },
 
   getToken: (): string => {
@@ -70,11 +87,11 @@ export const AndroidBridge = {
   },
 
   getNativeGatewayState: (): string => {
-    return window.AndroidBridge?.getGatewayState() ?? 'UNKNOWN';
+    return window.OpenClaw?.getGatewayState() ?? 'UNKNOWN';
   },
 
   notifyReady: () => {
-    window.AndroidBridge?.notifyReady?.();
+    window.OpenClaw?.notifyReady?.();
   },
 
   onTokenRefresh: (callback: (token: string) => void) => {

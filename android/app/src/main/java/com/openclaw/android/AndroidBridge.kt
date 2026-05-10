@@ -113,6 +113,61 @@ class AndroidBridge(
         }
     }
 
+    @JavascriptInterface
+    fun runCommand(command: String): String {
+        return try {
+            val termMgr = OpenClawTerminalManager(activity)
+            val envMap = mutableMapOf<String, String>()
+            termMgr.buildEnvironment().forEach {
+                val parts = it.split("=", limit = 2)
+                if (parts.size == 2) envMap[parts[0]] = parts[1]
+            }
+
+            val process = ProcessBuilder("/system/bin/sh", "-c", command)
+                .directory(activity.filesDir)
+                .apply { environment().putAll(envMap) }
+                .redirectErrorStream(true)
+                .start()
+
+            val output = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            
+            JSONObject().apply {
+                put("stdout", output)
+                put("exitCode", process.exitValue())
+            }.toString()
+        } catch (e: Exception) {
+            JSONObject().apply {
+                put("stderr", e.message)
+                put("exitCode", 1)
+            }.toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun getAppInfo(): String {
+        val pInfo = activity.packageManager.getPackageInfo(activity.packageName, 0)
+        return JSONObject().apply {
+            put("versionName", pInfo.versionName)
+            put("versionCode", if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) pInfo.longVersionCode else pInfo.versionCode)
+            put("packageName", activity.packageName)
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun getStorageInfo(): String {
+        val assets = AssetDetector.detectSync(activity)
+        return JSONObject().apply {
+            put("freeSpaceMB", assets.freeSpaceBytes / 1024 / 1024)
+            put("totalSpaceMB", 0) // No crítico para el dashboard actual
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun getGatewayToken(): String {
+        return OpenClawGatewayService.currentToken
+    }
+
     /**
      * Enviar eventos de Android -> React via CustomEvent
      */

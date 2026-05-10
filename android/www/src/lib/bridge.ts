@@ -51,6 +51,12 @@ interface OpenClawBridge {
   stopGateway(): void
   // Interactive
   launchInteractiveCommand(cmd: string): void
+  checkInstallation(): string
+  startInstallation(): void
+  pickMigrationFile(): void
+  openTerminal(): void
+  getAuthToken(): string
+  notifyReady(): void
 }
 
 

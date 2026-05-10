@@ -2,7 +2,7 @@ export {};
 
 declare global {
   interface Window {
-    AndroidBridge?: {
+    OpenClaw?: {
       checkInstallation(): string;
       startInstallation(): void;
       pickMigrationFile(): void;
@@ -14,6 +14,10 @@ declare global {
       openTerminal(): void;
       showTerminal(): void;
       launchInteractiveCommand(command: string): void;
+      runCommand(command: string): string;
+      getAppInfo(): string;
+      getStorageInfo(): string;
+      getGatewayToken(): string;
     };
     __oc?: {
       emit(type: string, data: unknown): void;
