@@ -22,6 +22,7 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
+import java.lang.ref.WeakReference
 import kotlin.math.roundToInt
 
 private const val TAG = "OpenClawTermAct"
@@ -37,13 +38,36 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private lateinit var statusDot: View
     private lateinit var titleView: TextView
     private lateinit var rootFrame: FrameLayout
+    private var pendingInitialCommand: String? = null
 
     private var currentFontSizeSp = 32f
     private val MIN_FONT_SP = 32f
     private val MAX_FONT_SP = 48f
 
+    companion object {
+        private var activeActivity: WeakReference<OpenClawTerminalActivity>? = null
+
+        fun launchWithCommand(context: Context, command: String) {
+            val active = activeActivity?.get()
+            if (active != null && !active.isFinishing && !active.isDestroyed) {
+                active.runOnUiThread { active.writeCommand(command) }
+                return
+            }
+
+            val intent = Intent(context, OpenClawTerminalActivity::class.java).apply {
+                putExtra("initial_command", command)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            }
+            context.startActivity(intent)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        activeActivity = WeakReference(this)
+        pendingInitialCommand = intent.getStringExtra("initial_command")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         manager = OpenClawTerminalManager(this)
         setContentView(buildLayout())
@@ -51,20 +75,23 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         startSession()
     }
 
-    override fun onResume() { super.onResume(); terminalView.requestFocus() }
+    override fun onResume() {
+        super.onResume()
+        activeActivity = WeakReference(this)
+        terminalView.requestFocus()
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent) // Actualizar el intent de la actividad
         
         // Si recibimos un comando y ya hay una sesión, ejecutarlo
-        intent.getStringExtra("initial_command")?.let { cmd ->
-            terminalSession?.write("$cmd\n")
-        }
+        intent.getStringExtra("initial_command")?.let { writeCommand(it) }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        if (activeActivity?.get() === this) activeActivity = null
         terminalSession?.finishIfRunning(); terminalSession = null
     }
 
@@ -214,11 +241,23 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
             terminalView.attachSession(it)
             terminalView.setTextSize(currentFontSizeSp.roundToInt())
             updateDot(true)
-            intent.getStringExtra("initial_command")?.let { cmd ->
-                it.write("$cmd\n")
+            pendingInitialCommand?.let { cmd ->
+                pendingInitialCommand = null
+                terminalView.post { writeCommand(cmd) }
             }
         }
         terminalView.requestFocus()
+    }
+
+    private fun writeCommand(command: String) {
+        val session = terminalSession
+        if (session == null) {
+            pendingInitialCommand = command
+            return
+        }
+        terminalView.requestFocus()
+        session.write("$command\n")
+        refreshTerminal()
     }
 
     private fun restartSession() {
@@ -241,13 +280,19 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     // Boilerplate for TerminalSessionClient
-    override fun onTextChanged(s: TerminalSession) {}
+    override fun onTextChanged(s: TerminalSession) {
+        refreshTerminal()
+    }
     override fun onCopyTextToClipboard(s: TerminalSession, t: String) {}
     override fun onPasteTextFromClipboard(s: TerminalSession) {}
     override fun getTerminalCursorStyle() = 0
     override fun onBell(s: TerminalSession) {}
-    override fun onColorsChanged(s: TerminalSession) {}
-    override fun onTerminalCursorStateChange(b: Boolean) {}
+    override fun onColorsChanged(s: TerminalSession) {
+        refreshTerminal()
+    }
+    override fun onTerminalCursorStateChange(b: Boolean) {
+        refreshTerminal()
+    }
     override fun logError(t: String?, m: String?) {}
     override fun logWarn(t: String?, m: String?) {}
     override fun logInfo(t: String?, m: String?) {}
@@ -257,6 +302,14 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     override fun logStackTrace(t: String?, e: Exception?) {}
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun refreshTerminal() {
+        if (!::terminalView.isInitialized) return
+        terminalView.post {
+            terminalView.onScreenUpdated()
+            terminalView.postInvalidateOnAnimation()
+        }
+    }
 
     private inner class ViewClient : TerminalViewClient {
         override fun onScale(scale: Float): Float {

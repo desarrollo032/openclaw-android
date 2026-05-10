@@ -102,12 +102,32 @@ class OpenClawTerminalManager(private val context: Context) {
 
     private fun ensureShellRc(): File {
         val payload = payloadDir.absolutePath
+        val native = nativeDir.absolutePath
+        val libs = "$native:$payload/glibc/lib"
+        val loader = "$native/libldlinux.so"
+        val node = "$native/libnode.so"
+        val openclaw = "$payload/lib/node_modules/openclaw/openclaw.mjs"
+        val npm = "$payload/lib/node_modules/npm/bin/npm-cli.js"
         val rc = File(context.filesDir, "openclaw-terminal.rc")
         rc.writeText("""
             PS1='$ '
-            openclaw() { sh "$payload/bin/openclaw" "$@"; }
-            node() { sh "$payload/bin/node" "$@"; }
-            npm() { sh "$payload/bin/npm" "$@"; }
+            node() {
+              unset LD_PRELOAD
+              LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" "$@"
+            }
+            openclaw() {
+              unset LD_PRELOAD
+              LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" --disable-warning=ExperimentalWarning "$openclaw" "$@"
+            }
+            npm() {
+              if [ -f "$npm" ]; then
+                unset LD_PRELOAD
+                LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" "$npm" "$@"
+              else
+                echo "npm: no incluido"
+                return 127
+              fi
+            }
             export PS1
         """.trimIndent())
         return rc

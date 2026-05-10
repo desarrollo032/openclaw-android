@@ -63,6 +63,7 @@
         <activity
             android:name=".OpenClawTerminalActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|screenLayout|smallestScreenSize"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/AppTheme" />

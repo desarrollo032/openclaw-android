@@ -282,8 +282,11 @@ object OpenClawInstaller {
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
             LINKER="$linker"
             NODE_LIB="$nodeLib"
+            LIBS="$nativeDir:${'$'}PAYLOAD_DIR/glibc/lib"
 
-            exec "${'$'}LINKER" "${'$'}NODE_LIB" "${'$'}@"
+            unset LD_PRELOAD
+            export LD_LIBRARY_PATH="${'$'}LIBS"
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" "${'$'}@"
         """.trimIndent())
         nodeWrapper.chmodWithOs()
 
@@ -295,7 +298,13 @@ object OpenClawInstaller {
             #!/system/bin/sh
             BIN_DIR=${'$'}(dirname "${'$'}0")
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
-            exec sh "${'$'}BIN_DIR/node" "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
+            LINKER="$linker"
+            NODE_LIB="$nodeLib"
+            LIBS="$nativeDir:${'$'}PAYLOAD_DIR/glibc/lib"
+
+            unset LD_PRELOAD
+            export LD_LIBRARY_PATH="${'$'}LIBS"
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" --disable-warning=ExperimentalWarning "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
         """.trimIndent())
         openClawWrapper.chmodWithOs()
 
@@ -307,16 +316,21 @@ object OpenClawInstaller {
             #!/system/bin/sh
             BIN_DIR=${'$'}(dirname "${'$'}0")
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
-            exec sh "${'$'}BIN_DIR/node" "${'$'}PAYLOAD_DIR/$npmPathRel" "${'$'}@"
+            NPM_CLI="${'$'}PAYLOAD_DIR/$npmPathRel"
+            if [ ! -f "${'$'}NPM_CLI" ]; then
+                echo "npm: no incluido"
+                exit 127
+            fi
+            exec sh "${'$'}BIN_DIR/node" "${'$'}NPM_CLI" "${'$'}@"
         """.trimIndent())
         npmWrapper.chmodWithOs()
 
         // Crear .mkshrc para alias automáticos en el terminal
         val mkshrc = File(base, ".mkshrc")
         mkshrc.writeText("""
-            alias node='sh "${File(binDir, "node").absolutePath}"'
-            alias npm='sh "${File(binDir, "npm").absolutePath}"'
-            alias openclaw='sh "${File(binDir, "openclaw").absolutePath}"'
+            node() { sh "${File(binDir, "node").absolutePath}" "${'$'}@"; }
+            npm() { sh "${File(binDir, "npm").absolutePath}" "${'$'}@"; }
+            openclaw() { sh "${File(binDir, "openclaw").absolutePath}" "${'$'}@"; }
             export PATH=${binDir.absolutePath}:${'$'}PATH
         """.trimIndent())
 

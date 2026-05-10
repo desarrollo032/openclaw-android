@@ -234,10 +234,7 @@ class AndroidBridge(
     @JavascriptInterface
     fun launchInteractiveCommand(command: String) {
         activity.runOnUiThread {
-            val intent = Intent(activity, OpenClawTerminalActivity::class.java).apply {
-                putExtra("initial_command", command)
-            }
-            activity.startActivity(intent)
+            OpenClawTerminalActivity.launchWithCommand(activity, command)
         }
     }
 
