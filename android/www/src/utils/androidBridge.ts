@@ -74,6 +74,10 @@ export const AndroidBridge = {
     return window.OpenClaw?.runCommand(cmd) ?? '';
   },
 
+  getSystemInfo: (): string => {
+    return window.OpenClaw?.getSystemInfo() ?? '{}';
+  },
+
   getAppInfo: (): string => {
     return window.OpenClaw?.getAppInfo() ?? '';
   },

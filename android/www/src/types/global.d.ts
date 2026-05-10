@@ -16,6 +16,7 @@ declare global {
       showTerminal(): void;
       launchInteractiveCommand(command: string): void;
       runCommand(command: string): string;
+      getSystemInfo(): string;
       getAppInfo(): string;
       getStorageInfo(): string;
       getGatewayToken(): string;
