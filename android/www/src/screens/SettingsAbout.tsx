@@ -9,6 +9,12 @@ interface AppInfo {
   packageName: string
 }
 
+interface SystemInfo {
+  nodeVersion?: string
+  openclawVersion?: string
+  gitVersion?: string
+}
+
 export function SettingsAbout() {
   const { navigate } = useRoute()
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
@@ -25,9 +31,10 @@ export function SettingsAbout() {
       const apkInfo = bridge.callJson<{ updateAvailable?: boolean }>('getApkUpdateInfo')
       if (apkInfo?.updateAvailable) setApkUpdateAvailable(true)
 
-      const nodeV = bridge.callJson<{ stdout: string }>('runCommand', 'node -v 2>/dev/null')
-      const gitV = bridge.callJson<{ stdout: string }>('runCommand', 'git --version 2>/dev/null')
-      const oaV = bridge.callJson<{ stdout: string }>('runCommand', 'openclaw --version 2>/dev/null | head -1')
+      const systemInfo = bridge.callJson<SystemInfo>('getSystemInfo') ?? {}
+      const nodeV = { stdout: systemInfo.nodeVersion && systemInfo.nodeVersion !== 'unknown' ? systemInfo.nodeVersion : '' }
+      const gitV = { stdout: systemInfo.gitVersion === 'no incluido' ? 'No incluido' : systemInfo.gitVersion || '' }
+      const oaV = { stdout: systemInfo.openclawVersion && systemInfo.openclawVersion !== 'unknown' ? systemInfo.openclawVersion : '' }
       
       setScriptVersion(oaV?.stdout?.trim() || '—')
       setRuntimeInfo({

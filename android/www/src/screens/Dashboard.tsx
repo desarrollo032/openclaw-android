@@ -15,6 +15,11 @@ import { InstallationCard } from '../components/InstallationCard'
 import { t } from '../i18n'
 
 interface AppInfo { versionName: string; versionCode: number; packageName: string }
+interface SystemInfo {
+  nodeVersion?: string
+  openclawVersion?: string
+  gitVersion?: string
+}
 
 // ── Icon map con las exactas de la imagen ─────────────────────────────────────
 const CMD_ROWS = [
@@ -37,16 +42,43 @@ export function Dashboard() {
   const [gitVer,  setGitVer]  = useState<string | null>(null)
   const [lastFile, setLastFile] = useState<string | null>(null)
 
-  const refreshVersions = useCallback(() => {
-    if (!bridge.isAvailable()) return
-    const vNode = bridge.callJson<{ stdout?: string }>('runCommand', 'node -v')
-    const vOC   = bridge.callJson<{ stdout?: string }>('runCommand', 'openclaw --version')
-    const vGit  = bridge.callJson<{ stdout?: string }>('runCommand', 'git --version')
-    
-    if (vNode?.stdout) setNodeVer(vNode.stdout.trim().split('\n')[0])
-    if (vOC?.stdout) setOcVer(vOC.stdout.trim().split('\n')[0])
-    if (vGit?.stdout) setGitVer(vGit.stdout.trim().replace('git version ', ''))
+  const getBridgeSystemInfo = useCallback((): SystemInfo => {
+    if (!bridge.isAvailable()) return {}
+    return bridge.callJson<SystemInfo>('getSystemInfo') ?? {}
   }, [])
+
+  const refreshVersions = useCallback(async () => {
+    if (!bridge.isAvailable()) return
+    let info: SystemInfo | null = null
+
+    try {
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 2000)
+      const res = await fetch('http://127.0.0.1:18789/api/status', {
+        headers: {
+          Authorization: `Bearer ${window.OpenClaw?.getAuthToken() ?? ''}`,
+        },
+        signal: controller.signal,
+      })
+      window.clearTimeout(timeout)
+
+      if (res.ok) {
+        const data = await res.json()
+        info = {
+          nodeVersion: data.nodeVersion,
+          openclawVersion: data.version,
+          gitVersion: 'no incluido',
+        }
+      }
+    } catch {
+      info = null
+    }
+
+    info ??= getBridgeSystemInfo()
+    setNodeVer(info.nodeVersion && info.nodeVersion !== 'unknown' ? info.nodeVersion : 'unknown')
+    setOcVer(info.openclawVersion && info.openclawVersion !== 'unknown' ? info.openclawVersion : 'unknown')
+    setGitVer(info.gitVersion || 'no incluido')
+  }, [getBridgeSystemInfo])
 
   // Suscribirse a eventos nativos
   useEffect(() => {
@@ -61,17 +93,19 @@ export function Dashboard() {
     window.addEventListener('onMigrationFilePicked', onFilePicked)
     
     const onGatewayReady = () => {
-      refreshVersions()
+      void refreshVersions()
     }
+    window.addEventListener('android:onGatewayReady', onGatewayReady)
     window.addEventListener('onGatewayReady', onGatewayReady)
     
     // Intento inicial
-    refreshVersions()
-    const t1 = setTimeout(refreshVersions, 2000)
-    const t2 = setTimeout(refreshVersions, 5000)
+    void refreshVersions()
+    const t1 = setTimeout(() => void refreshVersions(), 2000)
+    const t2 = setTimeout(() => void refreshVersions(), 5000)
 
     return () => {
       window.removeEventListener('onMigrationFilePicked', onFilePicked)
+      window.removeEventListener('android:onGatewayReady', onGatewayReady)
       window.removeEventListener('onGatewayReady', onGatewayReady)
       clearTimeout(t1)
       clearTimeout(t2)
@@ -87,9 +121,9 @@ export function Dashboard() {
   }, [])
 
   const envTools = [
-    { icon: '⬡',  label: 'Node.js',   value: nodeVer,  color: '#6366f1', installed: !!nodeVer },
-    { icon: '⎇',  label: 'git',       value: gitVer,   color: '#22d3ee', installed: !!gitVer },
-    { icon: '🦀', label: 'openclaw',  value: ocVer,    color: '#f97316', installed: !!ocVer  },
+    { icon: '⬡',  label: 'Node.js',   value: nodeVer,  color: '#6366f1', installed: !!nodeVer && nodeVer !== 'unknown' },
+    { icon: '⎇',  label: 'git',       value: gitVer === 'no incluido' ? 'No incluido' : gitVer, color: '#22d3ee', installed: false },
+    { icon: '🦀', label: 'openclaw',  value: ocVer,    color: '#f97316', installed: !!ocVer && ocVer !== 'unknown'  },
   ]
 
   return (
