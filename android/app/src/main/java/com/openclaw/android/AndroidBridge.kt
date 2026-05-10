@@ -5,12 +5,14 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -298,7 +300,7 @@ class AndroidBridge(
 
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
-            
+
             JSONObject().apply {
                 put("stdout", output)
                 put("exitCode", process.exitValue())
@@ -324,6 +326,7 @@ class AndroidBridge(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     @JavascriptInterface
     fun getSystemInfo(): String {
         val nativeDir = File(activity.applicationInfo.nativeLibraryDir)
@@ -539,14 +542,14 @@ class AndroidBridge(
         return try {
             // Validar JSON primero
             org.json.JSONObject(content)
-            
+
             val configDir = OpenClawInstaller.getConfigDir(activity)
             if (!configDir.exists()) {
                 configDir.mkdirs()
             }
             val configFile = java.io.File(configDir, "openclaw.json")
             configFile.writeText(content)
-            
+
             JSONObject().apply {
                 put("success", true)
             }.toString()

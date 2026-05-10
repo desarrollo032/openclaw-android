@@ -95,7 +95,16 @@ export function getProviderMeta(providerId: string) {
 
 async function httpGet<T>(path: string): Promise<T | null> {
     try {
-        const r = await fetch(`${GATEWAY_HTTP}${path}`, { signal: AbortSignal.timeout(5000) })
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        const token = (window as unknown as { __OPENCLAW_TOKEN?: string }).__OPENCLAW_TOKEN
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`
+        }
+        
+        const r = await fetch(`${GATEWAY_HTTP}${path}`, { 
+            headers,
+            signal: AbortSignal.timeout(5000) 
+        })
         if (!r.ok) return null
         return await r.json() as T
     } catch {
@@ -105,9 +114,15 @@ async function httpGet<T>(path: string): Promise<T | null> {
 
 async function httpPost<T>(path: string, body: unknown): Promise<T | null> {
     try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        const token = (window as unknown as { __OPENCLAW_TOKEN?: string }).__OPENCLAW_TOKEN
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`
+        }
+        
         const r = await fetch(`${GATEWAY_HTTP}${path}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(5000),
         })
@@ -122,8 +137,17 @@ async function httpPost<T>(path: string, body: unknown): Promise<T | null> {
 
 function getAndroidToken(): string {
     try {
-        // window.OpenClaw is injected by the Android WebView bridge
-        const bridge = (window as unknown as { OpenClaw?: { getGatewayToken?: () => string } }).OpenClaw
+        // Primero intentar la variable global (más nueva)
+        const globalToken = (window as unknown as { __OPENCLAW_TOKEN?: string }).__OPENCLAW_TOKEN
+        if (globalToken) {
+            return globalToken
+        }
+        
+        // Fallback al bridge Android
+        const bridge = (window as unknown as { OpenClaw?: { getGatewayToken?: () => string, getAuthToken?: () => string } }).OpenClaw
+        if (bridge?.getAuthToken) {
+            return bridge.getAuthToken() ?? ''
+        }
         if (bridge?.getGatewayToken) {
             return bridge.getGatewayToken() ?? ''
         }

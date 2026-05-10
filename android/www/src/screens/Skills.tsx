@@ -1,42 +1,55 @@
-import { useState, useEffect } from 'react'
-import { api } from '../lib/api'
+import { useState, useEffect, useCallback } from 'react'
+import { getSkills, toggleSkill } from '../api/gateway'
+import { useGatewayStatus } from '../hooks/useGatewayStatus'
 
 interface Skill {
   id: string
-  name: string
-  description: string
-  active: boolean
-  version: string
+  name?: string
+  description?: string
+  active?: boolean
+  version?: string
 }
 
 export function Skills() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const { reachability } = useGatewayStatus()
+  const online = reachability === 'online'
 
-  const loadSkills = async () => {
+  const loadSkills = useCallback(async () => {
+    if (!online) {
+      setError('Gateway no está disponible')
+      setLoading(false)
+      return
+    }
+    
     setLoading(true)
+    setError(null)
     try {
-      const data = await api.getSkills()
-      setSkills((data as Skill[]) || [])
+      const data = await getSkills()
+      setSkills(Array.isArray(data) ? (data as Skill[]) : [])
     } catch (e) {
       console.error(e)
+      setError('No se pudieron cargar los skills')
+      setSkills([])
     } finally {
       setLoading(false)
     }
-  }
+  }, [online])
 
   useEffect(() => {
     loadSkills()
-  }, [])
+  }, [loadSkills])
 
-  const toggleSkill = async (id: string) => {
+  const toggleSkillHandler = useCallback(async (id: string) => {
     try {
-      await api.toggleSkill(id)
-      setSkills(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s))
+      await toggleSkill(id)
+      setSkills(prev => prev.map(s => (s.id === id ? { ...s, active: !s.active } : s)))
     } catch (e) {
       console.error(e)
     }
-  }
+  }, [])
 
   return (
     <div style={S.page}>
@@ -44,7 +57,21 @@ export function Skills() {
         <div style={S.title}>Skills y Capacidades</div>
       </div>
 
-      <div style={S.sectionLabel}>CAPACIDADES INSTALADAS</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={S.sectionLabel}>CAPACIDADES INSTALADAS</div>
+        <button 
+          onClick={loadSkills} 
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', color: 'var(--text2)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+        >
+          ↻ Actualizar
+        </button>
+      </div>
+      
+      {error && (
+        <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#fca5a5', fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
       
       {loading ? (
         <div style={S.emptyState}>
@@ -59,32 +86,34 @@ export function Skills() {
       ) : (
         <div style={S.card}>
           {skills.map((skill, i) => (
-            <div key={skill.id} style={{ ...S.itemRow, borderBottom: i < skills.length - 1 ? '1px solid var(--border)' : 'none' }}>
+            <div key={skill.id || i} style={{ ...S.itemRow, borderBottom: i < skills.length - 1 ? '1px solid var(--border)' : 'none' }}>
               <div style={{ ...S.iconBox, background: skill.active ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${skill.active ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.1)'}` }}>
                 <span style={{ fontSize: 18 }}>{skill.active ? '✅' : '💤'}</span>
               </div>
               
               <div style={S.itemText}>
-                <div style={S.itemName}>{skill.name}</div>
-                <div style={S.itemDesc}>{skill.description}</div>
+                <div style={S.itemName}>{skill.name || skill.id}</div>
+                <div style={S.itemDesc}>{skill.description || 'Sin descripción'}</div>
               </div>
 
-              <button 
-                onClick={() => toggleSkill(skill.id)}
-                style={{ 
-                  ...S.statusBadge, 
-                  background: skill.active ? '#4ade80' : 'var(--surface2)',
-                  color: skill.active ? '#064e3b' : 'var(--text3)',
-                  border: `1px solid ${skill.active ? '#4ade80' : 'var(--border)'}`
-                }}
-              >
-                {skill.active ? 'ACTIVO' : 'INACTIVO'}
-              </button>
+              {skill.id && (
+                <button 
+                  onClick={() => toggleSkillHandler(skill.id)}
+                  style={{ 
+                    ...S.statusBadge, 
+                    background: skill.active ? '#4ade80' : 'var(--surface2)',
+                    color: skill.active ? '#064e3b' : 'var(--text3)',
+                    border: `1px solid ${skill.active ? '#4ade80' : 'var(--border)'}`
+                  }}
+                >
+                  {skill.active ? 'ACTIVO' : 'INACTIVO'}
+                </button>
+              )}
             </div>
           ))}
         </div>
       )}
-
+      
       <div style={{ ...S.card, marginTop: 24, padding: 16, borderStyle: 'dashed', background: 'rgba(255,255,255,0.02)' }}>
         <div style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 13, lineHeight: 1.5 }}>
           Puedes instalar nuevas habilidades desde la terminal con el comando <code style={S.inlineCode}>openclaw skills --install</code>.

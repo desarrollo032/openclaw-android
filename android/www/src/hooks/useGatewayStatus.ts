@@ -41,11 +41,18 @@ export function useGatewayStatus(): UseGatewayStatusResult {
     }
     if (nativeState === 'FAILED') {
       if (mountedRef.current) setReachability('unreachable')
+      setError('Gateway falló')
       if (!silent && mountedRef.current) setIsLoading(false)
       return
     }
+    
+    // Si el estado nativo es READY, marcar como online incluso antes del HTTP check
+    if (nativeState === 'READY') {
+      if (mountedRef.current) setReachability('online')
+      setError(null)
+    }
 
-    // 2. HTTP health check
+    // 2. HTTP health check (opcional, para obtener datos adicionales)
     try {
       const [h, s] = await Promise.allSettled([getHealth(), getStatus()])
 
@@ -53,24 +60,20 @@ export function useGatewayStatus(): UseGatewayStatusResult {
 
       if (h.status === 'fulfilled') {
         setHealth(h.value)
-        setReachability(h.value.status === 'ok' ? 'online' : 'unreachable')
+        setReachability(h.value.status === 'ok' ? 'online' : (nativeState === 'READY' ? 'online' : 'unreachable'))
+        setError(null)
+      }
+      
+      if (s.status === 'fulfilled') setStatus(s.value)
+    } catch {
+      // Si el HTTP falla pero el estado nativo es READY, mantener online sin error
+      if (nativeState === 'READY') {
+        if (mountedRef.current) setReachability('online')
         setError(null)
       } else {
-        // Health falló — usar estado nativo si disponible
-        if (nativeState === 'READY') {
-          setReachability('online')
-          setError(null)
-        } else {
-          setReachability('unreachable')
-          setError('Gateway no responde')
-        }
+        if (mountedRef.current) setReachability('unreachable')
+        setError('Gateway no responde')
       }
-
-      if (s.status === 'fulfilled') setStatus(s.value)
-    } catch (err) {
-      if (!mountedRef.current) return
-      setReachability('unreachable')
-      setError((err as Error).message ?? 'Error de red')
     } finally {
       if (mountedRef.current && !silent) setIsLoading(false)
     }

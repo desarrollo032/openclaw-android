@@ -5,6 +5,7 @@ import {
   fetchModels, fetchGatewayConfig, patchGatewayConfig, setActiveModel,
   getProviderMeta, type ModelEntry,
 } from '../lib/gateway'
+import { useGatewayStatus } from '../hooks/useGatewayStatus'
 
 interface LocalPrefs {
   notifications: boolean
@@ -25,9 +26,20 @@ export function Settings() {
   const [modelSearch, setModelSearch] = useState('')
   const [showAllModels, setShowAllModels] = useState(false)
   const [providerFilter, setProviderFilter] = useState<string>('all')
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  
+  const { reachability } = useGatewayStatus()
+  const online = reachability === 'online'
 
   const load = useCallback(async () => {
+    if (!online) {
+      setModelsError('Gateway no está disponible')
+      setModelsLoading(false)
+      return
+    }
+    
     setModelsLoading(true)
+    setModelsError(null)
     try {
       const [cfg, mdls] = await Promise.all([
         fetchGatewayConfig(),
@@ -41,12 +53,15 @@ export function Settings() {
         setContextSize((cfg.agents?.defaults as Record<string, unknown>)?.['contextTokens'] as number ?? 32000)
       }
       setModels(mdls)
+    } catch (e) {
+      setModelsError('Error al cargar los modelos')
+      console.error(e)
     } finally {
       setModelsLoading(false)
     }
-  }, [])
+  }, [online])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, online])
 
   const showSaved = (msg = '✓ Guardado') => {
     setSavedMsg(msg)
@@ -128,6 +143,24 @@ export function Settings() {
               <div style={S.spinnerDark} />
               <span style={{ marginTop: 8 }}>Cargando modelos...</span>
             </div>
+          ) : modelsError ? (
+            <div style={S.emptyState}>
+              <span style={{ fontSize: 24, marginBottom: 8 }}>⚠️</span>
+              <span style={{ textAlign: 'center' }}>{modelsError}</span>
+              <button 
+                style={{ ...S.actionBtn, width: 'auto', padding: '6px 16px', marginTop: 12, opacity: modelsLoading ? 0.6 : 1 }} 
+                onClick={load}
+                disabled={modelsLoading || !online}
+                aria-label="Reintentar cargar modelos"
+                aria-busy={modelsLoading}
+              >
+                {modelsLoading ? (
+                  <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 4 }}>⟳</span>Reintentando...</>
+                ) : (
+                  'Reintentar'
+                )}
+              </button>
+            </div>
           ) : models.length === 0 ? (
             <div style={S.emptyState}>
               <span style={{ fontSize: 24, marginBottom: 8 }}>⚠️</span>
@@ -135,7 +168,7 @@ export function Settings() {
               <button 
                 style={{ ...S.actionBtn, width: 'auto', padding: '6px 16px', marginTop: 12, opacity: modelsLoading ? 0.6 : 1 }} 
                 onClick={load}
-                disabled={modelsLoading}
+                disabled={modelsLoading || !online}
                 aria-label="Reintentar cargar modelos"
                 aria-busy={modelsLoading}
               >

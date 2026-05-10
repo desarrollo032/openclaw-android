@@ -20,9 +20,9 @@ export function SettingsAdvanced() {
       if (bridge.isAvailable()) {
         let t = ''
         try {
-          t = window.__OPENCLAW_TOKEN || ''
+          t = bridge.call('getAuthToken') || ''
           if (!t) t = bridge.call('getGatewayToken') || ''
-          if (!t) t = bridge.call('getAuthToken') || ''
+          if (!t) t = window.__OPENCLAW_TOKEN || ''
         } catch {
           t = ''
         }

@@ -152,33 +152,39 @@ object OpenClawInstaller {
             base.deleteRecursivelySafe()
             base.mkdirs()
 
-            val payloadOk = payloadFile?.inputStream()?.use { raw ->
-                val tracked = ProgressInputStream(raw, payloadFile.length()) { read, total ->
-                    onProgress(progressJson(1, payloadFile.name, read, total, ""))
+            val payloadOk: Boolean
+            if (payloadFile != null) {
+                payloadOk = payloadFile.inputStream().use { raw ->
+                    val tracked = ProgressInputStream(raw, payloadFile.length()) { read, total ->
+                        onProgress(progressJson(1, payloadFile.name, read, total, ""))
+                    }
+                    extractTarXzFromStream(tracked, base)
                 }
-                extractTarXzFromStream(tracked, base)
-            }
-                ?: context.extractTarXz(PAYLOAD_ASSET_NAME, base) { _, read, total, currentFile ->
+            } else {
+                payloadOk = context.extractTarXz(PAYLOAD_ASSET_NAME, base) { _, read, total, currentFile ->
                     onProgress(progressJson(1, PAYLOAD_ASSET_NAME, read, total, currentFile))
                 }
+            }
             if (!payloadOk) throw Exception("Fallo en extraccion de ${payloadFile?.name ?: PAYLOAD_ASSET_NAME}")
 
             deployScripts(context, base)
             fixPermissions(base)
 
-            val migrationOk = migrationFile?.inputStream()?.use { raw ->
-                val tracked = ProgressInputStream(raw, migrationFile.length()) { read, total ->
-                    onProgress(progressJson(2, migrationFile.name, read, total, ""))
-                }
-                extractTarGzFromStream(tracked, context.filesDir)
-            }
-                ?: if (assetExists(context, MIGRATION_ASSET_NAME)) {
-                    context.extractTarGz(MIGRATION_ASSET_NAME, context.filesDir) { _, read, total, currentFile ->
-                        onProgress(progressJson(2, MIGRATION_ASSET_NAME, read, total, currentFile))
+            val migrationOk: Boolean
+            if (migrationFile != null) {
+                migrationOk = migrationFile.inputStream().use { raw ->
+                    val tracked = ProgressInputStream(raw, migrationFile.length()) { read, total ->
+                        onProgress(progressJson(2, migrationFile.name, read, total, ""))
                     }
-                } else {
-                    true
+                    extractTarGzFromStream(tracked, context.filesDir)
                 }
+            } else if (assetExists(context, MIGRATION_ASSET_NAME)) {
+                migrationOk = context.extractTarGz(MIGRATION_ASSET_NAME, context.filesDir) { _, read, total, currentFile ->
+                    onProgress(progressJson(2, MIGRATION_ASSET_NAME, read, total, currentFile))
+                }
+            } else {
+                migrationOk = true
+            }
             if (!migrationOk) {
                 throw Exception("Fallo en extraccion de ${migrationFile?.name ?: MIGRATION_ASSET_NAME}")
             }

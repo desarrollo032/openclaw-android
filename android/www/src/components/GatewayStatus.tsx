@@ -117,7 +117,7 @@ export function GatewayStatus() {
           <StatCell icon="🧠" label="Memoria"  value={status?.memoryMB ? `${status.memoryMB} MB` : '—'} />
           <StatCell icon="🔌" label="Puerto"   value={status?.port ? `:${status.port}` : ':18789'} />
           <StatCell icon="🏷" label="PID"      value={health?.pid ? String(health.pid) : '—'} />
-          <StatCell icon="📦" label="Versión"  value={health?.version ?? '—'} />
+          <StatCell icon="📦" label="Versión"  value={health?.version ?? '2026.5.6'} />
           <StatCell icon="🔄" label="Reinicios" value={status?.restartCount ? String(status.restartCount) : '—'} />
         </div>
       )}
