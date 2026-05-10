@@ -170,6 +170,8 @@ object OpenClawInstaller {
                         file.setWritable(true, false)
                         if (file.isDirectory || file.path.contains("/bin/") || file.path.contains("/lib/") || file.name.endsWith(".sh")) {
                             file.setExecutable(true, false)
+                        } else {
+                            // Keep readable for non-executable files
                         }
                         file.chmodWithOs()
                     } catch (e: Exception) {
