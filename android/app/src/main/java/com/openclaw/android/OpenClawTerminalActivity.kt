@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -50,6 +51,16 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     override fun onResume() { super.onResume(); terminalView.requestFocus() }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent) // Actualizar el intent de la actividad
+        
+        // Si recibimos un comando y ya hay una sesión, ejecutarlo
+        intent.getStringExtra("initial_command")?.let { cmd ->
+            terminalSession?.write("$cmd\n")
+        }
+    }
 
     override fun onDestroy() {
         super.onDestroy()
