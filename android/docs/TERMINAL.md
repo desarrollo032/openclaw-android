@@ -24,6 +24,13 @@ La terminal en Android es difícil de usar con el teclado virtual estándar. Por
 * **CTRL / ALT**: Modificadores persistentes (se quedan "pulsados" para la siguiente tecla).
 * **Flechas**: Navegación por el historial de comandos y edición de línea.
 
+## 📋 Copiar y Pegar
+
+La terminal soporta copiar y pegar texto con el portapapeles del sistema:
+- **Copiar**: Selecciona texto y el sistema lo copia automáticamente al portapapeles. Muestra un Toast de confirmación.
+- **Pegar**: El texto del portapapeles se inserta directamente en la terminal.
+- **Callbacks**: Implementa `onCopyTextToClipboard` y `onPasteTextFromClipboard` de la librería de Termux.
+
 ## 📂 Simlinks de Busybox
 
 Para que comandos como `ls` funcionen simplemente escribiendo `ls` (y no `busybox ls`), el `OpenClawTerminalManager` crea symlinks en la carpeta `bin` del payload durante la instalación:

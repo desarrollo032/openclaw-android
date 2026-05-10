@@ -1,7 +1,10 @@
 package com.openclaw.android
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.*
@@ -9,6 +12,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewAssetLoader
 import com.openclaw.android.databinding.ActivityDashboardBinding
@@ -27,6 +31,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     }
     
     internal lateinit var filePicker: ActivityResultLauncher<String>
+    private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
 
     companion object {
         private const val TAG = "Dashboard"
@@ -49,6 +54,18 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         binding = ActivityDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Registrar launcher para permisos de notificación
+        notificationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (isGranted) {
+                Log.i(TAG, "Notification permission granted")
+            } else {
+                Log.i(TAG, "Notification permission denied")
+            }
+            OpenClawPreferences.isNotificationPermissionRequested = true
+        }
+
         filePicker = registerForActivityResult(
             ActivityResultContracts.GetContent()
         ) { uri: Uri? ->
@@ -59,6 +76,9 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         binding.webView.clearCache(true)
         binding.webView.loadUrl(DASHBOARD_URL)
 
+        // Verificar permisos de notificación al iniciar la actividad
+        checkAndRequestNotificationPermission()
+
         lifecycleScope.launch {
             OpenClawGatewayService.state.collect { state ->
                 if (state == GatewayState.READY) {
@@ -66,6 +86,60 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Verifica y solicita permiso de notificaciones si es necesario
+     */
+    private fun checkAndRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // No es necesario solicitar permiso en versiones anteriores a Android 13
+            return
+        }
+
+        when {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED -> {
+                // Permiso ya concedido
+                Log.i(TAG, "Notification permission already granted")
+            }
+            shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) -> {
+                // Mostrar rationale antes de solicitar permiso
+                showNotificationPermissionRationale()
+            }
+            else -> {
+                // Solicitar permiso directamente
+                if (!OpenClawPreferences.isNotificationPermissionRequested) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+        }
+    }
+
+    /**
+     * Muestra un diálogo explicando por qué necesitamos el permiso de notificaciones
+     */
+    private fun showNotificationPermissionRationale() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.notification_permission_title)
+            .setMessage(R.string.notification_permission_rationale)
+            .setPositiveButton(R.string.grant_permission) { _, _ ->
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            .setNegativeButton(R.string.not_now, null)
+            .show()
+    }
+
+    /**
+     * Solicita iniciar el gateway, primero verificando permisos
+     */
+    internal fun startGatewayWithPermissionCheck() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            checkAndRequestNotificationPermission()
+        }
+        OpenClawGatewayService.start(this)
     }
 
     private fun handleFilePicked(uri: Uri) {

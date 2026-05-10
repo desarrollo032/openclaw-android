@@ -41,6 +41,12 @@ interface OpenClawBridge {
   getStorageInfo(): string
   clearCache(): void
   openUrl(url: string): void
+  // Background execution
+  isBackgroundExecutionEnabled(): string
+  setBackgroundExecutionEnabled(enabled: boolean): void
+  // OpenClaw config file
+  readOpenclawJson(): string
+  writeOpenclawJson(content: string): string
   // Gateway & logs
   getGatewayToken(): string
   getGatewayUrl(): string

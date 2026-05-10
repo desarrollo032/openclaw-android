@@ -1,66 +1,91 @@
-# Documentación Técnica - Arquitectura Autónoma
+# Technical Documentation - Autonomous Architecture
 
-Este documento describe la arquitectura interna de la implementación autónoma de OpenClaw en Android.
+This document describes the internal architecture of the autonomous OpenClaw implementation on Android.
 
-## 🏗 Arquitectura de Procesos
+## 🏗 Process Architecture
 
-A diferencia de la implementación estándar que depende de un entorno Linux completo (Termux/Proot), esta versión utiliza una ejecución directa de procesos mediante `ProcessBuilder`.
+Unlike the standard implementation that depends on a full Linux environment (Termux/Proot), this version uses direct process execution via `ProcessBuilder`.
 
-### 1. El Proceso Gateway
-El núcleo de la aplicación es un proceso de Node.js que se lanza con las siguientes características:
-- **Binario**: `context.filesDir/home/payload/bin/node`
+### 1. The Gateway Process
+The core of the application is a Node.js process launched with the following characteristics:
+- **Binary**: `context.filesDir/home/payload/bin/node`
 - **Script**: `context.filesDir/home/payload/lib/node_modules/openclaw/openclaw.mjs`
-- **Directorio de Trabajo**: `context.filesDir/home/payload`
+- **Working Directory**: `context.filesDir/home/payload`
 
-### 2. Aislamiento de Librerías (glibc)
-Para evitar conflictos con las librerías nativas de Android (Bionic), se utiliza un entorno de glibc pre-compilado:
-- Se inyecta la variable `LD_LIBRARY_PATH` apuntando a `payload/glibc/lib`.
-- Esto permite que el binario de Node.js (compilado para Linux estándar) encuentre sus dependencias de sistema.
+### 2. Library Isolation (glibc)
+To avoid conflicts with Android's native libraries (Bionic), a pre-compiled glibc environment is used:
+- The `LD_LIBRARY_PATH` variable is injected pointing to `payload/glibc/lib`.
+- This allows the Node.js binary (compiled for standard Linux) to find its system dependencies.
 
-## 🛠 Componentes de Software
+## 🛠 Software Components
 
-### Terminal Interactivo (`TerminalActivity.kt`)
-Implementación de un terminal completo usando librerías oficiales de Termux:
-- **Librerías**: `com.github.termux:terminal-emulator` y `com.github.termux:terminal-view` (v0.119.0)
-- **Shell**: `/system/bin/sh` (shell nativa de Android, sin dependencias externas)
-- **Características**:
-  - Emulación completa de terminal VT100/ANSI
-  - Soporte para entrada de teclado físico y virtual
-  - Scroll táctil y selección de texto
-  - Configuración de colores (16 colores ANSI) y tamaño de fuente
-  - Manejo de ciclo de vida (creación/destrucción de sesiones)
-- **Implementación**:
-  - `TerminalSession`: Maneja el proceso del shell y el emulador
-  - `TerminalView`: Widget visual para mostrar y interactuar con el terminal
-  - `TerminalSessionClient`: Callbacks para eventos de la sesión
-  - `TerminalViewClient`: Callbacks para eventos de la vista (gestos, teclas)
+### Interactive Terminal (`TerminalActivity.kt`)
+Complete terminal implementation using official Termux libraries:
+- **Libraries**: Local AAR files: `terminal-emulator.aar` and `terminal-view.aar`
+- **Shell**: `/system/bin/sh` (native Android shell, no external dependencies)
+- **Features**:
+  - Full VT100/ANSI terminal emulation
+  - Support for physical and virtual keyboard input
+  - Touch scroll and text selection
+  - Color configuration (16 ANSI colors) and font size
+  - Lifecycle management (session creation/destruction)
+  - **Copy and Paste**: Full clipboard support with Toast confirmation
+- **Implementation**:
+  - `TerminalSession`: Manages the shell process and emulator
+  - `TerminalView`: Visual widget to display and interact with the terminal
+  - `TerminalSessionClient`: Callbacks for session events (including copy/paste)
+  - `TerminalViewClient`: Callbacks for view events (gestures, keys)
 
-### Extracción Robusta (`OpenClawExtensions.kt`)
-Se utilizan librerías de `org.apache.commons:commons-compress` y `org.tukaani:xz` para manejar la descompresión en streaming:
-- Evita cargar archivos grandes en memoria.
-- Preserva los bits de ejecución (`chmod`) necesarios para los binarios.
+### Robust Extraction (`OpenClawExtensions.kt`)
+Libraries from `org.apache.commons:commons-compress` and `org.tukaani:xz` are used to handle streaming decompression:
+- Avoids loading large files into memory.
+- Preserves the execution bits (`chmod`) required for binaries.
 
-### Gestión de Ciclo de Vida (`OpenClawGatewayService.kt`)
-El servicio gestiona la persistencia:
-- **Foreground Service**: Previene que Android mate el proceso para ahorrar batería.
-- **Supervisor Job**: Mantiene una corrutina dedicada a monitorear la salud del proceso hijo.
-- **Environment Management**: Configura dinámicamente el `PATH` y el `TMPDIR` para que Node.js funcione correctamente en el almacenamiento interno.
+### Lifecycle Management (`OpenClawGatewayService.kt`)
+The service manages persistence:
+- **Foreground Service**: Prevents Android from killing the process to save battery.
+- **Persistent Notification**: Shows status, uptime, and direct actions (Restart, View logs).
+- **Supervisor Job**: Maintains a dedicated coroutine to monitor the health of the child process.
+- **Environment Management**: Dynamically configures `PATH` and `TMPDIR` for Node.js to work correctly on internal storage.
+- **Centralized Logging**: Captures stdout/stderr with automatic redaction of sensitive tokens.
+- **Uptime Tracking**: Records and exposes process uptime in seconds.
+- **Health Check & Auto-restart**: Monitors the process and automatically restarts if it fails.
 
-## 🌐 Comunicación (WebUI)
+### Android Bridge (`AndroidBridge.kt`)
+Bidirectional communication bridge between React and Android:
+- **Standard `window.OpenClaw`**: Unified native access under a single global object
+- **Comprehensive Methods**: Setup, gateway control, terminal access, file picking, system info, battery optimization, storage management, and more
+- **Event System**: Supports both `android:` and `native:` event prefixes for flexibility
+- **Async Operations**: File picking and command execution with callback mechanisms
+- **Platform/Tool Management**: Methods for installing/uninstalling platforms and tools
 
-- **Localhost Only**: El servidor escucha únicamente en `127.0.0.1:18789`.
-- **WebView Bridge**: Se utiliza `WebView` con `JavaScriptEnabled` y `DomStorageEnabled` para renderizar el Dashboard de React.
-- **Wait Mechanism**: `OpenClawDashboardActivity` implementa un bucle de polling sobre el endpoint `/health` antes de intentar cargar la página, evitando errores de "Connection Refused".
+## 🌐 Communication (WebUI)
 
-## 🔒 Seguridad y Almacenamiento
+- **Localhost Only**: The server listens only on `127.0.0.1:18789`.
+- **WebView Bridge**: `WebView` with `JavaScriptEnabled` and `DomStorageEnabled` is used to render the React Dashboard.
+- **Wait Mechanism**: `OpenClawDashboardActivity` implements a polling loop on the `/health` endpoint before attempting to load the page, avoiding "Connection Refused" errors.
 
-- **Sandbox Total**: No se requieren permisos de `READ_EXTERNAL_STORAGE` o `WRITE_EXTERNAL_STORAGE`. Todo ocurre en `context.filesDir`.
-- **Privacidad**: Los datos de configuración, memoria y plugins de la IA están protegidos por el sistema de archivos de Android y no son accesibles por otras apps.
+## 🔒 Security and Storage
 
-## 📱 Notas sobre Compatibilidad Android
+- **Total Sandbox**: No `READ_EXTERNAL_STORAGE` or `WRITE_EXTERNAL_STORAGE` permissions required. Everything happens in `context.filesDir`.
+- **Privacy**: Configuration, memory, and AI plugin data are protected by Android's filesystem and not accessible by other apps.
+- **Token Security**: Dashboard tokens are generated per launch, never persisted to disk, and automatically redacted from logs.
 
-### Android 11+ (API 30+) - Restricciones W^X
-Android 11 introdujo restricciones Write-Xor-Execute que pueden afectar la ejecución de binarios:
-- El terminal usa `/system/bin/sh` que es parte del sistema y funciona correctamente
-- Si hay problemas, verificar que el directorio de trabajo sea accesible (`/data/local/tmp`)
-- Las librerías de Termux manejan apropiadamente estas restricciones
+## 🛠 Build Automation
+
+**Vite lifecycle is integrated within Gradle**. No need to compile the frontend separately:
+
+1. When executing `./gradlew assembleDebug`, the system:
+   - Enters `android/www/`.
+   - Runs `npm run build`.
+   - Cleans and syncs assets to `src/main/assets/www/`.
+   - Copies maintenance scripts to `src/main/assets/scripts/`.
+2. The result is an APK that always contains the latest UI version and scripts.
+
+## 📱 Android Compatibility Notes
+
+### Android 11+ (API 30+) - W^X Restrictions
+Android 11 introduced Write-Xor-Execute restrictions that can affect binary execution:
+- The terminal uses `/system/bin/sh` which is part of the system and works correctly
+- If there are issues, verify that the working directory is accessible (`/data/local/tmp`)
+- Termux libraries properly handle these restrictions

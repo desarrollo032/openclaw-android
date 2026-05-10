@@ -62,6 +62,12 @@ class OpenClawGatewayService : Service() {
 
 
         fun start(context: Context) {
+            // Si la ejecución en segundo plano está deshabilitada, no iniciar
+            if (!OpenClawPreferences.isBackgroundExecutionEnabled) {
+                OpenClawLogger.log(TAG, "Background execution disabled by user — not starting service")
+                return
+            }
+            
             val intent = Intent(context, OpenClawGatewayService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -287,9 +293,11 @@ class OpenClawGatewayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "OpenClaw Gateway",
+                getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "Estado del gateway de OpenClaw" }
+            ).apply { 
+                description = getString(R.string.notification_channel_description)
+            }
             getSystemService(NotificationManager::class.java)
                 .createNotificationChannel(channel)
         }

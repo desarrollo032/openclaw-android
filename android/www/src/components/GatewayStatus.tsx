@@ -111,14 +111,14 @@ export function GatewayStatus() {
       </div>
 
       {/* ── Stats grid ── */}
-      {!isLoading && reachability !== 'unreachable' && (
+      {!isLoading && reachability === 'online' && (
         <div style={S.statsGrid}>
           <StatCell icon="⏱" label="Uptime"   value={formatUptime(health?.uptime ?? status?.uptime ?? 0)} />
           <StatCell icon="🧠" label="Memoria"  value={status?.memoryMB ? `${status.memoryMB} MB` : '—'} />
           <StatCell icon="🔌" label="Puerto"   value={status?.port ? `:${status.port}` : ':18789'} />
           <StatCell icon="🏷" label="PID"      value={health?.pid ? String(health.pid) : '—'} />
           <StatCell icon="📦" label="Versión"  value={health?.version ?? '—'} />
-          <StatCell icon="🔄" label="Reinicios" value={String(status?.restartCount ?? '—')} />
+          <StatCell icon="🔄" label="Reinicios" value={status?.restartCount ? String(status.restartCount) : '—'} />
         </div>
       )}
 

@@ -3,6 +3,20 @@
     <string name="app_name">Claw</string>
     <string name="notification_channel_id">openclaw_service</string>
     <string name="notification_channel_name">OpenClaw Service</string>
+    <string name="notification_channel_description">Mantiene OpenClaw ejecutándose en segundo plano</string>
     <string name="notification_title">OpenClaw is running</string>
     <string name="notification_text">Terminal session active</string>
+    
+    <!-- Permisos de notificación -->
+    <string name="notification_permission_title">Permitir notificaciones</string>
+    <string name="notification_permission_message">OpenClaw necesita mostrar notificaciones para ejecutarse en segundo plano. Por favor, habilítalas.</string>
+    <string name="notification_permission_rationale">Para que OpenClaw siga funcionando cuando cierres la app, necesitamos tu permiso para mostrar notificaciones.</string>
+    <string name="grant_permission">Conceder permiso</string>
+    <string name="not_now">Ahora no</string>
+    
+    <!-- Ejecución en segundo plano -->
+    <string name="background_execution_title">Ejecución en segundo plano</string>
+    <string name="background_execution_summary">Permite que OpenClaw siga funcionando cuando la app está cerrada</string>
+    <string name="background_execution_enabled">Habilitado</string>
+    <string name="background_execution_disabled">Deshabilitado</string>
 </resources>

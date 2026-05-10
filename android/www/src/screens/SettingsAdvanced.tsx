@@ -5,8 +5,8 @@ import { bridge } from '../lib/bridge'
 
 export function SettingsAdvanced() {
   const { navigate } = useRoute()
-  const [jsonContent, setJsonContent] = useState('')
-  const [originalContent, setOriginalContent] = useState('')
+  const [jsonContent, setJsonContent] = useState('{\n  \n}')
+  const [originalContent, setOriginalContent] = useState('{\n  \n}')
   const [token, setToken] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -15,18 +15,36 @@ export function SettingsAdvanced() {
   useEffect(() => {
     const init = () => {
       setLoading(true)
-      // Get token
-      const t = window.__OPENCLAW_TOKEN || bridge.call('getGatewayToken') || ''
-      setToken(t)
-
-      // Fetch openclaw.json
-      const res = bridge.callJson<{ stdout?: string }>('runCommand', 'cat "$OPENCLAW_HOME/openclaw.json"')
-      if (res?.stdout) {
-        setJsonContent(res.stdout)
-        setOriginalContent(res.stdout)
-      } else {
-        setMsg('No se pudo leer $OPENCLAW_HOME/openclaw.json')
+      
+      // Obtener token de forma segura
+      if (bridge.isAvailable()) {
+        let t = ''
+        try {
+          t = window.__OPENCLAW_TOKEN || ''
+          if (!t) t = bridge.call('getGatewayToken') || ''
+          if (!t) t = bridge.call('getAuthToken') || ''
+        } catch {
+          t = ''
+        }
+        setToken(t)
+        
+        // Leer openclaw.json usando el nuevo método directo
+        try {
+          const rawResult = bridge.call('readOpenclawJson')
+          if (rawResult) {
+            const result = JSON.parse(rawResult)
+            if (result.success) {
+              setJsonContent(result.content)
+              setOriginalContent(result.content)
+            } else {
+              setMsg('Error al leer la configuración: ' + (result.error || 'Error desconocido'))
+            }
+          }
+        } catch (e) {
+          setMsg('Error al leer la configuración: ' + (e as Error).message)
+        }
       }
+      
       setLoading(false)
     }
     init()
@@ -42,17 +60,21 @@ export function SettingsAdvanced() {
     }
     setSaving(true)
     
-    // Convertir el JSON a base64 para evitar problemas de comillas al inyectarlo en bash
-    const b64 = btoa(unescape(encodeURIComponent(jsonContent)))
-    // Comando seguro para escribir el archivo usando la variable de entorno de Android
-    const cmd = `node -e "require('fs').writeFileSync(require('path').join(process.env.OPENCLAW_HOME, 'openclaw.json'), Buffer.from('${b64}', 'base64'))"`
-    
-    const res = bridge.callJson<{ stdout?: string; stderr?: string }>('runCommand', cmd)
-    if (res && !res.stderr) {
-      setMsg('✅ Guardado correctamente. Recomendable reiniciar el gateway.')
-      setOriginalContent(jsonContent)
-    } else {
-      setMsg('❌ Error al guardar: ' + (res?.stderr || 'Error desconocido'))
+    if (bridge.isAvailable()) {
+      try {
+        const rawResult = bridge.call('writeOpenclawJson', jsonContent)
+        if (rawResult) {
+          const result = JSON.parse(rawResult)
+          if (result.success) {
+            setMsg('✅ Guardado correctamente. Recomendable reiniciar el gateway.')
+            setOriginalContent(jsonContent)
+          } else {
+            setMsg('❌ Error al guardar: ' + (result.error || 'Error desconocido'))
+          }
+        }
+      } catch (e) {
+        setMsg('❌ Error al guardar: ' + (e as Error).message)
+      }
     }
     setSaving(false)
   }
@@ -74,7 +96,7 @@ export function SettingsAdvanced() {
       </div>
 
       {msg && (
-        <div style={{ ...S.msg, background: msg.includes('Error') || msg.includes('❌') ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', color: msg.includes('Error') || msg.includes('❌') ? '#fca5a5' : '#86efac', border: `1px solid ${msg.includes('Error') || msg.includes('❌') ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}` }}>
+        <div style={{ ...S.msg, background: msg.includes('Error') || msg.includes('❌') ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', color: msg.includes('Error') || msg.includes('❌') ? '#fca5a5' : '#86efac', border: `1px solid ${msg.includes('Error') || msg.includes('❌') ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}`}}>
           {msg}
         </div>
       )}

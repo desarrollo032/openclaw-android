@@ -58,7 +58,7 @@ export function Dashboard() {
       const timeout = window.setTimeout(() => controller.abort(), 2000)
       const res = await fetch('http://127.0.0.1:18789/api/status', {
         headers: {
-          Authorization: `Bearer ${window.OpenClaw?.getAuthToken() ?? ''}`,
+          Authorization: `Bearer ${window.__OPENCLAW_TOKEN ?? ''}`,
         },
         signal: controller.signal,
       })

@@ -54,11 +54,16 @@ export function useGatewayStatus(): UseGatewayStatusResult {
       if (h.status === 'fulfilled') {
         setHealth(h.value)
         setReachability(h.value.status === 'ok' ? 'online' : 'unreachable')
+        setError(null)
       } else {
         // Health falló — usar estado nativo si disponible
-        if (nativeState === 'READY') setReachability('online')
-        else setReachability('unreachable')
-        setError('Gateway no responde')
+        if (nativeState === 'READY') {
+          setReachability('online')
+          setError(null)
+        } else {
+          setReachability('unreachable')
+          setError('Gateway no responde')
+        }
       }
 
       if (s.status === 'fulfilled') setStatus(s.value)

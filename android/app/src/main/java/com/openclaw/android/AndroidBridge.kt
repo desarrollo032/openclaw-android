@@ -199,7 +199,11 @@ class AndroidBridge(
     @JavascriptInterface
     fun startGateway() {
         activity.runOnUiThread {
-            OpenClawGatewayService.start(activity)
+            if (activity is OpenClawDashboardActivity) {
+                activity.startGatewayWithPermissionCheck()
+            } else {
+                OpenClawGatewayService.start(activity)
+            }
         }
     }
 
@@ -248,12 +252,12 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun switchSession(id: String) {
+    fun switchSession(_id: String) {
         // Native terminal sessions are owned by OpenClawTerminalActivity.
     }
 
     @JavascriptInterface
-    fun closeSession(id: String) {
+    fun closeSession(_id: String) {
         // Native terminal sessions are owned by OpenClawTerminalActivity.
     }
 
@@ -263,7 +267,7 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun writeToTerminal(id: String, data: String) {
+    fun writeToTerminal(_id: String, data: String) {
         if (data.isNotBlank()) {
             launchInteractiveCommand(data)
         }
@@ -480,6 +484,77 @@ class AndroidBridge(
         activity.runOnUiThread {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             activity.startActivity(intent)
+        }
+    }
+
+    @JavascriptInterface
+    fun isBackgroundExecutionEnabled(): String {
+        return JSONObject().apply {
+            put("enabled", OpenClawPreferences.isBackgroundExecutionEnabled)
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun setBackgroundExecutionEnabled(enabled: Boolean) {
+        OpenClawPreferences.isBackgroundExecutionEnabled = enabled
+        if (!enabled) {
+            // Si se deshabilita, detener el servicio si está corriendo
+            OpenClawGatewayService.stop(activity)
+        }
+        notifyReact("onBackgroundExecutionChanged", JSONObject().apply {
+            put("enabled", enabled)
+        }.toString())
+    }
+
+    @JavascriptInterface
+    fun readOpenclawJson(): String {
+        return try {
+            val configDir = OpenClawInstaller.getConfigDir(activity)
+            val configFile = java.io.File(configDir, "openclaw.json")
+            if (configFile.exists()) {
+                val content = configFile.readText()
+                // Validar que es JSON válido
+                org.json.JSONObject(content)
+                JSONObject().apply {
+                    put("success", true)
+                    put("content", content)
+                }.toString()
+            } else {
+                JSONObject().apply {
+                    put("success", true)
+                    put("content", "{\n  \n}")
+                }.toString()
+            }
+        } catch (e: Exception) {
+            JSONObject().apply {
+                put("success", false)
+                put("error", e.message ?: "Error desconocido")
+                put("content", "{\n  \n}")
+            }.toString()
+        }
+    }
+
+    @JavascriptInterface
+    fun writeOpenclawJson(content: String): String {
+        return try {
+            // Validar JSON primero
+            org.json.JSONObject(content)
+            
+            val configDir = OpenClawInstaller.getConfigDir(activity)
+            if (!configDir.exists()) {
+                configDir.mkdirs()
+            }
+            val configFile = java.io.File(configDir, "openclaw.json")
+            configFile.writeText(content)
+            
+            JSONObject().apply {
+                put("success", true)
+            }.toString()
+        } catch (e: Exception) {
+            JSONObject().apply {
+                put("success", false)
+                put("error", e.message ?: "Error desconocido")
+            }.toString()
         }
     }
 

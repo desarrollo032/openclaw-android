@@ -3,8 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { Router } from './lib/router'
 import { App } from './App'
 import { LocaleContext, getLocale, subscribeLocale } from './i18n'
-import { notifyReady, onTokenRefresh } from './utils/androidBridge'
+import { notifyReady, onTokenRefresh, getToken } from './utils/androidBridge'
 import './styles/global.css'
+
+// Inicializar el token desde AndroidBridge al arrancar
+window.__OPENCLAW_TOKEN = getToken()
 
 // Escuchar refresh de token (Android puede regenerarlo)
 onTokenRefresh(() => {
