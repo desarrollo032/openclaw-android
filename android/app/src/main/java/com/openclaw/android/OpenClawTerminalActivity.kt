@@ -187,8 +187,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private fun arrow(code: Int) { terminalView.onKeyDown(code, KeyEvent(KeyEvent.ACTION_DOWN, code)) }
 
     private fun toggleKbd() {
+        terminalView.requestFocus()
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+        imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
     }
 
     private fun setupTerminalView() {

@@ -147,9 +147,10 @@ class AndroidBridge(
     @JavascriptInterface
     fun getAppInfo(): String {
         val pInfo = activity.packageManager.getPackageInfo(activity.packageName, 0)
+        val longCode = androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(pInfo)
         return JSONObject().apply {
             put("versionName", pInfo.versionName)
-            put("versionCode", if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) pInfo.longVersionCode else pInfo.versionCode)
+            put("versionCode", longCode)
             put("packageName", activity.packageName)
         }.toString()
     }
