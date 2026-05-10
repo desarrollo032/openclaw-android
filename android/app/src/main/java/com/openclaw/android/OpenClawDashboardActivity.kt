@@ -11,6 +11,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.openclaw.android.databinding.ActivityDashboardBinding
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class OpenClawDashboardActivity : AppCompatActivity() {
@@ -28,6 +29,17 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Asegurar que los scripts y wrappers existan cada vez que abrimos la app
+        val payloadDir = OpenClawInstaller.getPayloadDir(this)
+        if (payloadDir.exists()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                OpenClawInstaller.deployScripts(this@OpenClawDashboardActivity, payloadDir)
+                OpenClawInstaller.fixPermissions(payloadDir)
+                Log.i("Dashboard", "Comandos sincronizados correctamente")
+            }
+        }
+
         binding = ActivityDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
 

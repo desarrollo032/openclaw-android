@@ -1,53 +1,58 @@
-# OpenClaw en Android (Autónomo)
+# 🌌 OpenClaw Android (Autónomo)
 
-Esta es una versión de OpenClaw para Android diseñada para ser **completamente autónoma**, eliminando la necesidad de Termux, Proot o scripts shell externos. Todo se ejecuta dentro del sandbox de la aplicación utilizando un binario de Node.js y glibc pre-empaquetados.
+OpenClaw Android es una implementación **completamente autónoma** del asistente de IA OpenClaw. Elimina la necesidad de Termux, Proot o entornos externos, ejecutándose íntegramente dentro del sandbox de Android mediante binarios nativos de Node.js y glibc optimizados.
 
 <img src="docs/images/openclaw_android.jpg" alt="OpenClaw en Android">
 
-![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-brightgreen)
-![No Termux](https://img.shields.io/badge/Termux-Not%20Required-blue)
-![No proot](https://img.shields.io/badge/proot--distro-Not%20Required-blue)
-![License MIT](https://img.shields.io/github/license/AidanPark/openclaw-android)
+[![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-brightgreen)](#)
+[![Termux Not Required](https://img.shields.io/badge/Termux-Not%20Required-blue)](#)
+[![Vite + React](https://img.shields.io/badge/UI-Vite%20%2B%20React-purple)](#)
+[![License MIT](https://img.shields.io/github/license/AidanPark/openclaw-android)](#)
 
-## 🚀 Características
+---
 
-- **Modo Dual de Instalación**:
-  - **Assets**: Incluye los archivos pesados en el APK para una instalación de un solo clic.
-  - **Carga Local (App Liviana)**: Permite seleccionar los archivos `payload.tar.xz` y `openclaw-apk-migration.tar.gz` desde el almacenamiento del teléfono para mantener el APK pequeño.
-- **Gateway Nativo**: Ejecuta el núcleo de OpenClaw como un servicio de Android en primer plano (`Foreground Service`).
-- **Dashboard Integrado**: Interfaz de usuario accesible mediante un WebView optimizado.
-- **Terminal Interactivo Autocontenido**: Terminal completo usando librerías oficiales de Termux (`terminal-emulator` y `terminal-view`) embebidas en la app, sin requerir la app Termux instalada. Soporta comandos shell básicos (ls, cd, pwd, echo, cat, mkdir, etc.) con entrada de teclado, scroll y configuración de colores/fuente.
-- **Sin Dependencias Externas**: No requiere instalar Termux ni configurar entornos complejos manualmente.
+## 🚀 Características Principales
 
-## 📂 Estructura del Proyecto
+- **📦 Gestión de Assets Inteligente**:
+  - **Payload Integrado**: Soporte para `payload-v2.tar.xz` en los assets del APK para instalación instantánea.
+  - **Migración Fluida**: Importación de configuraciones mediante `openclaw-apk-migration.tar.gz`.
+- **⚡ Gateway Nativo**: Ejecución del núcleo de OpenClaw como un servicio de primer plano (`Foreground Service`) ultra-estable.
+- **🖥️ Dashboard Moderno**: Interfaz de usuario React/Vite integrada mediante un WebView optimizado con soporte para módulos ES nativos.
+- **📟 Terminal Premium Integrado**:
+  - Basado en librerías oficiales de Termux.
+  - Interfaz modernizada con diseño **Deep Dark**.
+  - Barra de teclas especiales (TAB, ESC, CTRL, ALT) optimizada para móvil.
+- **🔄 Automatización Total**: Integración completa entre Gradle y Vite; el frontend se compila automáticamente al generar el APK.
 
-- `OpenClawInstaller.kt`: Gestiona la extracción y verificación de los componentes.
-- `OpenClawGatewayService.kt`: Servicio que mantiene vivo el servidor Node.js/OpenClaw.
-- `OpenClawDashboardActivity.kt`: Actividad para interactuar con la WebUI de OpenClaw.
-- `TerminalActivity.kt`: Terminal interactivo usando librerías de Termux (autocontenido, sin app externa).
-- `OpenClawExtensions.kt`: Utilidades de bajo nivel para descompresión `.tar.xz` y `.tar.gz`.
+---
 
-## 🛠 Requisitos de Instalación
+## 📂 Estructura del Núcleo Nativo
 
-Para que la app funcione, necesita dos componentes principales:
+- **`OpenClawInstaller.kt`**: Orquestador de la extracción de binarios y generación de wrappers (`node`, `npm`).
+- **`AndroidBridge.kt`**: Puente de comunicación bidireccional bajo el espacio de nombres `window.OpenClaw`.
+- **`OpenClawTerminalActivity.kt`**: Terminal interactivo con UI premium y soporte para comandos interactivos.
+- **`OpenClawGatewayService.kt`**: Gestiona el ciclo de vida del servidor Node.js en segundo plano.
 
-1. **Payload** (`payload.tar.xz`): Contiene Node.js, glibc y el núcleo de OpenClaw.
-2. **Migración** (`openclaw-apk-migration.tar.gz`): Contiene tu configuración personalizada (`.openclaw/`).
+---
 
-### Opción A: Incluir en Assets (Recomendado para desarrollo)
-Coloca ambos archivos en:
-`android/app/src/main/assets/`
+## 🛠️ Instalación y Desarrollo
 
-### Opción B: Carga desde el Teléfono (App Liviana)
-Simplemente compila e instala la app. Al abrirla, te pedirá que selecciones ambos archivos desde tu almacenamiento interno.
+### Requisitos de Assets
+Para que la aplicación sea funcional, requiere:
+1. **Payload** (`payload-v2.tar.xz`): Node.js, glibc y core de OpenClaw.
+2. **Migración** (`openclaw-apk-migration.tar.gz`): Configuración `.openclaw/`.
 
-## ⚙️ Configuración Técnica
+### Flujo de Compilación
+El proyecto está configurado para ser "Zero Config":
+1. Abre el proyecto en Android Studio.
+2. Pulsa **Run** o ejecuta `./gradlew assembleDebug`.
+3. Gradle automáticamente compilará el Frontend en `android/www` y lo integrará en el APK.
 
-El gateway se ejecuta con las siguientes variables de entorno:
-- `LD_LIBRARY_PATH`: Ruta a las librerías de glibc incluidas en el payload.
-- `OPENCLAW_HOME`: Ruta a la carpeta de configuración `.openclaw`.
-- `NODE_PATH`: Ruta a los módulos de Node.js.
-- `TMPDIR`: Carpeta temporal interna de la app.
+---
+
+## 📖 Documentación Detallada
+Para más detalles técnicos, consulta la [Documentación Técnica](DOCUMENTACION_TECNICA.md).
 
 ## 📄 Licencia
 Este proyecto sigue la licencia original de OpenClaw.
+

@@ -160,6 +160,17 @@ object OpenClawInstaller {
     }
 
     suspend fun fixPermissions(base: File) = withContext(Dispatchers.IO) {
+        try {
+            // Forzar permisos de ejecución vía shell nativo (chmod)
+            val binDir = File(base, "bin")
+            if (binDir.exists()) {
+                Runtime.getRuntime().exec(arrayOf("chmod", "-R", "755", binDir.absolutePath)).waitFor()
+            }
+        } catch (e: Exception) {
+            Log.e("Installer", "Error aplicando chmod nativo", e)
+        }
+
+        // Refuerzo preventivo por código Java
         base.setExecutable(true, false)
         base.setReadable(true, false)
         listOf(File(base, "glibc/lib"), File(base, "bin")).forEach { dir ->
@@ -176,7 +187,7 @@ object OpenClawInstaller {
         }
     }
 
-    private fun deployScripts(context: Context, base: File) {
+    fun deployScripts(context: Context, base: File) {
         val binDir = File(base, "bin")
         if (!binDir.exists()) binDir.mkdirs()
         
@@ -185,15 +196,16 @@ object OpenClawInstaller {
         val nodeLib = "$nativeDir/libnode.so"
         
         // Crear wrapper para 'node'
-        File(binDir, "node").writeText("#!/system/bin/sh\nexec $linker $nodeLib \"$@\"")
+        val nodeWrapper = File(binDir, "node")
+        nodeWrapper.writeText("#!/system/bin/sh\nexec $linker $nodeLib \"$@\"")
         
         // Crear wrapper para 'openclaw'
         val ocPath = File(base, "lib/node_modules/openclaw/bin/openclaw.js").absolutePath
-        File(binDir, "openclaw").writeText("#!/system/bin/sh\nexec $linker $nodeLib $ocPath \"$@\"")
+        File(binDir, "openclaw").writeText("#!/system/bin/sh\nexec ${nodeWrapper.absolutePath} $ocPath \"$@\"")
         
         // Crear wrapper para 'npm'
         val npmPath = File(base, "lib/node_modules/npm/bin/npm-cli.js").absolutePath
-        File(binDir, "npm").writeText("#!/system/bin/sh\nexec $linker $nodeLib $npmPath \"$@\"")
+        File(binDir, "npm").writeText("#!/system/bin/sh\nexec ${nodeWrapper.absolutePath} $npmPath \"$@\"")
 
         try {
             context.assets.list("scripts")?.forEach { name ->

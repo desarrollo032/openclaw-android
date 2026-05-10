@@ -94,8 +94,8 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         val keys = listOf(
             "TAB" to { send(9) },
             "ESC" to { send(27) },
-            "CTRL" to { terminalView.toggleControlKeyDown() },
-            "ALT" to { terminalView.toggleAltKeyDown() },
+            "CTRL" to { terminalView.onKeyDown(KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CTRL_LEFT)) },
+            "ALT" to { terminalView.onKeyDown(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ALT_LEFT)) },
             "↑" to { arrow(KeyEvent.KEYCODE_DPAD_UP) },
             "↓" to { arrow(KeyEvent.KEYCODE_DPAD_DOWN) },
             "←" to { arrow(KeyEvent.KEYCODE_DPAD_LEFT) },
