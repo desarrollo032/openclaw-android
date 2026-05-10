@@ -35,16 +35,39 @@ export function Dashboard() {
   const [nodeVer, setNodeVer] = useState<string | null>(null)
   const [ocVer,   setOcVer]   = useState<string | null>(null)
   const [gitVer,  setGitVer]  = useState<string | null>(null)
+  const [lastFile, setLastFile] = useState<string | null>(null)
 
-  // Cargar versiones via bridge (primera vez)
-  useState(() => {
+  const refreshVersions = useCallback(() => {
     if (!bridge.isAvailable()) return
     const vNode = bridge.callJson<{ stdout?: string }>('runCommand', 'node -v')
     const vOC   = bridge.callJson<{ stdout?: string }>('runCommand', 'openclaw --version')
     const vGit  = bridge.callJson<{ stdout?: string }>('runCommand', 'git --version')
-    setNodeVer(vNode?.stdout?.trim().split('\n')[0] ?? null)
-    setOcVer(vOC?.stdout?.trim().split('\n')[0] ?? null)
-    setGitVer(vGit?.stdout?.trim().replace('git version ', '') ?? null)
+    
+    if (vNode?.stdout) setNodeVer(vNode.stdout.trim().split('\n')[0])
+    if (vOC?.stdout) setOcVer(vOC.stdout.trim().split('\n')[0])
+    if (vGit?.stdout) setGitVer(vGit.stdout.trim().replace('git version ', ''))
+  }, [])
+
+  // Suscribirse a eventos nativos
+  useState(() => {
+    const onFilePicked = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (typeof detail === 'string') {
+        const data = JSON.parse(detail)
+        setLastFile(data.filename)
+      }
+    }
+
+    window.addEventListener('onMigrationFilePicked', onFilePicked)
+    
+    window.addEventListener('onGatewayReady', () => {
+      refreshVersions()
+    })
+    
+    // Intento inicial
+    refreshVersions()
+    setTimeout(refreshVersions, 2000)
+    setTimeout(refreshVersions, 5000)
   })
 
   const appInfo = bridge.isAvailable()
@@ -52,7 +75,6 @@ export function Dashboard() {
     : null
 
   const runInTerminal = useCallback((cmd: string) => {
-    // Usamos el terminal nativo para una experiencia integrada
     bridge.call('launchInteractiveCommand', cmd)
   }, [])
 
@@ -71,7 +93,14 @@ export function Dashboard() {
       <GatewayStatus />
 
       {/* ── 2. ENTORNO DE EJECUCIÓN ── */}
-      <div style={S.sectionLabel}>{t('dash_section_env')}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div style={S.sectionLabel}>{t('dash_section_env')}</div>
+        {lastFile && (
+          <div style={{ fontSize: 10, color: '#4ade80', marginBottom: 10, fontWeight: 600 }}>
+            📦 {lastFile} seleccionado
+          </div>
+        )}
+      </div>
       <div style={S.envCard}>
         {envTools.map((tool, i) => (
           <div key={tool.label} style={{ ...S.envTool, borderRight: i < envTools.length - 1 ? '1px solid var(--border)' : 'none' }}>
