@@ -175,10 +175,9 @@ dependencies {
     implementation("org.tukaani:xz:1.9")
     implementation("androidx.webkit:webkit:1.10.0")
 
-    // ── Termux Terminal Libraries (Maven Central) ──────────────────────────
-    // Versiones oficiales y ya alineadas para 16 KB (Android 15+)
-    implementation("com.termux:terminal-emulator:1.0.16")
-    implementation("com.termux:terminal-view:1.0.16")
+    // ── Termux Terminal Libraries (Local AARs) ───────────────────────────────
+    implementation(files("libs/terminal-emulator.aar"))
+    implementation(files("libs/terminal-view.aar"))
 
 
     // ── Unit Testing ─────────────────────────────────────────────────────────
