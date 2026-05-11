@@ -176,6 +176,14 @@ class OpenClawGatewayService : Service() {
         startProcess()
     }
 
+    private fun getNodeCompileCacheDir(): File {
+        val compileCacheDir = File(cacheDir, "openclaw-compile-cache")
+        if (!compileCacheDir.exists()) {
+            compileCacheDir.mkdirs()
+        }
+        return compileCacheDir
+    }
+
     private fun startProcess() {
         // Generar nuevo token en cada arranque del proceso
         dashboardToken = UUID.randomUUID().toString().replace("-", "") +
@@ -185,15 +193,16 @@ class OpenClawGatewayService : Service() {
         OpenClawLogger.registerSensitiveToken(dashboardToken)
 
         try {
-            val base      = OpenClawInstaller.getPayloadDir(this)
-            val nativeDir = File(applicationInfo.nativeLibraryDir)
-            val loader    = File(nativeDir, "libldlinux.so")
-            val nodeExec  = File(nativeDir, "libnode.so")
-            val glibcLibs = File(base, "glibc/lib").absolutePath
-            val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
-            val openclaw  = File(base, "lib/node_modules/openclaw/openclaw.mjs")
-            val tmpDir    = File(cacheDir, "tmp").apply { mkdirs() }
-            val ocHome    = filesDir
+            val base             = OpenClawInstaller.getPayloadDir(this)
+            val nativeDir        = File(applicationInfo.nativeLibraryDir)
+            val loader           = File(nativeDir, "libldlinux.so")
+            val nodeExec         = File(nativeDir, "libnode.so")
+            val glibcLibs        = File(base, "glibc/lib").absolutePath
+            val libs             = "${nativeDir.absolutePath}:${glibcLibs}"
+            val openclaw         = File(base, "lib/node_modules/openclaw/openclaw.mjs")
+            val tmpDir           = File(cacheDir, "tmp").apply { mkdirs() }
+            val ocHome           = filesDir
+            val nodeCompileCache = getNodeCompileCacheDir()
 
             listOf(loader, nodeExec).forEach { f ->
                 if (!f.exists()) {
@@ -242,7 +251,9 @@ class OpenClawGatewayService : Service() {
                     put("NODE_NO_WARNINGS",                          "1")
                     put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
                     put("OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED",   "1")
-                    put("NODE_DISABLE_COMPILE_CACHE",                "1")
+                    // Variables de optimización de rendimiento
+                    put("NODE_COMPILE_CACHE", nodeCompileCache.absolutePath)
+                    put("OPENCLAW_NO_RESPAWN", "1")
                     // Token de autenticación del dashboard — nunca se loguea (redactado)
                     put("OPENCLAW_DASHBOARD_TOKEN", dashboardToken)
                 }

@@ -71,13 +71,22 @@ class OpenClawTerminalManager(private val context: Context) {
         }
     }
 
+    private fun getNodeCompileCacheDir(): File {
+        val cacheDir = File(context.cacheDir, "openclaw-compile-cache")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        return cacheDir
+    }
+
     fun buildEnvironment(): Array<String> {
-        val native    = nativeDir.absolutePath
-        val payload   = payloadDir.absolutePath
-        val glibcLib  = "$payload/glibc/lib"
-        val tmpDir    = context.cacheDir.absolutePath
-        val ocHome    = context.filesDir.absolutePath
-        val shellRc   = ensureShellRc()
+        val native          = nativeDir.absolutePath
+        val payload         = payloadDir.absolutePath
+        val glibcLib        = "$payload/glibc/lib"
+        val tmpDir          = context.cacheDir.absolutePath
+        val ocHome          = context.filesDir.absolutePath
+        val shellRc         = ensureShellRc()
+        val nodeCompileCache = getNodeCompileCacheDir().absolutePath
 
         val path = "$payload/bin:$native:/system/bin"
         val ldLibPath = "$native:$glibcLib"
@@ -96,7 +105,9 @@ class OpenClawTerminalManager(private val context: Context) {
             "LANG=en_US.UTF-8",
             "COLORTERM=truecolor",
             "OA_GLIBC=1",
-            "CONTAINER=1"
+            "CONTAINER=1",
+            "NODE_COMPILE_CACHE=$nodeCompileCache",
+            "OPENCLAW_NO_RESPAWN=1"
         )
     }
 
