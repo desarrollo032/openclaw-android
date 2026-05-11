@@ -193,7 +193,7 @@ class OpenClawGatewayService : Service() {
             val libs      = "${nativeDir.absolutePath}:${glibcLibs}"
             val openclaw  = File(base, "lib/node_modules/openclaw/openclaw.mjs")
             val tmpDir    = File(cacheDir, "tmp").apply { mkdirs() }
-            val configDir = OpenClawInstaller.getConfigDir(this)
+            val ocHome    = filesDir
 
             listOf(loader, nodeExec).forEach { f ->
                 if (!f.exists()) {
@@ -236,7 +236,7 @@ class OpenClawGatewayService : Service() {
                     put("TMPDIR",          tmpDir.absolutePath)
                     put("HOME",            base.absolutePath)
                     put("NODE_PATH",       "${base.absolutePath}/lib/node_modules")
-                    put("OPENCLAW_HOME",   configDir.absolutePath)
+                    put("OPENCLAW_HOME",   ocHome.absolutePath)
                     put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")
                     put("PATH",            "${base.absolutePath}/bin:/system/bin")
                     put("NODE_NO_WARNINGS",                          "1")

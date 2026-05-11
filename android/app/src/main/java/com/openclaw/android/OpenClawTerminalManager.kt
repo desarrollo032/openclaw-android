@@ -76,7 +76,7 @@ class OpenClawTerminalManager(private val context: Context) {
         val payload   = payloadDir.absolutePath
         val glibcLib  = "$payload/glibc/lib"
         val tmpDir    = context.cacheDir.absolutePath
-        val ocHome    = File(context.filesDir, ".openclaw").absolutePath
+        val ocHome    = context.filesDir.absolutePath
         val shellRc   = ensureShellRc()
 
         val path = "$payload/bin:$native:/system/bin"
