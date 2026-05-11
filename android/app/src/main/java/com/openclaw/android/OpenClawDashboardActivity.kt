@@ -73,7 +73,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         }
 
         setupWebView()
-        binding.webView.clearCache(true)
         binding.webView.loadUrl(DASHBOARD_URL)
 
         // Verificar permisos de notificación al iniciar la actividad
@@ -184,8 +183,9 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         binding.webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            cacheMode = WebSettings.LOAD_NO_CACHE
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            cacheMode = WebSettings.LOAD_DEFAULT
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            setAppCacheEnabled(true)
         }
 
         androidBridge = AndroidBridge(this, binding.webView, lifecycleScope)
