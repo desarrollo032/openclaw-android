@@ -455,6 +455,8 @@ object OpenClawInstaller {
             LIBS="$nativeDir:$glibcLib"
 
             unset LD_PRELOAD
+            unset NODE_OPTIONS
+            export NODE_NO_WARNINGS=1
             export LD_LIBRARY_PATH="${'$'}LIBS"
             exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" "${'$'}@"
         """.trimIndent()
@@ -474,6 +476,8 @@ object OpenClawInstaller {
             LIBS="$nativeDir:$glibcLib"
 
             unset LD_PRELOAD
+            unset NODE_OPTIONS
+            export NODE_NO_WARNINGS=1
             exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}OPENCLAW_SCRIPT" "${'$'}@"
         """.trimIndent()
         )
@@ -496,6 +500,8 @@ object OpenClawInstaller {
                 exit 127
             fi
             unset LD_PRELOAD
+            unset NODE_OPTIONS
+            export NODE_NO_WARNINGS=1
             export LD_LIBRARY_PATH="${'$'}LIBS"
             exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}NPM_CLI" "${'$'}@"
         """.trimIndent()
