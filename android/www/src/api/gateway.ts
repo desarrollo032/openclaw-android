@@ -150,7 +150,23 @@ export interface ChatRequest { message: string; context?: unknown }
 export interface ChatResponse { reply: string; [key: string]: unknown }
 
 export async function sendChat(message: string, context?: unknown): Promise<ChatResponse> {
-  return apiPost<ChatResponse>('/api/chat', { message, context })
+  const payload = { message, context }
+  const endpoints = ['/api/chat', '/chat', '/api/message']
+  let lastError: unknown = null
+
+  for (const endpoint of endpoints) {
+    try {
+      const data = await apiPost<ChatResponse | { response?: string; message?: string }>(endpoint, payload, {
+        timeoutMs: 20_000,
+      })
+      const reply = (data as ChatResponse).reply ?? (data as { response?: string }).response ?? (data as { message?: string }).message
+      return { ...data, reply: reply ?? '' } as ChatResponse
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Chat endpoint no disponible')
 }
 
 // ── Memory ────────────────────────────────────────────────────────────────────

@@ -130,13 +130,18 @@ export function Chat() {
         actions: (res as any).actions,
         suggestions: (res as any).suggestions,
       })
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
       addMessage({
         id: `e-${Date.now()}`,
         role: 'assistant',
-        content: t('chat_error'),
+        content: `${t('chat_error')}\n\n${detail}`,
         timestamp: Date.now(),
         error: true,
+        actions: [
+          { label: 'Abrir terminal', command: trimmed },
+          { label: 'Gateway status', command: 'openclaw status' },
+        ],
       })
     } finally {
       setTyping(false)
@@ -145,8 +150,14 @@ export function Chat() {
 
   const copyMsg = useCallback((msg: ChatMessage) => {
     const text = msg.content
-    try { navigator.clipboard?.writeText(text) }
-    catch { bridge.call('copyToClipboard', text) }
+    try {
+      const write = navigator.clipboard?.writeText(text)
+      if (write && typeof write.catch === 'function') {
+        write.catch(() => bridge.call('copyToClipboard', text))
+      } else {
+        bridge.call('copyToClipboard', text)
+      }
+    } catch { bridge.call('copyToClipboard', text) }
     setCopiedId(msg.id)
     setTimeout(() => setCopiedId(null), 1500)
   }, [])
@@ -213,7 +224,7 @@ export function Chat() {
                   <div style={S.actionsRow}>
                     {msg.actions.map(a => (
                       <button key={a.command} style={S.actionBtn}
-                        onClick={() => setInput(`/${a.command}`)}>
+                        onClick={() => bridge.call('launchInteractiveCommand', a.command)}>
                         {a.label}
                       </button>
                     ))}
