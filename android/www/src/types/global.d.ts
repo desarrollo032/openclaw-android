@@ -2,15 +2,15 @@ export {};
 
 declare global {
   interface Window {
-    OpenClaw?: {
+    AndroidBridge?: {
       checkInstallation(): string;
       startInstallation(): void;
       pickPayloadFile(): void;
       pickMigrationFile(): void;
       startGateway(): void;
       stopGateway(): void;
-      getAuthToken(): string;
       getGatewayState(): string;
+      getAuthToken(): string;
       notifyReady(): void;
       openTerminal(): void;
       showTerminal(): void;
@@ -20,10 +20,10 @@ declare global {
       getAppInfo(): string;
       getStorageInfo(): string;
       getGatewayToken(): string;
-    };
-    __oc?: {
-      emit(type: string, data: unknown): void;
+      getLogs(lines: number): string;
+      clearLogs(): void;
     };
     __OPENCLAW_TOKEN?: string;
+    __OPENCLAW_ANDROID?: boolean;
   }
 }

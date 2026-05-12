@@ -48,7 +48,7 @@ export function Terminal() {
         scrollElement.scrollTop = scrollElement.scrollHeight;
         scrollElement.scrollLeft = 0;
         // Force a repaint
-        scrollElement.offsetHeight;
+        void scrollElement.offsetHeight;
       };
       requestAnimationFrame(scroll);
     }
@@ -337,7 +337,7 @@ const S: Record<string, React.CSSProperties> = {
     WebkitOverflowScrolling:'touch',
     // Performance optimizations
     willChange: 'auto',
-    contain: 'layout' as any,
+    contain: 'layout' as const,
     // Better scrolling performance
     scrollBehavior: 'smooth',
     scrollPadding: '10px'
@@ -365,7 +365,7 @@ const S: Record<string, React.CSSProperties> = {
     caretColor:'#6366f1',
     // Performance optimizations
     willChange: 'auto',
-    contain: 'layout' as any,
+    contain: 'layout' as const,
   },
   sendBtn:  { background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', borderRadius:'var(--r-full)', color:'#fff', width:34, height:34, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow: '0 4px 12px rgba(99,102,241,0.4)' },
 

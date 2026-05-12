@@ -319,14 +319,14 @@ class OpenClawGatewayService : Service() {
         val (title, text) = when (_state.value) {
             GatewayState.READY      -> {
                 val uptime = formatUptime()
-                "OpenClaw · Activo" to "127.0.0.1:18789 · uptime $uptime"
+                "🦀 OpenClaw · Activo" to "127.0.0.1:18789 · $uptime"
             }
             GatewayState.RESTARTING ->
-                "OpenClaw · Reiniciando..." to "Intento $restartCount de 3"
+                "🦀 OpenClaw · Reiniciando..." to "Intento $restartCount de 3"
             GatewayState.STARTING   ->
-                "OpenClaw · Iniciando..." to "Arrancando gateway Node.js..."
+                "🦀 OpenClaw · Iniciando..." to "Arrancando gateway Node.js..."
             GatewayState.FAILED     ->
-                "OpenClaw · Error" to "Gateway caído — toca para ver logs"
+                "🦀 OpenClaw · Error" to "Gateway caído — toca para ver logs"
         }
 
         // PendingIntent → abrir Dashboard

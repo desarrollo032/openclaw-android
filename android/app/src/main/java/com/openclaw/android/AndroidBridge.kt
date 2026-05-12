@@ -233,6 +233,8 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun openTerminal() {
+        // /system/bin/sh siempre disponible en Android
+        // No necesita verificación previa
         activity.runOnUiThread {
             activity.startActivity(Intent(activity, OpenClawTerminalActivity::class.java))
         }
@@ -352,7 +354,6 @@ class AndroidBridge(
         // Verificar librerías nativas
         if (!ldlinux.exists()) diagnostics.add("Falta libldlinux.so")
         if (!nodeReal.exists()) diagnostics.add("Falta libnode.so")
-        if (!busybox.exists()) diagnostics.add("Falta libbusybox.so")
 
         // Verificar directorio glibc
         val glibcDir = File(payloadDir, "glibc/lib")
@@ -417,12 +418,18 @@ class AndroidBridge(
             "lib/node_modules/openclaw/node_modules/npm/package.json"
         ) ?: "no incluido"
 
+        // Verificar Toybox y BusyBox
+        val toyboxAvailable = File("/system/bin/toybox").exists()
+        val busyboxAvailable = busybox.exists() && busybox.canExecute()
+
         return JSONObject().apply {
             put("nodeVersion", nodeVersion)
             put("npmVersion", npmVersion)
             put("openclawVersion", openclawVersion)
             put("gitVersion", "no incluido")
-            put("busyboxAvailable", busybox.exists() && busybox.canExecute())
+            put("shellPath", "/system/bin/sh")
+            put("toyboxAvailable", toyboxAvailable)
+            put("busyboxAvailable", busyboxAvailable)
             put("payloadReady", payloadReady)
             put("diagnostics", diagnostics.joinToString(", "))
             put("freeSpaceMB", activity.filesDir.freeSpace / 1024 / 1024)
@@ -716,15 +723,15 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun getGatewayLogs(): String {
+    fun getLogs(lines: Int): String {
         OpenClawLogger.init(activity)
-        val lines = OpenClawLogger.getRecentLogs(200)
+        val logLines = OpenClawLogger.getRecentLogs(lines)
             .lines()
             .map { it.trim() }
             .filter { it.isNotBlank() }
         return JSONObject().apply {
             put("logs", JSONArray().apply {
-                lines.forEach { line ->
+                logLines.forEach { line ->
                     put(JSONObject().apply {
                         put("level", inferLogLevel(line))
                         put("message", line)
@@ -736,7 +743,18 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun getGatewayLogs(): String {
+        return getLogs(200)
+    }
+
+    @JavascriptInterface
     fun clearGatewayLogs() {
+        OpenClawLogger.init(activity)
+        OpenClawLogger.clearLogs()
+    }
+
+    @JavascriptInterface
+    fun clearLogs() {
         OpenClawLogger.init(activity)
         OpenClawLogger.clearLogs()
     }

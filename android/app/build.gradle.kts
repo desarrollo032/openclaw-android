@@ -151,20 +151,12 @@ android {
 
     defaultConfig {
         applicationId = "com.openclaw.android"
-        minSdk = 24
-        targetSdk = 35
+        minSdk = 31
+        targetSdk = 34
         versionCode = gitVersionCode
         versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // Alineación de 16 KB para Android 15+
-        externalNativeBuild {
-            cmake {
-                // Flags de linker para 16 KB
-                cppFlags += listOf("-Wl,-z,max-page-size=16384")
-            }
-        }
 
         // Configuración NDK para arm64-v8a
         ndk { abiFilters += listOf("arm64-v8a") }
@@ -222,6 +214,7 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.26.0")
     implementation("org.tukaani:xz:1.9")
     implementation("androidx.webkit:webkit:1.10.0")
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 
     // ── Termux Terminal Libraries (Local AARs) ───────────────────────────────
     implementation(files("libs/terminal-emulator.aar"))

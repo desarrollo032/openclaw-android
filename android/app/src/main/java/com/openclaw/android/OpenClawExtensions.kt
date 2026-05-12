@@ -142,7 +142,8 @@ fun extractTarXzFromStream(
                     while (entry != null) {
                         val name = entry.name.trimStart('.', '/')
                         if (name.isEmpty()) {
-                            @Suppress("DEPRECATION") entry = tarIn.nextTarEntry
+                            @Suppress("DEPRECATION")
+                            entry = tarIn.nextTarEntry
                             continue
                         }
 
@@ -177,7 +178,8 @@ fun extractTarXzFromStream(
                                 outFile.setExecutable(false, false)
                             }
                         }
-                        @Suppress("DEPRECATION") entry = tarIn.nextTarEntry
+                        @Suppress("DEPRECATION")
+                        entry = tarIn.nextTarEntry
                     }
                 }
             }
@@ -196,7 +198,8 @@ fun extractTarGzFromStream(inputStream: InputStream, targetDir: File): Boolean =
                     while (entry != null) {
                         val name = entry.name.trimStart('.', '/')
                         if (name.isEmpty()) {
-                            @Suppress("DEPRECATION") entry = tarIn.nextTarEntry
+                            @Suppress("DEPRECATION")
+                            entry = tarIn.nextTarEntry
                             continue
                         }
 
@@ -229,7 +232,8 @@ fun extractTarGzFromStream(inputStream: InputStream, targetDir: File): Boolean =
                                 outFile.setExecutable(false, false)
                             }
                         }
-                        @Suppress("DEPRECATION") entry = tarIn.nextTarEntry
+                        @Suppress("DEPRECATION")
+                        entry = tarIn.nextTarEntry
                     }
                 }
             }

@@ -26,10 +26,10 @@ export interface InstallProgress {
 }
 
 export const AndroidBridge = {
-  isAvailable: () => typeof window.OpenClaw !== 'undefined',
+  isAvailable: () => typeof window.AndroidBridge !== 'undefined',
 
   checkInstallation: (): InstallationStatus | null => {
-    const bridge = window.OpenClaw;
+    const bridge = window.AndroidBridge;
     if (!bridge) return null;
     try {
       return JSON.parse(bridge.checkInstallation());
@@ -39,59 +39,67 @@ export const AndroidBridge = {
   },
 
   startInstallation: () => {
-    window.OpenClaw?.startInstallation();
+    window.AndroidBridge?.startInstallation();
   },
 
   pickMigrationFile: () => {
-    window.OpenClaw?.pickMigrationFile();
+    window.AndroidBridge?.pickMigrationFile();
   },
 
   pickPayloadFile: () => {
-    window.OpenClaw?.pickPayloadFile();
+    window.AndroidBridge?.pickPayloadFile();
   },
 
   startGateway: () => {
-    window.OpenClaw?.startGateway();
+    window.AndroidBridge?.startGateway();
   },
 
   stopGateway: () => {
-    window.OpenClaw?.stopGateway();
+    window.AndroidBridge?.stopGateway();
   },
 
   openTerminal: () => {
-    window.OpenClaw?.openTerminal();
+    window.AndroidBridge?.openTerminal();
   },
   
   showTerminal: () => {
-    window.OpenClaw?.showTerminal();
+    window.AndroidBridge?.showTerminal();
   },
 
   launchInteractiveCommand: (cmd: string) => {
-    window.OpenClaw?.launchInteractiveCommand(cmd);
+    window.AndroidBridge?.launchInteractiveCommand(cmd);
   },
 
   runCommand: (cmd: string): string => {
-    return window.OpenClaw?.runCommand(cmd) ?? '';
+    return window.AndroidBridge?.runCommand(cmd) ?? '';
   },
 
   getSystemInfo: (): string => {
-    return window.OpenClaw?.getSystemInfo() ?? '{}';
+    return window.AndroidBridge?.getSystemInfo() ?? '{}';
   },
 
   getAppInfo: (): string => {
-    return window.OpenClaw?.getAppInfo() ?? '';
+    return window.AndroidBridge?.getAppInfo() ?? '';
   },
 
   getStorageInfo: (): string => {
-    return window.OpenClaw?.getStorageInfo() ?? '';
+    return window.AndroidBridge?.getStorageInfo() ?? '';
   },
 
   getGatewayToken: (): string => {
-    return window.OpenClaw?.getGatewayToken() ?? '';
+    return window.AndroidBridge?.getGatewayToken() ?? '';
   },
 
   getAuthToken: (): string => {
-    return window.OpenClaw?.getAuthToken() ?? window.__OPENCLAW_TOKEN ?? '';
+    return window.AndroidBridge?.getAuthToken() ?? window.__OPENCLAW_TOKEN ?? '';
+  },
+
+  getLogs: (lines: number): string => {
+    return window.AndroidBridge?.getLogs(lines) ?? '[]';
+  },
+
+  clearLogs: () => {
+    window.AndroidBridge?.clearLogs();
   },
 
   getToken: (): string => {
@@ -99,11 +107,11 @@ export const AndroidBridge = {
   },
 
   getNativeGatewayState: (): string => {
-    return window.OpenClaw?.getGatewayState() ?? 'UNKNOWN';
+    return window.AndroidBridge?.getGatewayState() ?? 'UNKNOWN';
   },
 
   notifyReady: () => {
-    window.OpenClaw?.notifyReady?.();
+    window.AndroidBridge?.notifyReady?.();
   },
 
   onTokenRefresh: (callback: (token: string) => void) => {

@@ -40,9 +40,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private lateinit var rootFrame: FrameLayout
     private var pendingInitialCommand: String? = null
 
-    private var currentFontSizeSp = 32f
-    private val MIN_FONT_SP = 32f
-    private val MAX_FONT_SP = 48f
+    private var currentFontSizeSp = 18f
+    private val MIN_FONT_SP = 14f
+    private val MAX_FONT_SP = 32f
 
     companion object {
         private var activeActivity: WeakReference<OpenClawTerminalActivity>? = null
@@ -139,8 +139,13 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
             "↓" to { arrow(KeyEvent.KEYCODE_DPAD_DOWN) },
             "←" to { arrow(KeyEvent.KEYCODE_DPAD_LEFT) },
             "→" to { arrow(KeyEvent.KEYCODE_DPAD_RIGHT) },
-            "HOME" to { send(1) },
-            "END" to { send(5) },
+            "/" to { send('/'.toInt()) },
+            "~" to { send('~'.toInt()) },
+            "-" to { send('-'.toInt()) },
+            "|" to { send('|'.toInt()) },
+            "_" to { send('_'.toInt()) },
+            "#" to { send('#'.toInt()) },
+            "@" to { send('@'.toInt()) },
             "KBD" to { toggleKbd() }
         )
 
@@ -227,7 +232,34 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private fun toggleKbd() {
         terminalView.requestFocus()
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = terminalView.windowInsetsController
+            val imeType = android.view.WindowInsets.Type.ime()
+            if (terminalView.rootWindowInsets?.isVisible(imeType) == true) {
+                controller?.hide(imeType)
+            } else {
+                controller?.show(imeType)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+        }
+    }
+
+    private fun showKeyboard() {
+        terminalView.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val controller = terminalView.windowInsetsController
+            controller?.show(android.view.WindowInsets.Type.ime())
+        } else {
+            @Suppress("DEPRECATION")
+            imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun showErrorOverlay(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun setupTerminalView() {
@@ -236,17 +268,27 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     private fun startSession() {
+        // Con toybox nativo no verificar busybox — siempre hay shell
         terminalSession = manager.createSession(this)
-        terminalSession?.let {
-            terminalView.attachSession(it)
-            terminalView.setTextSize(currentFontSizeSp.roundToInt())
-            updateDot(true)
-            pendingInitialCommand?.let { cmd ->
-                pendingInitialCommand = null
-                terminalView.post { writeCommand(cmd) }
-            }
+        if (terminalSession == null) {
+            showErrorOverlay(
+                "No se pudo iniciar el terminal.\n" +
+                "Shell /system/bin/sh no disponible."
+            )
+            return
         }
+        terminalView.attachSession(terminalSession)
         terminalView.requestFocus()
+        showKeyboard()
+
+        // Verificar toybox al iniciar (informativo)
+        terminalSession?.write(
+            "echo '=== OpenClaw Terminal ===' && " +
+            "echo \"Shell: \$(which sh)\" && " +
+            "echo \"Toybox: \$(toybox 2>/dev/null | " +
+            "head -1 || echo 'usando system/bin')\" && " +
+            "echo '========================'\n"
+        )
     }
 
     private fun writeCommand(command: String) {
