@@ -1,107 +1,73 @@
-# 🌌 OpenClaw Android: Documentación Técnica
+# Documentación Técnica — OpenClaw Android
 
-Esta documentación detalla la arquitectura y las implementaciones realizadas para integrar el ecosistema **OpenClaw** en la plataforma Android de manera nativa y fluida.
+> Última revisión: 2026-05-12
 
----
+## 1) Objetivo
 
-## 🏗️ Arquitectura de Comunicación (The Bridge)
+Describir cómo OpenClaw se ejecuta de forma autónoma en Android: instalación del runtime, bridge Kotlin↔Web, servicio gateway y pipeline de build.
 
-Se ha implementado un puente de comunicación bidireccional de alto rendimiento entre la interfaz web (React) y el sistema operativo Android (Kotlin).
+## 2) Componentes clave
 
-### Estándar `window.OpenClaw`
-Para garantizar la coherencia, se ha unificado el acceso nativo bajo un único objeto global:
-- **Localización**: `android/app/src/main/java/com/openclaw/android/AndroidBridge.kt`
-- **TypeScript**: `android/www/src/lib/bridge.ts`
+### 2.1 Runtime nativo
 
-**Funciones Clave:**
-- `getSetupStatus()` / `checkInstallation()`: Análisis en tiempo real de binarios y espacio.
-- `startSetup()` / `startInstallation()`: Inicia la extracción del payload.
-- `pickFile()` / `installFromUri()`: Selección e instalación desde archivos locales.
-- `pickPayloadFile()` / `pickMigrationFile()`: Selección de payload y migración locales.
-- `startGateway()` / `stopGateway()`: Control del servicio de gateway.
-- `getGatewayState()` / `getGatewayUrl()` / `getAuthToken()`: Información del gateway.
-- `getGatewayLogs()` / `clearGatewayLogs()`: Gestión de logs del gateway.
-- `getGatewayUptime()`: Tiempo de actividad del gateway.
-- `openTerminal()` / `launchInteractiveCommand()`: Acceso al terminal nativo.
-- `runCommand()` / `runCommandAsync()`: Ejecución de comandos.
-- `getSystemInfo()`: Versiones de Node.js, npm y OpenClaw.
-- `getAppInfo()`: Información de la aplicación.
-- `getBatteryOptimizationStatus()` / `requestBatteryOptimizationExclusion()`: Gestión de optimización de batería.
-- `openSystemSettings()`: Apertura de configuraciones del sistema.
-- `copyToClipboard()`: Copia al portapapeles.
-- `getStorageInfo()`: Información de almacenamiento.
-- `clearCache()`: Limpieza de caché.
-- `openUrl()`: Apertura de URLs en navegador.
-- `getAvailablePlatforms()` / `getInstalledPlatforms()` / `switchPlatform()`: Gestión de plataformas.
-- `installTool()` / `uninstallTool()`: Gestión de herramientas.
+- `libnode.so`: motor Node.js.
+- `libbusybox.so`: utilidades shell base.
+- `libldlinux.so` + glibc empaquetado: compatibilidad de binarios Linux en sandbox Android.
 
-**Eventos Clave (Android → React):**
-- `onInstallProgress` / `onInstallComplete` / `onInstallError`: Progreso de instalación.
-- `onLocalAssetPicked` / `onMigrationFilePicked`: Selección de archivos locales.
-- `install_progress`: Progreso de instalación de herramientas/plataformas.
-- `native:file_picked_{callbackId}` / `native:command_result_{callbackId}`: Resultados asíncronos.
+### 2.2 Instalación de payload
 
----
+- El payload se distribuye en assets (`payload-v2.tar.xz`).
+- Se extrae en almacenamiento interno privado de la app.
+- Se generan wrappers (`node`, `npm`, `openclaw`) para estandarizar ejecución.
 
-## 🐚 Entorno de Ejecución Nativo
+### 2.3 Bridge `window.OpenClaw`
 
-OpenClaw Android opera sobre un entorno híbrido que combina librerías nativas con un sistema de archivos persistente.
+Capa de interoperabilidad entre React y Kotlin para:
 
-### Gestión de Binarios (`jniLibs`)
-- **Motor Node.js**: Utiliza `libnode.so` como núcleo de ejecución.
-- **Shell BusyBox**: Proporciona el entorno de comandos Linux estándar mediante `libbusybox.so`.
-- **Linker Dinámico**: Se emplea `libldlinux.so` para permitir que los binarios externos se ejecuten correctamente dentro del espacio de usuario de Android.
+- estado de instalación,
+- control del gateway,
+- ejecución de comandos,
+- picker de archivos,
+- info del sistema,
+- gestión de herramientas/plataformas.
 
-### Wrappers Automáticos
-El sistema genera automáticamente scripts de arranque en `app_payload/bin/` para los comandos:
-- `node`
-- `npm`
-- `openclaw`
+## 3) Gateway y ciclo de vida
 
-Esto permite que estos comandos sean "invisibles" y funcionen como si estuvieran instalados globalmente en el sistema.
+- El gateway se ejecuta como **Foreground Service**.
+- Se monitorea salud del proceso (supervisión + reinicio automático).
+- Se exponen logs con redacción de tokens sensibles.
+- Se mantiene métrica de uptime para UI y soporte.
 
----
+## 4) Frontend y WebView
 
-## 🎨 Terminal Premium
+- Frontend en React/Vite (`android/www`).
+- WebView consume assets locales y eventos del bridge.
+- Se usa espera activa de `health` antes de cargar dashboard para evitar errores de arranque temprano.
 
-El terminal nativo ha sido rediseñado desde cero para ofrecer una experiencia visual moderna.
+## 5) Seguridad
 
-- **Tema Visual**: Fondo "Deep Space" (`#0a0a0f`) con tipografía optimizada para código.
-- **Barra de Herramientas**: Diseño minimalista con indicadores de estado LED.
-- **Teclas Especiales**: Barra de acceso rápido con desplazamiento horizontal para TAB, ESC, CTRL, ALT y flechas de navegación.
-- **Respuesta Táctil**: Integración de Ripple Effects y retroalimentación háptica sutil.
-- **Copiar y Pegar**: Soporte completo para portapapeles del sistema con confirmación Toast.
+- Datos y configuración viven en almacenamiento interno privado.
+- Sin dependencia obligatoria de permisos amplios de almacenamiento externo.
+- Tokens efímeros y sanitización de logs.
 
----
+## 6) Build y automatización
 
-## 🔋 Gestión del Gateway
+Al ejecutar Gradle:
 
-El gateway se ejecuta como un Foreground Service para garantizar estabilidad:
+1. Compila frontend (`npm run build` en `android/www`).
+2. Sincroniza `www/dist` a assets del módulo app.
+3. Copia scripts auxiliares requeridos en runtime.
+4. Genera APK con UI y runtime alineados.
 
-- **Notificación Persistente**: Muestra estado, uptime y acciones (Restart, Ver logs).
-- **Health Check y Auto-reinicio**: Monitorea el proceso y reinicia automáticamente si falla.
-- **Logs Centralizados**: Captura stdout/stderr con redacción automática de tokens sensibles.
-- **Uptime Tracking**: Registra y expone el tiempo de actividad en segundos.
+## 7) Operación recomendada
 
----
+- Mantener sincronía entre bridge Kotlin y tipos TypeScript.
+- Versionar cambios de runtime en `CHANGELOG.md`.
+- Validar smoke tests de gateway tras cambios de instalación.
 
-## 🛠️ Automatización del Build
+## 8) Referencias internas
 
-Se ha integrado el ciclo de vida de **Vite** dentro de **Gradle**. No es necesario compilar el frontend por separado.
-
-1. Al ejecutar `./gradlew assembleDebug`, el sistema:
-   - Entra en `android/www/`.
-   - Ejecuta `npm run build`.
-   - Limpia y sincroniza los assets en `src/main/assets/www/`.
-   - Copia scripts de mantenimiento a `src/main/assets/scripts/`.
-2. El resultado es un APK que siempre contiene la última versión de la interfaz de usuario y scripts.
-
----
-
-## 📝 Notas de Versión
-- **Caché**: Se ha forzado `LOAD_NO_CACHE` en el WebView para desarrollo rápido.
-- **Seguridad**: Políticas de origen cruzado (CORS) configuradas para permitir carga de assets locales mediante módulos ES.
-- **Compatibilidad**: Eventos soportan tanto prefijo `android:` como `native:` para mayor flexibilidad.
-
----
-*Documento generado automáticamente por Antigravity AI - 2026*
+- Visión general: `README.md`
+- Guía de pruebas: `TESTING.md`
+- Contribución: `CONTRIBUTING.md`
+- Seguridad: `SECURITY.md`
