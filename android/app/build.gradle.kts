@@ -250,5 +250,4 @@ dependencies {
     androidTestImplementation("com.google.dagger:hilt-android-testing:2.50")
     androidTestImplementation("io.mockk:mockk-android:1.13.8")
 }
-}
-}
+

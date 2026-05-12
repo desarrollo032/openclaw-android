@@ -336,12 +336,34 @@ class AndroidBridge(
         val payloadDir = activity.getDir("payload", Context.MODE_PRIVATE)
         val ldlinux = File(nativeDir, "libldlinux.so")
         val nodeReal = File(nativeDir, "libnode.so")
+        val busybox = File(nativeDir, "libbusybox.so")
         val glibcLibs = File(payloadDir, "glibc/lib").absolutePath
         val libs = "${nativeDir.absolutePath}:$glibcLibs"
 
+        // Diagnóstico detallado del entorno
+        val diagnostics = mutableListOf<String>()
+        
+        // Verificar si el payload está instalado
+        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        if (!payloadReady) {
+            diagnostics.add("Payload no instalado")
+        }
+
+        // Verificar librerías nativas
+        if (!ldlinux.exists()) diagnostics.add("Falta libldlinux.so")
+        if (!nodeReal.exists()) diagnostics.add("Falta libnode.so")
+        if (!busybox.exists()) diagnostics.add("Falta libbusybox.so")
+
+        // Verificar directorio glibc
+        val glibcDir = File(payloadDir, "glibc/lib")
+        if (!glibcDir.exists() || !glibcDir.isDirectory) {
+            diagnostics.add("Falta directorio glibc/lib")
+        }
+
+        // Obtener versión de Node.js (con mejor manejo de errores)
         val nodeVersion = try {
-            if (!ldlinux.exists() || !nodeReal.exists()) {
-                "unknown"
+            if (!payloadReady || !ldlinux.exists() || !nodeReal.exists()) {
+                "instalando..."
             } else {
                 val process = ProcessBuilder(
                     ldlinux.absolutePath,
@@ -352,26 +374,42 @@ class AndroidBridge(
                     environment().apply {
                         remove("LD_PRELOAD")
                         put("LD_LIBRARY_PATH", libs)
+                        put("HOME", payloadDir.absolutePath)
+                        put("TMPDIR", activity.cacheDir.absolutePath)
                     }
                     redirectErrorStream(true)
+                    directory(payloadDir)
                 }.start()
 
-                if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                if (!process.waitFor(3, TimeUnit.SECONDS)) {
                     process.destroyForcibly()
-                    "unknown"
+                    Log.w("OpenClawBridge", "Node version timeout")
+                    "cargando..."
                 } else {
-                    process.inputStream.bufferedReader().readLine()?.trim().orEmpty().ifBlank { "unknown" }
+                    val output = process.inputStream.bufferedReader().readLine()?.trim().orEmpty()
+                    if (output.isNotBlank() && output.startsWith("v")) {
+                        output
+                    } else {
+                        Log.w("OpenClawBridge", "Node version invalid output: $output")
+                        "reintentando..."
+                    }
                 }
             }
         } catch (e: Exception) {
-            Log.e("OpenClawBridge", "Node version error: ${e.message}")
-            "unknown"
+            Log.e("OpenClawBridge", "Node version error: ${e.javaClass.simpleName} - ${e.message}")
+            if (e.message?.contains("libdl.so.2") == true || 
+                e.message?.contains("librt.so.1") == true) {
+                "configurando glibc..."
+            } else {
+                "pendiente..."
+            }
         }
 
+        // Obtener versiones de paquetes
         val openclawVersion = readPackageVersion(
             payloadDir,
             "lib/node_modules/openclaw/package.json"
-        ) ?: "unknown"
+        ) ?: if (payloadReady) "desconocido" else "instalando..."
 
         val npmVersion = readPackageVersion(
             payloadDir,
@@ -384,7 +422,9 @@ class AndroidBridge(
             put("npmVersion", npmVersion)
             put("openclawVersion", openclawVersion)
             put("gitVersion", "no incluido")
-            put("busyboxAvailable", File(nativeDir, "libbusybox.so").canExecute())
+            put("busyboxAvailable", busybox.exists() && busybox.canExecute())
+            put("payloadReady", payloadReady)
+            put("diagnostics", diagnostics.joinToString(", "))
             put("freeSpaceMB", activity.filesDir.freeSpace / 1024 / 1024)
             put("nativeLibDir", nativeDir.absolutePath)
             put("payloadDir", payloadDir.absolutePath)

@@ -20,6 +20,8 @@ interface SystemInfo {
   npmVersion?: string
   openclawVersion?: string
   gitVersion?: string
+  payloadReady?: boolean
+  diagnostics?: string
 }
 
 // ── Icon map con las exactas de la imagen ─────────────────────────────────────
@@ -71,6 +73,7 @@ export function Dashboard() {
           npmVersion: data.npmVersion,
           openclawVersion: data.version,
           gitVersion: 'no incluido',
+          payloadReady: true,
         }
       }
     } catch {
@@ -78,9 +81,19 @@ export function Dashboard() {
     }
 
     info ??= getBridgeSystemInfo()
-    setNodeVer(info.nodeVersion && info.nodeVersion !== 'unknown' ? info.nodeVersion : 'unknown')
+    
+    // Mejoras en la visualización de estados
+    const nodeDisplay = info.nodeVersion && info.nodeVersion !== 'unknown' 
+      ? info.nodeVersion 
+      : (info.payloadReady ? 'reintentando...' : 'instalando...')
+    
+    const ocDisplay = info.openclawVersion && info.openclawVersion !== 'unknown' 
+      ? info.openclawVersion 
+      : (info.payloadReady ? 'desconocido' : 'instalando...')
+
+    setNodeVer(nodeDisplay)
     setNpmVer(info.npmVersion && info.npmVersion !== 'unknown' ? info.npmVersion : 'no incluido')
-    setOcVer(info.openclawVersion && info.openclawVersion !== 'unknown' ? info.openclawVersion : 'unknown')
+    setOcVer(ocDisplay)
     setGitVer(info.gitVersion || 'no incluido')
   }, [getBridgeSystemInfo])
 
@@ -125,10 +138,34 @@ export function Dashboard() {
   }, [])
 
   const envTools = [
-    { icon: '⬡',  label: 'Node.js',   value: nodeVer,  color: '#6366f1', installed: !!nodeVer && nodeVer !== 'unknown' },
-    { icon: 'npm', label: 'npm',       value: npmVer === 'no incluido' ? 'No incluido' : npmVer, color: '#ef4444', installed: !!npmVer && npmVer !== 'no incluido' && npmVer !== 'unknown' },
-    { icon: '⎇',  label: 'git',       value: gitVer === 'no incluido' ? 'No incluido' : gitVer, color: '#22d3ee', installed: false },
-    { icon: '🦀', label: 'openclaw',  value: ocVer,    color: '#f97316', installed: !!ocVer && ocVer !== 'unknown'  },
+    { 
+      icon: '⬡',  
+      label: 'Node.js',   
+      value: nodeVer,  
+      color: '#6366f1', 
+      installed: !!nodeVer && nodeVer !== 'unknown' && nodeVer !== 'instalando...' && nodeVer !== 'pendiente...' && nodeVer !== 'cargando...' && nodeVer !== 'reintentando...' && nodeVer !== 'configurando glibc...'
+    },
+    { 
+      icon: 'npm', 
+      label: 'npm',       
+      value: npmVer === 'no incluido' ? 'No incluido' : npmVer, 
+      color: '#ef4444', 
+      installed: !!npmVer && npmVer !== 'no incluido' && npmVer !== 'unknown'
+    },
+    { 
+      icon: '⎇',  
+      label: 'git',       
+      value: gitVer === 'no incluido' ? 'No incluido' : gitVer, 
+      color: '#22d3ee', 
+      installed: false
+    },
+    { 
+      icon: '🦀', 
+      label: 'openclaw',  
+      value: ocVer,    
+      color: '#f97316', 
+      installed: !!ocVer && ocVer !== 'unknown' && ocVer !== 'instalando...'
+    },
   ]
 
   return (
