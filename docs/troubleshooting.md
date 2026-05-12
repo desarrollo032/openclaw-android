@@ -302,3 +302,27 @@ No action needed. Verify that OpenCode works:
 ```bash
 opencode --version
 ```
+
+## `libldlinux.so` rejects `--disable-warning=ExperimentalWarning`
+
+```
+.../libldlinux.so: unrecognized option '--disable-warning=ExperimentalWarning'
+```
+
+### Cause
+
+A stale or inherited `NODE_OPTIONS` value is being injected into runtime startup. Some packaged Node builds on Android do not support that warning flag path, and it can break command startup.
+
+### Solution
+
+OpenClaw now sanitizes runtime wrappers (`openclaw`, `node`, `npm`) to:
+
+- `unset NODE_OPTIONS`
+- set `NODE_NO_WARNINGS=1`
+- invoke `libldlinux.so` only with supported loader args
+
+If your payload was installed before this fix, rerun onboarding to regenerate wrappers:
+
+```bash
+openclaw onboard
+```
