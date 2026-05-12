@@ -139,8 +139,8 @@ class OpenClawTerminalManager(private val context: Context) {
         val libs = "$native:$payload/glibc/lib"
         val loader = "$native/libldlinux.so"
         val node = "$native/libnode.so"
-        val openclaw = "$payload/lib/node_modules/openclaw/openclaw.mjs"
-        val npm = "$payload/lib/node_modules/npm/bin/npm-cli.js"
+        val openclawScript = "$payload/lib/node_modules/openclaw/openclaw.mjs"
+        val npmScript = "$payload/lib/node_modules/npm/bin/npm-cli.js"
         val rc = File(context.filesDir, "openclaw-terminal.rc")
         rc.writeText(
                 """
@@ -153,16 +153,16 @@ class OpenClawTerminalManager(private val context: Context) {
             # Funciones como fallback (se usan solo si los wrappers no existen)
             node() {
               unset LD_PRELOAD
-              LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" "${'$'}@"
+              exec "$loader" --library-path "$libs" "$node" "${'$'}@"
             }
             openclaw() {
               unset LD_PRELOAD
-              LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" "$openclaw" "${'$'}@"
+              exec "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
             }
             npm() {
-              if [ -f "$npm" ]; then
+              if [ -f "$npmScript" ]; then
                 unset LD_PRELOAD
-                LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" "$npm" "${'$'}@"
+                exec "$loader" --library-path "$libs" "$node" "$npmScript" "${'$'}@"
               else
                 echo "npm: no incluido"
                 return 127

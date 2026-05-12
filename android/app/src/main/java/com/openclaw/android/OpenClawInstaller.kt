@@ -255,10 +255,10 @@ object OpenClawInstaller {
                         
                         // Reglas ESTRICTAS para marcar como ejecutable:
                         // 1. Directorios: SI
-                        // 2. Archivos en /bin/: SI
-                        // 3. Archivos .sh: SI
+                        // 2. Archivos en /bin/: SI (pero NO archivos .js/.mjs/.ts/.json)
+                        // 3. Archivos .sh: SI (pero NO en /lib/)
                         // 4. CUALQUIER OTRO CASO: NO
-                        // 5. ESPECIAL: NUNCA ejecutar archivos en /lib/ o con extensiones .js/.mjs/.json/.ts
+                        // 5. ESPECIAL: NUNCA ejecutar archivos con extensiones .js/.mjs/.json/.ts o en /lib/
                         val isInLibDir = file.path.contains("/lib/")
                         val isJavascriptFile = file.name.endsWith(".js") || 
                                                file.name.endsWith(".mjs") || 
@@ -266,10 +266,13 @@ object OpenClawInstaller {
                                                file.name.endsWith(".json")
                         
                         val isExecutable = file.isDirectory || 
-                                          (file.path.contains("/bin/") && !isJavascriptFile) || 
-                                          (file.name.endsWith(".sh") && !isInLibDir)
+                                          (file.path.contains("/bin/") && !isJavascriptFile && !isInLibDir) || 
+                                          (file.name.endsWith(".sh") && !isInLibDir && !isJavascriptFile)
                         
-                        if (isExecutable) {
+                        // NUNCA permitir que archivos .js/.mjs/.ts/.json o en /lib/ sean ejecutables
+                        if (isJavascriptFile || isInLibDir) {
+                            file.setExecutable(false, false)
+                        } else if (isExecutable) {
                             file.setExecutable(true, false)
                         } else {
                             file.setExecutable(false, false)
@@ -320,13 +323,12 @@ object OpenClawInstaller {
             #!/system/bin/sh
             # Rutas inyectadas
             NODE_BIN="$nodeLib"
-            OPENCLAW_MSJ="$ocPathFull"
+            OPENCLAW_SCRIPT="$ocPathFull"
             LINKER="$linker"
             LIBS="$nativeDir:$glibcLib"
 
             unset LD_PRELOAD
-            export LD_LIBRARY_PATH="${'$'}LIBS"
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}OPENCLAW_MSJ" "${'$'}@"
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}OPENCLAW_SCRIPT" "${'$'}@"
         """.trimIndent())
         openClawWrapper.chmodWithOs()
 
