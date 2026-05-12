@@ -252,9 +252,22 @@ object OpenClawInstaller {
                     try {
                         file.setReadable(true, false)
                         file.setWritable(true, false)
-                        if (file.isDirectory || file.path.contains("/bin/") || file.path.contains("/lib/") || file.name.endsWith(".sh")) {
+                        
+                        // Solo marcar como ejecutables:
+                        // - Directorios
+                        // - Archivos en /bin/
+                        // - Archivos .sh
+                        // - NO archivos .js, .mjs, .json en /lib/
+                        val isExecutable = file.isDirectory || 
+                                          file.path.contains("/bin/") || 
+                                          file.name.endsWith(".sh")
+                        
+                        if (isExecutable) {
                             file.setExecutable(true, false)
+                        } else {
+                            file.setExecutable(false, false)
                         }
+                        
                         file.chmodWithOs()
                     } catch (e: Exception) {
                         Log.w("Installer", "chmod failed on ${file.absolutePath}: ${e.message}")
