@@ -237,8 +237,8 @@ class OpenClawGatewayService : Service() {
                 directory(base)
                 redirectErrorStream(true)
                 environment().apply {
-                    remove("LD_PRELOAD")                              // SIEMPRE remover
-                    put("LD_LIBRARY_PATH", libs)
+                    remove("LD_PRELOAD")
+                    // No setear LD_LIBRARY_PATH global: el linker recibe --library-path
                     put("OA_GLIBC",        "1")
                     put("CONTAINER",       "1")
                     put("TMPDIR",          tmpDir.absolutePath)
@@ -257,6 +257,8 @@ class OpenClawGatewayService : Service() {
                     put("OPENCLAW_DASHBOARD_TOKEN", dashboardToken)
                 }
             }
+
+
 
             gatewayProcess = pb.start()
             processStartTime = System.currentTimeMillis()

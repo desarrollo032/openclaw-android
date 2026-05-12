@@ -10,6 +10,9 @@ Este documento enumera las reglas innegociables para mantener la estabilidad y c
 **Por qué:** Permite un control total sobre las variables de entorno, el directorio de trabajo y la redirección de errores de forma segura.
 **Consecuencia:** Fuga de procesos (zombies) o falta de acceso a variables críticas como `LD_LIBRARY_PATH`.
 
+> Nota (importante para `invalid ELF header`): si usas una `glibc` personalizada con `libldlinux.so`, **evita setear `LD_LIBRARY_PATH` a nivel global** si el flujo correcto ya pasa `--library-path` al loader. Forzar `LD_LIBRARY_PATH` puede provocar resoluciones inesperadas en algunos dispositivos/cadenas.
+
+
 ### REGLA 2 — Ejecución en Android 12+ (W^X)
 **Estado:** ❌ NUNCA
 **Qué hacer:** NUNCA intentar ejecutar archivos marcados con `setExecutable(true)` en `filesDir`, `cacheDir` o `getDir()`.
