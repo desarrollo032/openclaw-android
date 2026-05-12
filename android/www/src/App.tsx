@@ -22,12 +22,24 @@ import { SettingsAdvanced } from './screens/SettingsAdvanced'
 type Tab = 'chat' | 'dashboard' | 'terminal' | 'skills' | 'memory'
 
 const TABS: { id: Tab; icon: string; label: string; path: string }[] = [
-  { id: 'chat',      icon: '💬', label: 'Chat',     path: '/chat' },
-  { id: 'dashboard', icon: '⬡',  label: 'Inicio',   path: '/dashboard' },
-  { id: 'terminal',  icon: '⌨',  label: 'Terminal', path: '/terminal' },
-  { id: 'skills',    icon: '⚡',  label: 'Skills',   path: '/skills' },
-  { id: 'memory',    icon: '🧠',  label: 'Memoria',  path: '/memory' },
+  { id: 'chat',      icon: 'chat', label: 'Chat',     path: '/chat' },
+  { id: 'dashboard', icon: 'home', label: 'Inicio',   path: '/dashboard' },
+  { id: 'terminal',  icon: 'term', label: 'Terminal', path: '/terminal' },
+  { id: 'skills',    icon: 'bolt', label: 'Skills',   path: '/skills' },
+  { id: 'memory',    icon: 'mem',  label: 'Memoria',  path: '/memory' },
 ]
+
+function Icon({ name }: { name: string }) {
+  const common = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+  if (name === 'chat') return <svg {...common}><path d="M6 18.5 3.5 20v-3.7A7.5 7.5 0 1 1 19 9.5"/><path d="M8 9.5h8M8 13h5"/></svg>
+  if (name === 'home') return <svg {...common}><path d="m3.5 10.8 8.5-7 8.5 7"/><path d="M6.5 9.8V20h11V9.8"/><path d="M10 20v-5h4v5"/></svg>
+  if (name === 'term') return <svg {...common}><path d="m5 8 4 4-4 4"/><path d="M11.5 16.5h7"/><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/></svg>
+  if (name === 'bolt') return <svg {...common}><path d="M13.8 2.8 6.8 12h4l-1 9.2 7.4-10.9h-4.5z"/></svg>
+  if (name === 'logs') return <svg {...common}><path d="M7 6.8h10M7 11.8h10M7 16.8h6"/><rect x="3.5" y="3.8" width="17" height="16.5" rx="2.5"/></svg>
+  if (name === 'settings') return <svg {...common}><path d="M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z"/><path d="m19.2 15.4 1.2 2.1-2.1 2.1-2.1-1.2a7.7 7.7 0 0 1-2 .8l-.6 2.3h-3l-.6-2.3a7.7 7.7 0 0 1-2-.8l-2.1 1.2-2.1-2.1 1.2-2.1a7.7 7.7 0 0 1-.8-2l-2.3-.6v-3l2.3-.6a7.7 7.7 0 0 1 .8-2L4.8 4.6l2.1-2.1L9 3.7a7.7 7.7 0 0 1 2-.8l.6-2.3h3l.6 2.3a7.7 7.7 0 0 1 2 .8l2.1-1.2 2.1 2.1-1.2 2.1a7.7 7.7 0 0 1 .8 2l2.3.6v3l-2.3.6a7.7 7.7 0 0 1-.8 2"/></svg>
+  if (name === 'play') return <svg {...common}><path d="M8 6.2 17.6 12 8 17.8z"/></svg>
+  return <svg {...common}><path d="M12 6.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 0 0 0-11.6Z"/><path d="M9.5 6V4m5 2V4M9.5 20v-2m5 2v-2"/></svg>
+}
 
 export function App() {
   const { path, navigate } = useRoute()
@@ -190,8 +202,11 @@ export function App() {
             </div>
           )}
           <div style={{ display:'flex', gap:6, marginLeft:'auto' }}>
-            <button className="header-btn" onClick={() => navigate('/logs')}     title="Logs">📋</button>
-            <button className="header-btn" onClick={() => navigate('/settings')} title="Ajustes">⚙️</button>
+            {!online && !starting && (
+              <button className="header-btn" onClick={() => bridge.call('startGateway')} title="Iniciar Gateway"><Icon name="play" /></button>
+            )}
+            <button className="header-btn" onClick={() => navigate('/logs')} title="Logs"><Icon name="logs" /></button>
+            <button className="header-btn" onClick={() => navigate('/settings')} title="Ajustes"><Icon name="settings" /></button>
           </div>
         </header>
       )}
@@ -225,7 +240,7 @@ export function App() {
                 else navigate(t.path)
               }}
             >
-              <span className="icon">{t.icon}</span>
+              <span className="icon"><Icon name={t.icon} /></span>
               <span>{t.label}</span>
             </button>
           ))}
