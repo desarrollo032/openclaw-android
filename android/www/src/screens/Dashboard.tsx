@@ -13,6 +13,7 @@ import { bridge } from '../lib/bridge'
 import { GatewayStatus } from '../components/GatewayStatus'
 import { InstallationCard } from '../components/InstallationCard'
 import { t } from '../i18n'
+import { navigate } from '../lib/router'
 
 interface AppInfo { versionName: string; versionCode: number; packageName: string }
 interface SystemInfo {
@@ -134,7 +135,13 @@ export function Dashboard() {
     : null
 
   const runInTerminal = useCallback((cmd: string) => {
-    bridge.call('launchInteractiveCommand', cmd)
+    try {
+      sessionStorage.setItem('openclaw.pendingTerminalCommand', cmd)
+    } catch {
+      // ignore
+    }
+    window.dispatchEvent(new CustomEvent('terminal:run', { detail: cmd }))
+    navigate('/terminal')
   }, [])
 
   const envTools = [
@@ -209,8 +216,10 @@ export function Dashboard() {
             title={r.title} sub={r.sub}
             last={i === CMD_ROWS.length - 1}
             onClick={() => {
-              if (r.cmd === 'openclaw gateway') bridge.call('startGateway')
-              else runInTerminal(r.cmd)
+              if (r.cmd === 'openclaw gateway') {
+                bridge.call('startGateway')
+              }
+              runInTerminal(r.cmd)
             }} />
         ))}
       </div>

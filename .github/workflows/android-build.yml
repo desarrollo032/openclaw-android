@@ -51,7 +51,6 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "21"
-          java-home: ""
 
       - uses: android-actions/setup-android@v4
 
