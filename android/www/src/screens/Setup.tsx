@@ -70,7 +70,18 @@ export function Setup({ onComplete }: Props) {
     }
   }, [addLog])
 
-  useNativeEvent('setup_progress', onProgress)
+  useNativeEvent('onInstallProgress', onProgress)
+  useNativeEvent('onInstallError', (data: unknown) => {
+    const error = (data as { error?: string })?.error ?? 'Error desconocido'
+    setPhase('error')
+    setErrorMsg(error)
+    addLog(error, 'error')
+  })
+  useNativeEvent('onInstallComplete', () => {
+    setProgress(1)
+    setCurrentStep(4)
+    setTimeout(() => setPhase('done'), 700)
+  })
 
   const handleStart = () => {
     if (manual) {

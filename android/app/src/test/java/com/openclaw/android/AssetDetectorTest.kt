@@ -2,6 +2,7 @@ package com.openclaw.android
 
 import android.content.Context
 import io.kotest.core.spec.style.DescribeSpec
+import io.kotest.matchers.comparables.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import org.junit.runner.RunWith
@@ -30,7 +31,7 @@ class AssetDetectorTest : DescribeSpec({
                 val assets = AssetDetector.detectSync(context)
 
                 assets.freeSpaceBytes shouldNotBe null
-                assets.freeSpaceBytes shouldBe >= 0L
+                assets.freeSpaceBytes shouldBeGreaterThan -1L
             }
         }
 

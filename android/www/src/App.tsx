@@ -34,29 +34,103 @@ export function App() {
   const { path, navigate } = useRoute()
   const [online, setOnline]       = useState(false)
   const [starting, setStarting]   = useState(false)
-  const [setupState, setSetupState] = useState<{ installed: boolean; onboarded: boolean } | null>(() => {
-    if (!bridge.isAvailable()) return { installed: true, onboarded: true }
-    const s = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string; onboardComplete?: boolean }>('getSetupStatus')
-    if (s) return {
-      installed: !!s.bootstrapInstalled && !!s.platformInstalled,
-      onboarded: !!s.onboardComplete
+  const [setupState, setSetupState] = useState<{ installed: boolean; onboarded: boolean } | null>(null)
+
+  useEffect(() => {
+    const loadSetupState = async () => {
+      if (!bridge.isAvailable()) {
+        setSetupState({ installed: true, onboarded: true })
+        return
+      }
+
+      const s = bridge.callJson<{ bootstrapInstalled?: boolean; platformInstalled?: string; onboardComplete?: boolean }>('getSetupStatus')
+      if (s) {
+        setSetupState({
+          installed: !!s.bootstrapInstalled && !!s.platformInstalled,
+          onboarded: !!s.onboardComplete
+        })
+      } else {
+        setSetupState({ installed: true, onboarded: true })
+      }
     }
-    return { installed: true, onboarded: true }
-  })
+
+    const parseEventDetail = (detail: unknown): { state?: string } | null => {
+      if (typeof detail === 'string') {
+        try { return JSON.parse(detail) as { state?: string } } catch { return null }
+      }
+      return detail as { state?: string }
+    }
+
+    const handleGatewayState = (event: Event) => {
+      const payload = parseEventDetail((event as CustomEvent).detail)
+      if (payload?.state) {
+        const state = payload.state
+        setStarting(state === 'STARTING' || state === 'RESTARTING')
+        setOnline(state === 'READY')
+      }
+    }
+
+    const handleGatewayReady = () => {
+      setStarting(false)
+      setOnline(true)
+    }
+
+    loadSetupState()
+    window.addEventListener('android:onGatewayStateChanged', handleGatewayState)
+    window.addEventListener('onGatewayStateChanged', handleGatewayState)
+    window.addEventListener('android:onGatewayReady', handleGatewayReady)
+    window.addEventListener('onGatewayReady', handleGatewayReady)
+
+    return () => {
+      window.removeEventListener('android:onGatewayStateChanged', handleGatewayState)
+      window.removeEventListener('onGatewayStateChanged', handleGatewayState)
+      window.removeEventListener('android:onGatewayReady', handleGatewayReady)
+      window.removeEventListener('onGatewayReady', handleGatewayReady)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!setupState) return
+
+    if (!setupState.installed && !path.startsWith('/setup') && !bridge.isAvailable()) {
+      navigate('/setup')
+      return
+    }
+
+    if (setupState.installed && !setupState.onboarded && !path.startsWith('/setup')) {
+      bridge.call('launchInteractiveCommand', 'openclaw onboard')
+      setSetupState({ ...setupState, onboarded: true })
+    }
+  }, [setupState, path, navigate])
 
   useEffect(() => {
     const check = async () => {
-      const bridgeObj = (window as unknown as { OpenClaw?: { getGatewayState?: () => string } }).OpenClaw
-      const bs = bridgeObj?.getGatewayState?.()
-      if (bs === 'READY')      { setOnline(true);  setStarting(false); return }
-      if (bs === 'STARTING' || bs === 'RESTARTING') { setOnline(false); setStarting(true); return }
+      if (!bridge.isAvailable()) {
+        setOnline(false)
+        setStarting(false)
+        return
+      }
+
+      const rawState = bridge.call('getGatewayState')
+      const state = typeof rawState === 'string' ? rawState : undefined
+      if (state === 'READY') {
+        setOnline(true)
+        setStarting(false)
+        return
+      }
+      if (state === 'STARTING' || state === 'RESTARTING') {
+        setOnline(false)
+        setStarting(true)
+        return
+      }
+
       const h = await api.getHealth()
-      const ok = h.status === 'ok'
-      setOnline(ok)
+      setOnline(h.status === 'ok')
       setStarting(false)
     }
+
     check()
-    const id = setInterval(check, 8_000)
+    const id = setInterval(check, 12_000)
     return () => clearInterval(id)
   }, [])
 
@@ -84,18 +158,7 @@ export function App() {
     </div>
   )
 
-  // 1. Redirigir a setup si no está instalado (SOLO si no estamos en Android)
-  // En Android, el native InstallationBottomSheet se encarga.
-  if (!setupState.installed && !path.startsWith('/setup') && !bridge.isAvailable()) {
-    navigate('/setup')
-  } 
-  // 2. Redirigir a terminal nativa para onboarding si está instalado pero no configurado
-  else if (setupState.installed && !setupState.onboarded && !path.startsWith('/setup')) {
-    bridge.call('launchInteractiveCommand', 'openclaw onboard')
-    setSetupState({ ...setupState, onboarded: true })
-  }
-
-  const isSetup = path.startsWith('/setup') || (setupState.installed && !setupState.onboarded)
+  const isSetup = path.startsWith('/setup') || (setupState?.installed && !setupState.onboarded)
   const hideNav = isSetup
 
   const statusClass = online ? 'online' : starting ? 'starting' : 'offline'

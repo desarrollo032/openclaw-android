@@ -79,9 +79,20 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         checkAndRequestNotificationPermission()
 
         lifecycleScope.launch {
+            var lastToken: String = ""
+
             OpenClawGatewayService.state.collect { state ->
+                val payload = JSONObject().apply { put("state", state.name) }.toString()
+                androidBridge?.notifyReact("onGatewayStateChanged", payload)
+
                 if (state == GatewayState.READY) {
                     androidBridge?.notifyReact("onGatewayReady", "{\"success\":true}")
+                }
+
+                val token = OpenClawGatewayService.currentToken
+                if (token.isNotBlank() && token != lastToken) {
+                    lastToken = token
+                    androidBridge?.notifyReact("onTokenRefresh", JSONObject().apply { put("token", token) }.toString())
                 }
             }
         }

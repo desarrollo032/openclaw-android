@@ -66,6 +66,8 @@ class ProgressInputStream(
 // ── Asset size helper ─────────────────────────────────────────────────────────
 
 /** Returns the uncompressed byte length of an asset, or -1 if unavailable. */
+fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
 fun Context.assetSize(path: String): Long = try {
     assets.openFd(path).use { it.length }
 } catch (e: Exception) {

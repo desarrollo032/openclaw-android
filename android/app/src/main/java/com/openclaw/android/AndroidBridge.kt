@@ -254,11 +254,13 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    @Suppress("UNUSED_PARAMETER")
     fun switchSession(_id: String) {
         // Native terminal sessions are owned by OpenClawTerminalActivity.
     }
 
     @JavascriptInterface
+    @Suppress("UNUSED_PARAMETER")
     fun closeSession(_id: String) {
         // Native terminal sessions are owned by OpenClawTerminalActivity.
     }
@@ -269,6 +271,7 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    @Suppress("UNUSED_PARAMETER")
     fun writeToTerminal(_id: String, data: String) {
         if (data.isNotBlank()) {
             launchInteractiveCommand(data)
@@ -567,6 +570,7 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    @Suppress("UNUSED_PARAMETER")
     fun saveToolSelections(json: String) {
         // Tool selections are currently informational in the mobile dashboard.
     }

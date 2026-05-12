@@ -128,7 +128,7 @@ class OpenClawTerminalManager(private val context: Context) {
             }
             openclaw() {
               unset LD_PRELOAD
-              LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" --disable-warning=ExperimentalWarning "$openclaw" "$@"
+              LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" "$openclaw" "$@"
             }
             npm() {
               if [ -f "$npm" ]; then

@@ -231,7 +231,6 @@ class OpenClawGatewayService : Service() {
                 loader.absolutePath,
                 "--library-path", libs,
                 nodeExec.absolutePath,
-                "--disable-warning=ExperimentalWarning",
                 openclaw.absolutePath,
                 "gateway"
             ).apply {

@@ -306,7 +306,7 @@ object OpenClawInstaller {
 
             unset LD_PRELOAD
             export LD_LIBRARY_PATH="${'$'}LIBS"
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" --disable-warning=ExperimentalWarning "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
         """.trimIndent())
         openClawWrapper.chmodWithOs()
 

@@ -49,17 +49,17 @@ class OpenClawExtensionsTest : DescribeSpec({
             }
         }
 
-        describe("Context.getPayloadDir") {
+        describe("OpenClawInstaller.getPayloadDir") {
             it("should return payload directory") {
-                val dir = context.getPayloadDir()
+                val dir = OpenClawInstaller.getPayloadDir(context)
                 dir.name shouldBe "payload"
                 dir.exists() shouldBe true
             }
         }
 
-        describe("Context.getConfigDir") {
+        describe("OpenClawInstaller.getConfigDir") {
             it("should return .openclaw directory") {
-                val dir = context.getConfigDir()
+                val dir = OpenClawInstaller.getConfigDir(context)
                 dir.name shouldBe ".openclaw"
                 dir.parentFile shouldBe context.filesDir
             }

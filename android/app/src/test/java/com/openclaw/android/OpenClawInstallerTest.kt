@@ -44,6 +44,17 @@ class OpenClawInstallerTest : DescribeSpec({
 
                 OpenClawInstaller.isConfigRestored(context) shouldBe true
             }
+
+            it("should restore config from openclaw.json and cache the restored flag") {
+                val configDir = OpenClawInstaller.getConfigDir(context)
+                configDir.mkdirs()
+                File(configDir, "openclaw.json").writeText("{\"restored\":true}")
+
+                OpenClawInstaller.isConfigRestored(context) shouldBe true
+
+                val prefs = context.getSharedPreferences("openclaw_install", Context.MODE_PRIVATE)
+                prefs.getBoolean("config_restored", false) shouldBe true
+            }
         }
 
         describe("getPayloadDir") {
