@@ -28,8 +28,14 @@ object OpenClawInstaller {
 
     fun isPayloadReady(context: Context): Boolean {
         val payloadDir = context.getDir("payload", Context.MODE_PRIVATE)
-        return File(payloadDir, "lib/node_modules/openclaw").exists() &&
-                File(context.applicationInfo.nativeLibraryDir, "libnode.so").exists()
+        val openclawDir = File(payloadDir, "lib/node_modules/openclaw")
+        val nodeLib = File(context.applicationInfo.nativeLibraryDir, "libnode.so")
+        
+        // Verificación más robusta: el directorio debe existir Y tener contenido
+        val payloadExists = openclawDir.exists() && openclawDir.isDirectory()
+        val nodeExists = nodeLib.exists() && nodeLib.isFile()
+        
+        return payloadExists && nodeExists
     }
 
     fun uninstall(context: Context) {
