@@ -1,4 +1,3 @@
-import java.io.File
 import java.util.Properties
 
 plugins {
@@ -14,17 +13,20 @@ val defaultVersionName = "0.0-dev"
 
 // Load or create version.properties
 val versionPropsFile = file("${rootProject.projectDir}/version.properties")
-val versionProps = Properties().apply {
-    if (versionPropsFile.exists()) {
-        load(versionPropsFile.inputStream())
-    } else {
-        // Create defaults if missing
-        setProperty("VERSION_CODE", defaultVersionCode.toString())
-        setProperty("VERSION_NAME", defaultVersionName)
-    }
-}
+val versionProps =
+        Properties().apply {
+            if (versionPropsFile.exists()) {
+                load(versionPropsFile.inputStream())
+            } else {
+                // Create defaults if missing
+                setProperty("VERSION_CODE", defaultVersionCode.toString())
+                setProperty("VERSION_NAME", defaultVersionName)
+            }
+        }
 
-val gitVersionCode: Int = versionProps.getProperty("VERSION_CODE", defaultVersionCode.toString()).toIntOrNull() ?: defaultVersionCode
+val gitVersionCode: Int =
+        versionProps.getProperty("VERSION_CODE", defaultVersionCode.toString()).toIntOrNull()
+                ?: defaultVersionCode
 val gitVersionName: String = versionProps.getProperty("VERSION_NAME", defaultVersionName)
 
 // ── Git version update task (optional, manual trigger) ──────────────────────────
@@ -37,14 +39,20 @@ tasks.register("updateVersionFromGit") {
         val processGit = { args: Array<String> ->
             try {
                 ProcessBuilder("git", *args)
-                    .directory(rootProject.projectDir)
-                    .redirectErrorStream(true)
-                    .start()
-                    .inputStream.bufferedReader().readText().trim()
-            } catch (e: Exception) { "" }
+                        .directory(rootProject.projectDir)
+                        .redirectErrorStream(true)
+                        .start()
+                        .inputStream
+                        .bufferedReader()
+                        .readText()
+                        .trim()
+            } catch (e: Exception) {
+                ""
+            }
         }
 
-        val gitVersionCodeNew = processGit(arrayOf("rev-list", "--count", "HEAD")).toIntOrNull() ?: 1
+        val gitVersionCodeNew =
+                processGit(arrayOf("rev-list", "--count", "HEAD")).toIntOrNull() ?: 1
         val gitVersionNameNew = run {
             val raw = processGit(arrayOf("describe", "--tags", "--always", "--dirty=-dev"))
             if (raw.isEmpty()) {
@@ -56,12 +64,14 @@ tasks.register("updateVersionFromGit") {
             }
         }
 
-        versionPropsFile.writeText("""
+        versionPropsFile.writeText(
+                """
             # Auto-generated version properties from git
             # Run 'gradle updateVersionFromGit' to update
             VERSION_CODE=$gitVersionCodeNew
             VERSION_NAME=$gitVersionNameNew
-        """.trimIndent())
+        """.trimIndent()
+        )
 
         println("✓ version.properties updated: code=$gitVersionCodeNew name=$gitVersionNameNew")
     }
@@ -69,16 +79,16 @@ tasks.register("updateVersionFromGit") {
 
 // ── Web UI auto-build task ────────────────────────────────────────────────────
 
-val wwwSrcDir   = file("${rootProject.projectDir}/www")
-val wwwDistDir  = file("${wwwSrcDir}/dist")
+val wwwSrcDir = file("${rootProject.projectDir}/www")
+val wwwDistDir = file("${wwwSrcDir}/dist")
 val wwwAssetsDir = file("${projectDir}/src/main/assets/www")
 
 tasks.register<Exec>("buildWebUI") {
     description = "Build the React web UI and copy dist to Android assets"
-    group       = "build"
+    group = "build"
 
     workingDir = wwwSrcDir
-    
+
     // Determine shell based on OS at execution time
     val isWindows = System.getProperty("os.name").lowercase().contains("windows")
     if (isWindows) {
@@ -101,21 +111,25 @@ tasks.register<Copy>("copyWebUIAssets") {
     description = "Copy built web UI to Android assets"
     from(wwwDistDir)
     into(wwwAssetsDir)
-    doLast {
-        println("✓ Web UI copied to assets/www")
-    }
+    doLast { println("✓ Web UI copied to assets/www") }
 }
 
 // ── Scripts bundling task ─────────────────────────────────────────────────────
 val scriptsAssetsDir = file("${projectDir}/src/main/assets/scripts")
-val rootScripts = listOf(
-    "oa.sh", "bootstrap.sh", "install.sh", "uninstall.sh", 
-    "update.sh", "update-core.sh", "post-setup.sh"
-)
+val rootScripts =
+        listOf(
+                "oa.sh",
+                "bootstrap.sh",
+                "install.sh",
+                "uninstall.sh",
+                "update.sh",
+                "update-core.sh",
+                "post-setup.sh"
+        )
 
 tasks.register<Copy>("bundleScripts") {
     description = "Copy root maintenance scripts to Android assets"
-    group       = "build"
+    group = "build"
 
     from(rootProject.projectDir)
     into(scriptsAssetsDir)
@@ -151,45 +165,34 @@ android {
                 cppFlags += listOf("-Wl,-z,max-page-size=16384")
             }
         }
-        
+
         // Configuración NDK para arm64-v8a
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
-    buildFeatures {
-        viewBinding = true
-    }
+    buildFeatures { viewBinding = true }
 
     // Prevent aapt from compressing binary archives — critical for large assets
-    androidResources {
-        noCompress += listOf("xz", "gz", "tar", "tar.xz", "tar.gz")
-    }
+    androidResources { noCompress += listOf("xz", "gz", "tar", "tar.xz", "tar.gz") }
 
-    packaging {
-        jniLibs {
-            useLegacyPackaging = true
-        }
-    }
+    packaging { jniLibs { useLegacyPackaging = true } }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-    buildFeatures {
-        viewBinding = true
-    }
+    kotlinOptions { jvmTarget = "17" }
+    buildFeatures { viewBinding = true }
 
     // ── Test Configuration ────────────────────────────────────────────────────
     testOptions {
@@ -224,7 +227,6 @@ dependencies {
     implementation(files("libs/terminal-emulator.aar"))
     implementation(files("libs/terminal-view.aar"))
 
-
     // ── Unit Testing ─────────────────────────────────────────────────────────
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.0")
@@ -248,4 +250,5 @@ dependencies {
     androidTestImplementation("com.google.dagger:hilt-android-testing:2.50")
     androidTestImplementation("io.mockk:mockk-android:1.13.8")
 }
-
+}
+}
