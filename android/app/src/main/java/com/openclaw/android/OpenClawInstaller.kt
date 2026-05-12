@@ -300,13 +300,8 @@ object OpenClawInstaller {
             #!/system/bin/sh
             BIN_DIR=${'$'}(dirname "${'$'}0")
             PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
-            LINKER="$linker"
-            NODE_LIB="$nodeLib"
-            LIBS="$nativeDir:${'$'}PAYLOAD_DIR/glibc/lib"
 
-            unset LD_PRELOAD
-            export LD_LIBRARY_PATH="${'$'}LIBS"
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
+            exec "${'$'}BIN_DIR/node" "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
         """.trimIndent())
         openClawWrapper.chmodWithOs()
 

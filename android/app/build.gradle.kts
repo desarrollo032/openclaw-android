@@ -6,28 +6,64 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// ── Dynamic versioning from git ───────────────────────────────────────────────
+// ── Lazy version resolution (configuration cache safe) ─────────────────────────
 
-// ── Dynamic versioning from git ───────────────────────────────────────────────
+// Fallback versioning with defaults
+val defaultVersionCode = 1
+val defaultVersionName = "0.0-dev"
 
-fun runGit(vararg args: String): String = try {
-    ProcessBuilder("git", *args)
-        .directory(rootProject.projectDir)
-        .redirectErrorStream(true)
-        .start()
-        .inputStream.bufferedReader().readText().trim()
-} catch (e: Exception) { "" }
-
-val gitVersionCode: Int = runGit("rev-list", "--count", "HEAD").toIntOrNull() ?: 1
-
-val gitVersionName: String = run {
-    val raw = runGit("describe", "--tags", "--always", "--dirty=-dev")
-    if (raw.isEmpty()) {
-        "0.0-${runGit("rev-parse", "--short", "HEAD").ifEmpty { "unknown" }}"
-    } else if (raw.first().isDigit() || raw.startsWith("v")) {
-        raw
+// Load or create version.properties
+val versionPropsFile = file("${rootProject.projectDir}/version.properties")
+val versionProps = Properties().apply {
+    if (versionPropsFile.exists()) {
+        load(versionPropsFile.inputStream())
     } else {
-        "0.0-$raw"
+        // Create defaults if missing
+        setProperty("VERSION_CODE", defaultVersionCode.toString())
+        setProperty("VERSION_NAME", defaultVersionName)
+    }
+}
+
+val gitVersionCode: Int = versionProps.getProperty("VERSION_CODE", defaultVersionCode.toString()).toIntOrNull() ?: defaultVersionCode
+val gitVersionName: String = versionProps.getProperty("VERSION_NAME", defaultVersionName)
+
+// ── Git version update task (optional, manual trigger) ──────────────────────────
+
+tasks.register("updateVersionFromGit") {
+    description = "Update version.properties from git (manual task, not part of build cache)"
+    group = "build"
+
+    doLast {
+        val processGit = { args: Array<String> ->
+            try {
+                ProcessBuilder("git", *args)
+                    .directory(rootProject.projectDir)
+                    .redirectErrorStream(true)
+                    .start()
+                    .inputStream.bufferedReader().readText().trim()
+            } catch (e: Exception) { "" }
+        }
+
+        val gitVersionCodeNew = processGit(arrayOf("rev-list", "--count", "HEAD")).toIntOrNull() ?: 1
+        val gitVersionNameNew = run {
+            val raw = processGit(arrayOf("describe", "--tags", "--always", "--dirty=-dev"))
+            if (raw.isEmpty()) {
+                "0.0-${processGit(arrayOf("rev-parse", "--short", "HEAD")).ifEmpty { "unknown" }}"
+            } else if (raw.first().isDigit() || raw.startsWith("v")) {
+                raw
+            } else {
+                "0.0-$raw"
+            }
+        }
+
+        versionPropsFile.writeText("""
+            # Auto-generated version properties from git
+            # Run 'gradle updateVersionFromGit' to update
+            VERSION_CODE=$gitVersionCodeNew
+            VERSION_NAME=$gitVersionNameNew
+        """.trimIndent())
+
+        println("✓ version.properties updated: code=$gitVersionCodeNew name=$gitVersionNameNew")
     }
 }
 
@@ -42,8 +78,10 @@ tasks.register<Exec>("buildWebUI") {
     group       = "build"
 
     workingDir = wwwSrcDir
-    // Use npm on Windows (cmd /c npm run build) or npm directly on Unix
-    if (System.getProperty("os.name").lowercase().contains("windows")) {
+    
+    // Determine shell based on OS at execution time
+    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+    if (isWindows) {
         commandLine("cmd", "/c", "npm", "run", "build")
     } else {
         commandLine("npm", "run", "build")
@@ -55,11 +93,16 @@ tasks.register<Exec>("buildWebUI") {
     inputs.file(file("${wwwSrcDir}/vite.config.ts"))
     outputs.dir(wwwDistDir)
 
+    // Post-build copy task (registered separately to avoid serialization issues)
+    finalizedBy("copyWebUIAssets")
+}
+
+tasks.register<Copy>("copyWebUIAssets") {
+    description = "Copy built web UI to Android assets"
+    from(wwwDistDir)
+    into(wwwAssetsDir)
     doLast {
-        // Copy dist → assets/www
-        if (wwwAssetsDir.exists()) wwwAssetsDir.deleteRecursively()
-        wwwDistDir.copyRecursively(wwwAssetsDir, overwrite = true)
-        println("✓ Web UI built and copied to assets/www")
+        println("✓ Web UI copied to assets/www")
     }
 }
 
