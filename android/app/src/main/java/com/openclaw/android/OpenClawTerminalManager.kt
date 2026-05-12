@@ -146,12 +146,11 @@ class OpenClawTerminalManager(private val context: Context) {
                 """
             PS1='${'$'} '
 
-            # Primero intentar usar los wrappers oficiales en $binDir
-            if [ -d "$binDir" ]; then
-              export PATH="$binDir:${'$'}{PATH}"
-            fi
+            # Priorizar ABSOLUTAMENTE los wrappers oficiales en $binDir
+            export PATH="$binDir:${'$'}{PATH}"
 
-            # Funciones como fallback si los wrappers no están disponibles
+            # Evitar ejecutar archivos .js/.mjs directamente por error
+            # Funciones como fallback (se usan solo si los wrappers no existen)
             node() {
               unset LD_PRELOAD
               LD_LIBRARY_PATH="$libs" "$loader" --library-path "$libs" "$node" "${'$'}@"

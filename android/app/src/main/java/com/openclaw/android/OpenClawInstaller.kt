@@ -253,14 +253,21 @@ object OpenClawInstaller {
                         file.setReadable(true, false)
                         file.setWritable(true, false)
                         
-                        // Solo marcar como ejecutables:
-                        // - Directorios
-                        // - Archivos en /bin/
-                        // - Archivos .sh
-                        // - NO archivos .js, .mjs, .json en /lib/
+                        // Reglas ESTRICTAS para marcar como ejecutable:
+                        // 1. Directorios: SI
+                        // 2. Archivos en /bin/: SI
+                        // 3. Archivos .sh: SI
+                        // 4. CUALQUIER OTRO CASO: NO
+                        // 5. ESPECIAL: NUNCA ejecutar archivos en /lib/ o con extensiones .js/.mjs/.json/.ts
+                        val isInLibDir = file.path.contains("/lib/")
+                        val isJavascriptFile = file.name.endsWith(".js") || 
+                                               file.name.endsWith(".mjs") || 
+                                               file.name.endsWith(".ts") ||
+                                               file.name.endsWith(".json")
+                        
                         val isExecutable = file.isDirectory || 
-                                          file.path.contains("/bin/") || 
-                                          file.name.endsWith(".sh")
+                                          (file.path.contains("/bin/") && !isJavascriptFile) || 
+                                          (file.name.endsWith(".sh") && !isInLibDir)
                         
                         if (isExecutable) {
                             file.setExecutable(true, false)
