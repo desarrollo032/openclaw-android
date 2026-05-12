@@ -2,9 +2,9 @@ name: Code Quality
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   shellcheck:
@@ -65,7 +65,7 @@ jobs:
   doc-freshness:
     name: Document Freshness
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,9 +73,25 @@ jobs:
 
       - name: Check document freshness
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_AFTER_SHA: ${{ github.sha }}
         run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="$PR_BASE_SHA"
+            HEAD_SHA="$PR_HEAD_SHA"
+          else
+            BASE_SHA="$PUSH_BEFORE_SHA"
+            HEAD_SHA="$PUSH_AFTER_SHA"
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "No valid BASE_SHA detected (likely first push on branch). Using HEAD~1 fallback."
+            BASE_SHA="$(git rev-parse "$HEAD_SHA~1")"
+          fi
+
           CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
 
           WARN=0
