@@ -152,6 +152,9 @@ jobs:
           key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/libs.versions.toml') }}
           restore-keys: gradle-
 
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
       - name: Run ktlint
         run: ./gradlew ktlintCheck
 
@@ -182,6 +185,9 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/libs.versions.toml') }}
           restore-keys: gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
 
       - name: Run unit tests
         run: ./gradlew test

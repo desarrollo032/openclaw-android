@@ -6,10 +6,9 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    rebase-strategy: "auto"
     labels:
       - "dependencies"
-    reviewers:
-      - "AidanPark"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -17,10 +16,9 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    rebase-strategy: "auto"
     labels:
       - "ci"
-    reviewers:
-      - "AidanPark"
 
   - package-ecosystem: "npm"
     directory: "/android/www"
@@ -28,7 +26,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    rebase-strategy: "auto"
     labels:
       - "dependencies"
-    reviewers:
-      - "AidanPark"
