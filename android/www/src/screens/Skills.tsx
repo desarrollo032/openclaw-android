@@ -52,7 +52,7 @@ export function Skills() {
   }, [])
 
   return (
-    <div style={S.page}>
+    <div className="modern-page" style={S.page}>
       <div style={S.header}>
         <div style={S.title}>Skills y Capacidades</div>
       </div>
