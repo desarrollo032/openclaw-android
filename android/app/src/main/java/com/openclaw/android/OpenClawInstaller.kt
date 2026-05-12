@@ -406,7 +406,10 @@ object OpenClawInstaller {
         // Map of source files (in payload) to destination files (in nativeLibraryDir)
         val libsToCopy =
                 mapOf(
-                        File(payloadBinDir, "node.real") to File(nativeDir, "libnode.so"),
+                        selectFirstExisting(
+                                File(payloadBinDir, "node.real"),
+                                File(nativeDir, "libnode.so")
+                        ) to File(nativeDir, "libnode.so"),
                         File(payloadGlibcLibDir, "ld-linux-aarch64.so.1") to
                                 File(nativeDir, "libldlinux.so"),
                         File(payloadBinDir, "busybox.real") to File(nativeDir, "libbusybox.so")
@@ -432,9 +435,17 @@ object OpenClawInstaller {
         }
     }
 
+    private fun selectFirstExisting(vararg candidates: File?): File {
+        return candidates.firstOrNull { it?.exists() == true }
+                ?: candidates.firstOrNull()
+                ?: File("")
+    }
+
     fun deployScripts(context: Context, base: File) {
         val binDir = File(base, "bin")
         if (!binDir.exists()) binDir.mkdirs()
+        val legacyBinDir = File(context.filesDir, "app_payload/bin")
+        if (!legacyBinDir.exists()) legacyBinDir.mkdirs()
 
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val linker = "$nativeDir/libldlinux.so"
@@ -507,6 +518,26 @@ object OpenClawInstaller {
         """.trimIndent()
         )
         npmWrapper.chmodWithOs()
+
+        // Compatibilidad con instalaciones antiguas que invocan
+        // /data/user/0/<pkg>/files/app_payload/bin/node directamente.
+        val legacyNodeWrapper = File(legacyBinDir, "node")
+        legacyNodeWrapper.writeText(
+                """
+            #!/system/bin/sh
+            exec "${nodeWrapper.absolutePath}" "${'$'}@"
+        """.trimIndent()
+        )
+        legacyNodeWrapper.chmodWithOs()
+
+        val legacyOpenClawWrapper = File(legacyBinDir, "openclaw")
+        legacyOpenClawWrapper.writeText(
+                """
+            #!/system/bin/sh
+            exec "${openClawWrapper.absolutePath}" "${'$'}@"
+        """.trimIndent()
+        )
+        legacyOpenClawWrapper.chmodWithOs()
 
         // Crear .mkshrc para alias automáticos en el terminal
         val mkshrc = File(base, ".mkshrc")
