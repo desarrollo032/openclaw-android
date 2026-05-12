@@ -117,6 +117,18 @@ export function Terminal() {
   }, []);
 
   useEffect(() => {
+    try {
+      const queued = sessionStorage.getItem("openclaw.pendingTerminalCommand");
+      if (queued) {
+        sessionStorage.removeItem("openclaw.pendingTerminalCommand");
+        runCmd(queued);
+      }
+    } catch {
+      // ignore storage issues
+    }
+  }, [runCmd]);
+
+  useEffect(() => {
     if (input.length < 2) {
       setSuggestions([]);
       return;
