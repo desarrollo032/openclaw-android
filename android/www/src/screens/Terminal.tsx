@@ -107,28 +107,6 @@ export function Terminal() {
   }, [history]);
 
   useEffect(() => {
-    const h = (e: Event) => {
-      const cmd = (e as CustomEvent<string>).detail;
-      if (cmd) runCmd(cmd);
-    };
-    window.addEventListener("terminal:run", h);
-    return () => window.removeEventListener("terminal:run", h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    try {
-      const queued = sessionStorage.getItem("openclaw.pendingTerminalCommand");
-      if (queued) {
-        sessionStorage.removeItem("openclaw.pendingTerminalCommand");
-        runCmd(queued);
-      }
-    } catch {
-      // ignore storage issues
-    }
-  }, [runCmd]);
-
-  useEffect(() => {
     if (input.length < 2) {
       setSuggestions([]);
       return;
@@ -222,8 +200,30 @@ export function Terminal() {
         }, 50);
       }
     },
-    [cmdHistory],
+    [],
   ); // eslint-disable-line
+
+  useEffect(() => {
+    const h = (e: Event) => {
+      const cmd = (e as CustomEvent<string>).detail;
+      if (cmd) runCmd(cmd);
+    };
+    window.addEventListener("terminal:run", h);
+    return () => window.removeEventListener("terminal:run", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      const queued = sessionStorage.getItem("openclaw.pendingTerminalCommand");
+      if (queued) {
+        sessionStorage.removeItem("openclaw.pendingTerminalCommand");
+        runCmd(queued);
+      }
+    } catch {
+      // ignore storage issues
+    }
+  }, [runCmd]);
 
   // ── Keyboard ─────────────────────────────────────────────────────────────
   const toggleCtrl = () => {
