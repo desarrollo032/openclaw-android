@@ -194,6 +194,24 @@ select {
   background-clip: text;
   letter-spacing: -0.4px;
 }
+.native-badge {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: var(--r-full);
+  padding: 3px 8px;
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+}
+.native-badge.ok {
+  color: var(--cyan);
+  background: var(--cyan-dim);
+  border-color: rgba(34, 211, 238, 0.25);
+}
+.native-badge.web {
+  color: var(--text2);
+  background: var(--glass);
+  border-color: var(--border);
+}
 
 .status-dot {
   width: 7px;
@@ -279,15 +297,17 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible), textarea:focu
 .tab-bar {
   display: flex;
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: calc(var(--safe-b) + 10px);
+  left: 10px;
+  right: 10px;
   height: calc(var(--nav-h) + var(--safe-b));
-  padding-bottom: var(--safe-b);
-  background: rgba(8, 8, 16, 0.92);
+  padding-bottom: 0;
+  background: rgba(13, 13, 24, 0.86);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-top: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--sh-lg);
   z-index: 100;
 }
 
@@ -316,13 +336,15 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible), textarea:focu
 .tab-bar-item.active::before {
   content: "";
   position: absolute;
-  top: 0;
-  left: 22%;
-  right: 22%;
-  height: 2px;
-  background: var(--grad);
-  border-radius: 0 0 3px 3px;
+  top: 8px;
+  left: 16%;
+  right: 16%;
+  height: calc(100% - 16px);
+  background: var(--purple-dim);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 12px;
   animation: fadeIn 0.3s ease-out;
+  z-index: -1;
 }
 .tab-bar-item .icon {
   width: 21px;
@@ -363,6 +385,9 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible), textarea:focu
   padding: 16px;
   animation: fadeUp 0.22s ease-out;
   min-height: 100%;
+}
+.modern-page {
+  background: radial-gradient(circle at top, rgba(99, 102, 241, 0.08), transparent 38%);
 }
 .page-header {
   display: flex;
