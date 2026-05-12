@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'android/**'
-      - '.github/workflows/android-build.yml'
+      - "android/**"
+      - ".github/workflows/android-build.yml"
   pull_request:
     branches: [main]
     paths:
-      - 'android/**'
-      - '.github/workflows/android-build.yml'
+      - "android/**"
+      - ".github/workflows/android-build.yml"
 
 jobs:
   build-www:
@@ -24,8 +24,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
           cache-dependency-path: android/www/package-lock.json
 
       - run: npm ci
@@ -49,8 +49,8 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          distribution: "temurin"
+          java-version: "21"
 
       - uses: android-actions/setup-android@v4
 
@@ -62,6 +62,9 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/libs.versions.toml') }}
           restore-keys: gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
