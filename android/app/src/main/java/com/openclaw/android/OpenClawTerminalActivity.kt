@@ -40,9 +40,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private lateinit var rootFrame: FrameLayout
     private var pendingInitialCommand: String? = null
 
-    private var currentFontSizeSp = 32f
-    private val MIN_FONT_SP = 32f
-    private val MAX_FONT_SP = 48f
+    private var currentFontSizeSp = 40f
+    private val MIN_FONT_SP = 40f
+    private val MAX_FONT_SP = 56f
 
     companion object {
         private var activeActivity: WeakReference<OpenClawTerminalActivity>? = null

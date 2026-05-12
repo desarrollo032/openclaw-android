@@ -125,28 +125,33 @@ class OpenClawTerminalManager(private val context: Context) {
         val node = "$native/libnode.so"
         val openclawScript = "$payload/lib/node_modules/openclaw/openclaw.mjs"
         val npmScript = "$payload/lib/node_modules/npm/bin/npm-cli.js"
+        val openclawHome = OpenClawInstaller.getConfigDir(context).absolutePath
         val rc = File(context.filesDir, "openclaw-terminal.rc")
         rc.writeText(
                 """
             PS1='${'$'} '
+            OPENCLAW_HOME="$openclawHome"
+            mkdir -p "${'$'}OPENCLAW_HOME" 2>/dev/null
+            cd "${'$'}OPENCLAW_HOME" 2>/dev/null || cd "$payload"
 
             # Priorizar ABSOLUTAMENTE los wrappers oficiales en $binDir
             export PATH="$binDir:${'$'}{PATH}"
+            export OPENCLAW_HOME
 
             # Evitar ejecutar archivos .js/.mjs directamente por error
-            # Funciones como fallback (se usan solo si los wrappers no existen)
+            # Funciones que evitan ejecutar wrappers desde app_payload/bin directamente.
             node() {
               unset LD_PRELOAD
-              exec "$loader" --library-path "$libs" "$node" "${'$'}@"
+              "$loader" --library-path "$libs" "$node" "${'$'}@"
             }
             openclaw() {
               unset LD_PRELOAD
-              exec "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
+              "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
             }
             npm() {
               if [ -f "$npmScript" ]; then
                 unset LD_PRELOAD
-                exec "$loader" --library-path "$libs" "$node" "$npmScript" "${'$'}@"
+                "$loader" --library-path "$libs" "$node" "$npmScript" "${'$'}@"
               else
                 echo "npm: no incluido"
                 return 127
