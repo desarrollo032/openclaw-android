@@ -13,7 +13,7 @@ export function InstallationCard() {
     pickMigration
   } = useInstallation();
 
-  // No mostrar si ya está instalado o no estamos en Android
+  // Mostrar siempre cuando no esté instalado, incluso si hay error
   if (isDone && !error) return null;
   if (!AndroidBridge.isAvailable()) return null;
 
