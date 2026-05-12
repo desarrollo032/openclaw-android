@@ -171,7 +171,7 @@ export function Chat() {
   const hasSuggestions = lastMsg?.role === 'assistant' && lastMsg.suggestions?.length
 
   return (
-    <div style={S.root}>
+    <div className="modern-page" style={S.root}>
       {/* ── Offline banner ── */}
       {!online && (
         <div style={S.offlineBanner}>
@@ -187,7 +187,7 @@ export function Chat() {
           <div style={S.emptyState}>
             <div style={S.emptyLogo}>
               <div style={S.emptyRing} />
-              <span style={{ fontSize: 48, position: 'relative', zIndex: 1 }}>🦀</span>
+              <span style={{ fontSize: 18, position: 'relative', zIndex: 1, fontWeight: 800, letterSpacing: '.08em' }}>OC</span>
             </div>
             <div style={S.emptyTitle}>{t('chat_empty_title')}</div>
             <div style={S.emptySub}>{t('chat_empty_sub')}</div>
@@ -208,7 +208,7 @@ export function Chat() {
           <div key={msg.id} style={{ ...S.msgWrapper, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
             {/* Avatar (only for assistant) */}
             {msg.role === 'assistant' && (
-              <div style={S.avatar}>🦀</div>
+              <div style={S.avatar}>OC</div>
             )}
 
             <div style={{ maxWidth: '80%', display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -248,7 +248,7 @@ export function Chat() {
         {/* Typing indicator */}
         {typing && (
           <div style={{ ...S.msgWrapper, justifyContent: 'flex-start' }}>
-            <div style={S.avatar}>🦀</div>
+            <div style={S.avatar}>OC</div>
             <div style={{ ...S.bubble, ...S.bubbleBot, ...S.typingBubble }}>
               <div style={S.typingDots}>
                 <span style={{ ...S.dot, animationDelay: '0ms' }}   />

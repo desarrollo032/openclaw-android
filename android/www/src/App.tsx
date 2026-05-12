@@ -22,19 +22,20 @@ import { SettingsAdvanced } from './screens/SettingsAdvanced'
 type Tab = 'chat' | 'dashboard' | 'terminal' | 'skills' | 'memory'
 
 const TABS: { id: Tab; icon: string; label: string; path: string }[] = [
-  { id: 'chat',      icon: 'chat', label: 'Chat',     path: '/chat' },
-  { id: 'dashboard', icon: 'home', label: 'Inicio',   path: '/dashboard' },
-  { id: 'terminal',  icon: 'term', label: 'Terminal', path: '/terminal' },
-  { id: 'skills',    icon: 'bolt', label: 'Skills',   path: '/skills' },
-  { id: 'memory',    icon: 'mem',  label: 'Memoria',  path: '/memory' },
+  { id: 'chat',      icon: 'chat',      label: 'Chat',     path: '/chat' },
+  { id: 'dashboard', icon: 'dashboard', label: 'Inicio',   path: '/dashboard' },
+  { id: 'terminal',  icon: 'terminal',  label: 'Terminal', path: '/terminal' },
+  { id: 'skills',    icon: 'skills',    label: 'Skills',   path: '/skills' },
+  { id: 'memory',    icon: 'memory',    label: 'Memoria',  path: '/memory' },
 ]
 
 function Icon({ name }: { name: string }) {
   const common = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
   if (name === 'chat') return <svg {...common}><path d="M6 18.5 3.5 20v-3.7A7.5 7.5 0 1 1 19 9.5"/><path d="M8 9.5h8M8 13h5"/></svg>
-  if (name === 'home') return <svg {...common}><path d="m3.5 10.8 8.5-7 8.5 7"/><path d="M6.5 9.8V20h11V9.8"/><path d="M10 20v-5h4v5"/></svg>
-  if (name === 'term') return <svg {...common}><path d="m5 8 4 4-4 4"/><path d="M11.5 16.5h7"/><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/></svg>
-  if (name === 'bolt') return <svg {...common}><path d="M13.8 2.8 6.8 12h4l-1 9.2 7.4-10.9h-4.5z"/></svg>
+  if (name === 'dashboard') return <svg {...common}><rect x="3.5" y="3.5" width="7" height="7" rx="1.4"/><rect x="13.5" y="3.5" width="7" height="4.5" rx="1.4"/><rect x="13.5" y="10.8" width="7" height="9.7" rx="1.4"/><rect x="3.5" y="13.3" width="7" height="7.2" rx="1.4"/></svg>
+  if (name === 'terminal') return <svg {...common}><path d="m6 8 4 4-4 4"/><path d="M12.5 16.5h5.5"/><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/></svg>
+  if (name === 'skills') return <svg {...common}><path d="M12 3.5 8.8 8.7l-5.9 1.4 4 4.4-.7 6 5.8-2.5 5.8 2.5-.7-6 4-4.4-5.9-1.4z"/></svg>
+  if (name === 'memory') return <svg {...common}><rect x="5" y="7" width="14" height="10" rx="2"/><path d="M8 5v2m4-2v2m4-2v2m-8 10v2m4-2v2m4-2v2M3 10h2m-2 4h2m14-4h2m-2 4h2"/></svg>
   if (name === 'logs') return <svg {...common}><path d="M7 6.8h10M7 11.8h10M7 16.8h6"/><rect x="3.5" y="3.8" width="17" height="16.5" rx="2.5"/></svg>
   if (name === 'settings') return <svg {...common}><path d="M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z"/><path d="m19.2 15.4 1.2 2.1-2.1 2.1-2.1-1.2a7.7 7.7 0 0 1-2 .8l-.6 2.3h-3l-.6-2.3a7.7 7.7 0 0 1-2-.8l-2.1 1.2-2.1-2.1 1.2-2.1a7.7 7.7 0 0 1-.8-2l-2.3-.6v-3l2.3-.6a7.7 7.7 0 0 1 .8-2L4.8 4.6l2.1-2.1L9 3.7a7.7 7.7 0 0 1 2-.8l.6-2.3h3l.6 2.3a7.7 7.7 0 0 1 2 .8l2.1-1.2 2.1 2.1-1.2 2.1a7.7 7.7 0 0 1 .8 2l2.3.6v3l-2.3.6a7.7 7.7 0 0 1-.8 2"/></svg>
   if (name === 'play') return <svg {...common}><path d="M8 6.2 17.6 12 8 17.8z"/></svg>
@@ -43,6 +44,7 @@ function Icon({ name }: { name: string }) {
 
 export function App() {
   const { path, navigate } = useRoute()
+  const [nativeConnected] = useState(bridge.isAvailable())
   const [online, setOnline]       = useState(false)
   const [starting, setStarting]   = useState(false)
   const [setupState, setSetupState] = useState<{ installed: boolean; onboarded: boolean } | null>(null)
@@ -186,6 +188,9 @@ export function App() {
         <header className="app-header">
           <div className={`status-dot ${statusClass}`} />
           <div className="title">OpenClaw</div>
+          <div className={`native-badge ${nativeConnected ? 'ok' : 'web'}`}>
+            {nativeConnected ? 'KOTLIN LINK' : 'WEB MODE'}
+          </div>
           {/* Uptime badge when online */}
           {online && (
             <div style={{ fontSize:10, fontWeight:700, color:'var(--green)',

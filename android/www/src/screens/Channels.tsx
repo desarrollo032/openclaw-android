@@ -24,12 +24,12 @@ interface TelegramConfig {
 export function Channels() {
     const { navigate } = useRoute()
     const [channels, setChannels] = useState<ChannelStatus[]>([
-        { id: 'telegram', name: 'Telegram', icon: '✈️', enabled: false, configured: false, description: 'Bot de Telegram para mensajes y comandos', configKey: 'channels.telegram' },
-        { id: 'whatsapp', name: 'WhatsApp', icon: '💬', enabled: false, configured: false, description: 'WhatsApp Business API', configKey: 'channels.whatsapp' },
-        { id: 'discord', name: 'Discord', icon: '🎮', enabled: false, configured: false, description: 'Bot de Discord', configKey: 'channels.discord' },
-        { id: 'slack', name: 'Slack', icon: '💼', enabled: false, configured: false, description: 'Workspace de Slack', configKey: 'channels.slack' },
-        { id: 'signal', name: 'Signal', icon: '🔒', enabled: false, configured: false, description: 'Mensajes cifrados Signal', configKey: 'channels.signal' },
-        { id: 'msteams', name: 'Microsoft Teams', icon: '🏢', enabled: false, configured: false, description: 'Microsoft Teams', configKey: 'channels.msteams' },
+        { id: 'telegram', name: 'Telegram', icon: 'TG', enabled: false, configured: false, description: 'Bot de Telegram para mensajes y comandos', configKey: 'channels.telegram' },
+        { id: 'whatsapp', name: 'WhatsApp', icon: 'WA', enabled: false, configured: false, description: 'WhatsApp Business API', configKey: 'channels.whatsapp' },
+        { id: 'discord', name: 'Discord', icon: 'DS', enabled: false, configured: false, description: 'Bot de Discord', configKey: 'channels.discord' },
+        { id: 'slack', name: 'Slack', icon: 'SL', enabled: false, configured: false, description: 'Workspace de Slack', configKey: 'channels.slack' },
+        { id: 'signal', name: 'Signal', icon: 'SG', enabled: false, configured: false, description: 'Mensajes cifrados Signal', configKey: 'channels.signal' },
+        { id: 'msteams', name: 'Microsoft Teams', icon: 'MT', enabled: false, configured: false, description: 'Microsoft Teams', configKey: 'channels.msteams' },
     ])
     const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
     const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({
@@ -95,10 +95,10 @@ export function Channels() {
     )
 
     return (
-        <div className="page" style={{ paddingBottom: 32 }}>
+        <div className="page modern-page" style={{ paddingBottom: 32 }}>
             <div className="page-header">
                 <button className="back-btn" onClick={() => navigate('/settings')}>←</button>
-                <div className="page-title">Canales</div>
+                <div className="page-title">Canales y Conexiones</div>
                 {savedMsg && <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600, marginLeft: 'auto' }}>{savedMsg}</span>}
             </div>
 
@@ -112,7 +112,7 @@ export function Channels() {
                                 style={{ ...S.channelRow, borderBottom: i < channels.length - 1 ? '1px solid #1a1a2e' : 'none' }}
                                 onClick={() => setSelectedChannel(ch.id)}
                             >
-                                <span style={{ fontSize: 24, width: 36, textAlign: 'center' }}>{ch.icon}</span>
+                                <span style={{ fontSize: 11, width: 36, height: 36, display:'grid', placeItems:'center', textAlign: 'center', borderRadius: 10, background:'rgba(99,102,241,0.14)', border:'1px solid rgba(99,102,241,0.35)', fontWeight:800, letterSpacing:'.04em' }}>{ch.icon}</span>
                                 <div style={S.channelInfo}>
                                     <span style={S.channelName}>{ch.name}</span>
                                     <span style={S.channelDesc}>{ch.description}</span>
