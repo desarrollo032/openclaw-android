@@ -116,11 +116,7 @@ describe('App Component', () => {
     )
 
     await waitFor(() => {
-      // App debería redirigir a setup o mostrar setup
-      const hash = window.location.hash
-      // Si bridge está disponible y no está instalado, debería ir a setup
-      // o mostrar el componente Setup
-      expect(hash === '#/setup' || hash === '#/dashboard').toBe(true)
+      expect(window.location.hash).toBe('#/setup')
     })
   })
 })

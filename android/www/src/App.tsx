@@ -92,7 +92,7 @@ export function App() {
   useEffect(() => {
     if (!setupState) return
 
-    if (!setupState.installed && !path.startsWith('/setup') && !bridge.isAvailable()) {
+    if (!setupState.installed && !path.startsWith('/setup')) {
       navigate('/setup')
       return
     }

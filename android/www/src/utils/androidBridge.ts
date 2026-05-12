@@ -25,11 +25,13 @@ export interface InstallProgress {
   stepName: string;
 }
 
+const getNativeBridge = () => window.OpenClaw ?? window.AndroidBridge;
+
 export const AndroidBridge = {
-  isAvailable: () => typeof window.AndroidBridge !== 'undefined',
+  isAvailable: () => typeof getNativeBridge() !== 'undefined',
 
   checkInstallation: (): InstallationStatus | null => {
-    const bridge = window.AndroidBridge;
+    const bridge = getNativeBridge();
     if (!bridge) return null;
     try {
       return JSON.parse(bridge.checkInstallation());
@@ -39,67 +41,67 @@ export const AndroidBridge = {
   },
 
   startInstallation: () => {
-    window.AndroidBridge?.startInstallation();
+    getNativeBridge()?.startInstallation();
   },
 
   pickMigrationFile: () => {
-    window.AndroidBridge?.pickMigrationFile();
+    getNativeBridge()?.pickMigrationFile();
   },
 
   pickPayloadFile: () => {
-    window.AndroidBridge?.pickPayloadFile();
+    getNativeBridge()?.pickPayloadFile();
   },
 
   startGateway: () => {
-    window.AndroidBridge?.startGateway();
+    getNativeBridge()?.startGateway();
   },
 
   stopGateway: () => {
-    window.AndroidBridge?.stopGateway();
+    getNativeBridge()?.stopGateway();
   },
 
   openTerminal: () => {
-    window.AndroidBridge?.openTerminal();
+    getNativeBridge()?.openTerminal();
   },
   
   showTerminal: () => {
-    window.AndroidBridge?.showTerminal();
+    getNativeBridge()?.showTerminal();
   },
 
   launchInteractiveCommand: (cmd: string) => {
-    window.AndroidBridge?.launchInteractiveCommand(cmd);
+    getNativeBridge()?.launchInteractiveCommand(cmd);
   },
 
   runCommand: (cmd: string): string => {
-    return window.AndroidBridge?.runCommand(cmd) ?? '';
+    return getNativeBridge()?.runCommand(cmd) ?? '';
   },
 
   getSystemInfo: (): string => {
-    return window.AndroidBridge?.getSystemInfo() ?? '{}';
+    return getNativeBridge()?.getSystemInfo() ?? '{}';
   },
 
   getAppInfo: (): string => {
-    return window.AndroidBridge?.getAppInfo() ?? '';
+    return getNativeBridge()?.getAppInfo() ?? '';
   },
 
   getStorageInfo: (): string => {
-    return window.AndroidBridge?.getStorageInfo() ?? '';
+    return getNativeBridge()?.getStorageInfo() ?? '';
   },
 
   getGatewayToken: (): string => {
-    return window.AndroidBridge?.getGatewayToken() ?? '';
+    return getNativeBridge()?.getGatewayToken() ?? '';
   },
 
   getAuthToken: (): string => {
-    return window.AndroidBridge?.getAuthToken() ?? window.__OPENCLAW_TOKEN ?? '';
+    return getNativeBridge()?.getAuthToken() ?? window.__OPENCLAW_TOKEN ?? '';
   },
 
   getLogs: (lines: number): string => {
-    return window.AndroidBridge?.getLogs(lines) ?? '[]';
+    return getNativeBridge()?.getLogs?.(lines) ?? '[]';
   },
 
   clearLogs: () => {
-    window.AndroidBridge?.clearLogs();
+    getNativeBridge()?.clearLogs?.();
   },
 
   getToken: (): string => {
@@ -107,11 +109,11 @@ export const AndroidBridge = {
   },
 
   getNativeGatewayState: (): string => {
-    return window.AndroidBridge?.getGatewayState() ?? 'UNKNOWN';
+    return getNativeBridge()?.getGatewayState() ?? 'UNKNOWN';
   },
 
   notifyReady: () => {
-    window.AndroidBridge?.notifyReady?.();
+    getNativeBridge()?.notifyReady?.();
   },
 
   onTokenRefresh: (callback: (token: string) => void) => {

@@ -86,6 +86,7 @@ class OpenClawTerminalManager(private val context: Context) {
     fun buildEnvironment(): Array<String> {
         val glibcLibs = File(payloadDir, "glibc/lib").absolutePath
         val libs = "${nativeDir.absolutePath}:${glibcLibs}"
+        val rc = ensureShellRc()
 
         return arrayOf(
             "HOME=${payloadDir.absolutePath}",
@@ -99,6 +100,8 @@ class OpenClawTerminalManager(private val context: Context) {
             "SSL_CERT_FILE=${payloadDir.absolutePath}/etc/tls/cert.pem",
             "LANG=en_US.UTF-8",
             "LC_ALL=en_US.UTF-8",
+            "ENV=${rc.absolutePath}",
+            "OPENCLAW_TERMINAL_RC=${rc.absolutePath}",
             // Prompt corto — no ocupar toda la línea
             "PS1=$ ",
             // NO incluir LD_PRELOAD — crítico

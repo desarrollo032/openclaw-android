@@ -52,7 +52,9 @@ interface OpenClawBridge {
   getGatewayUrl(): string
   getGatewayState(): string
   getGatewayLogs(): string
+  getLogs(lines: number): string
   clearGatewayLogs(): void
+  clearLogs(): void
   getGatewayUptime(): string
   startGateway(): void
   stopGateway(): void
