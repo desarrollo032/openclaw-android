@@ -142,15 +142,21 @@ class OpenClawTerminalManager(private val context: Context) {
             # Funciones que evitan ejecutar wrappers desde app_payload/bin directamente.
             node() {
               unset LD_PRELOAD
+              unset NODE_OPTIONS
+              export NODE_NO_WARNINGS=1
               "$loader" --library-path "$libs" "$node" "${'$'}@"
             }
             openclaw() {
               unset LD_PRELOAD
+              unset NODE_OPTIONS
+              export NODE_NO_WARNINGS=1
               "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
             }
             npm() {
               if [ -f "$npmScript" ]; then
                 unset LD_PRELOAD
+                unset NODE_OPTIONS
+                export NODE_NO_WARNINGS=1
                 "$loader" --library-path "$libs" "$node" "$npmScript" "${'$'}@"
               else
                 echo "npm: no incluido"
