@@ -273,18 +273,19 @@ object OpenClawInstaller {
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val linker = "$nativeDir/libldlinux.so"
         val nodeLib = "$nativeDir/libnode.so"
+        val glibcLib = "$base/glibc/lib"
+        val ocPathFull = "$base/lib/node_modules/openclaw/openclaw.mjs"
+        val npmPathFull = "$base/lib/node_modules/npm/bin/npm-cli.js"
 
-        // Crear wrapper para 'node' (Dinámico)
+        // Crear wrapper para 'node' (Rutas absolutas inyectadas)
         val nodeWrapper = File(binDir, "node")
         if (nodeWrapper.exists()) nodeWrapper.delete()
         nodeWrapper.writeText("""
             #!/system/bin/sh
-            # Detectar ruta de forma dinámica
-            BIN_DIR=${'$'}(dirname "${'$'}0")
-            PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
+            # Rutas inyectadas (no derivadas para evitar problemas con $0 en exec)
             LINKER="$linker"
             NODE_LIB="$nodeLib"
-            LIBS="$nativeDir:${'$'}PAYLOAD_DIR/glibc/lib"
+            LIBS="$nativeDir:$glibcLib"
 
             unset LD_PRELOAD
             export LD_LIBRARY_PATH="${'$'}LIBS"
@@ -292,33 +293,41 @@ object OpenClawInstaller {
         """.trimIndent())
         nodeWrapper.chmodWithOs()
 
-        // Crear wrapper para 'openclaw' (Dinámico y usa sh)
-        val ocPathRel = "lib/node_modules/openclaw/openclaw.mjs"
+        // Crear wrapper para 'openclaw' (Rutas absolutas inyectadas)
         val openClawWrapper = File(binDir, "openclaw")
         if (openClawWrapper.exists()) openClawWrapper.delete()
         openClawWrapper.writeText("""
             #!/system/bin/sh
-            BIN_DIR=${'$'}(dirname "${'$'}0")
-            PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
+            # Rutas inyectadas
+            NODE_BIN="$nodeLib"
+            OPENCLAW_MSJ="$ocPathFull"
+            LINKER="$linker"
+            LIBS="$nativeDir:$glibcLib"
 
-            exec "${'$'}BIN_DIR/node" "${'$'}PAYLOAD_DIR/$ocPathRel" "${'$'}@"
+            unset LD_PRELOAD
+            export LD_LIBRARY_PATH="${'$'}LIBS"
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}OPENCLAW_MSJ" "${'$'}@"
         """.trimIndent())
         openClawWrapper.chmodWithOs()
 
-        // Crear wrapper para 'npm' (Dinámico y usa sh)
-        val npmPathRel = "lib/node_modules/npm/bin/npm-cli.js"
+        // Crear wrapper para 'npm' (Rutas absolutas inyectadas)
         val npmWrapper = File(binDir, "npm")
         if (npmWrapper.exists()) npmWrapper.delete()
         npmWrapper.writeText("""
             #!/system/bin/sh
-            BIN_DIR=${'$'}(dirname "${'$'}0")
-            PAYLOAD_DIR=${'$'}(dirname "${'$'}BIN_DIR")
-            NPM_CLI="${'$'}PAYLOAD_DIR/$npmPathRel"
+            # Rutas inyectadas
+            NODE_BIN="$nodeLib"
+            NPM_CLI="$npmPathFull"
+            LINKER="$linker"
+            LIBS="$nativeDir:$glibcLib"
+
             if [ ! -f "${'$'}NPM_CLI" ]; then
                 echo "npm: no incluido"
                 exit 127
             fi
-            exec sh "${'$'}BIN_DIR/node" "${'$'}NPM_CLI" "${'$'}@"
+            unset LD_PRELOAD
+            export LD_LIBRARY_PATH="${'$'}LIBS"
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}NPM_CLI" "${'$'}@"
         """.trimIndent())
         npmWrapper.chmodWithOs()
 

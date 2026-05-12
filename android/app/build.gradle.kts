@@ -126,6 +126,7 @@ tasks.register<Copy>("bundleScripts") {
 tasks.whenTaskAdded {
     if (name == "mergeDebugAssets" || name == "mergeReleaseAssets") {
         dependsOn("buildWebUI")
+        dependsOn("copyWebUIAssets")
         dependsOn("bundleScripts")
     }
 }
