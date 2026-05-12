@@ -10,7 +10,6 @@ import { Memory }           from './screens/Memory'
 import { Logs }             from './screens/Logs'
 import { Settings }         from './screens/Settings'
 import { Skills }           from './screens/Skills.tsx'
-import { Terminal }         from './screens/Terminal'
 import { SettingsStorage }  from './screens/SettingsStorage'
 import { SettingsPlatforms} from './screens/SettingsPlatforms'
 import { SettingsAbout }    from './screens/SettingsAbout'
@@ -90,6 +89,12 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (!path.startsWith('/terminal')) return
+    bridge.call('showTerminal')
+    navigate('/dashboard')
+  }, [path, navigate])
+
+  useEffect(() => {
     if (!setupState) return
 
     if (!setupState.installed && !path.startsWith('/setup')) {
@@ -136,7 +141,6 @@ export function App() {
 
   const activeTab: Tab = path.startsWith('/chat')      ? 'chat'
     : path.startsWith('/dashboard') ? 'dashboard'
-    : path.startsWith('/terminal')  ? 'terminal'
     : path.startsWith('/skills')    ? 'skills'
     : path.startsWith('/memory')    ? 'memory'
     : 'dashboard'
@@ -203,7 +207,6 @@ export function App() {
         </Route>
         <Route path="/chat">      <Chat />      </Route>
         <Route path="/dashboard"> <Dashboard /> </Route>
-        <Route path="/terminal">  <Terminal />  </Route>
         <Route path="/skills">    <Skills />    </Route>
         <Route path="/memory">    <Memory />    </Route>
         <Route path="/logs">      <Logs />      </Route>

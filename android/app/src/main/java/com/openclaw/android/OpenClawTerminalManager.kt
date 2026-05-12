@@ -89,7 +89,7 @@ class OpenClawTerminalManager(private val context: Context) {
         val rc = ensureShellRc()
 
         return arrayOf(
-            "HOME=${payloadDir.absolutePath}",
+            "HOME=${context.filesDir.absolutePath}",
             "TERM=xterm-256color",
             "COLORTERM=truecolor",
             "PATH=${buildPath()}",
@@ -130,9 +130,10 @@ class OpenClawTerminalManager(private val context: Context) {
         rc.writeText(
                 """
             PS1='${'$'} '
+            HOME="${context.filesDir.absolutePath}"
             OPENCLAW_HOME="$openclawHome"
             mkdir -p "${'$'}OPENCLAW_HOME" 2>/dev/null
-            cd "${'$'}OPENCLAW_HOME" 2>/dev/null || cd "$payload"
+            cd "${'$'}OPENCLAW_HOME" 2>/dev/null || cd "${'$'}HOME"
 
             # Priorizar ABSOLUTAMENTE los wrappers oficiales en $binDir
             export PATH="$binDir:${'$'}{PATH}"
@@ -150,7 +151,7 @@ class OpenClawTerminalManager(private val context: Context) {
               unset LD_PRELOAD
               unset NODE_OPTIONS
               export NODE_NO_WARNINGS=1
-              "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
+              "$binDir/node" "$openclawScript" "${'$'}@"
             }
             npm() {
               if [ -f "$npmScript" ]; then
@@ -179,7 +180,7 @@ class OpenClawTerminalManager(private val context: Context) {
         return try {
             val shell = getShellPath()
             val env = buildEnvironment()
-            val cwd = payloadDir.absolutePath
+            val cwd = context.filesDir.absolutePath
 
             Log.d(TAG, "Iniciando sesión PTY")
             Log.d(TAG, "Shell: $shell")
