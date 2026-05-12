@@ -238,7 +238,6 @@ select {
   border: 1px solid var(--border);
   background: var(--glass);
   color: var(--text2);
-  font-size: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -247,6 +246,10 @@ select {
   position: relative;
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
+}
+.header-btn svg {
+  width: 16px;
+  height: 16px;
 }
 .header-btn:hover:not(:active) {
   background: var(--glass2);
@@ -322,9 +325,14 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible), textarea:focu
   animation: fadeIn 0.3s ease-out;
 }
 .tab-bar-item .icon {
-  font-size: 21px;
+  width: 21px;
+  height: 21px;
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   line-height: 1;
+}
+.tab-bar-item .icon svg {
+  width: 100%;
+  height: 100%;
 }
 .tab-bar-item.active .icon {
   transform: translateY(-2px) scale(1.1);
