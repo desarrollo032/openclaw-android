@@ -447,8 +447,11 @@ object OpenClawInstaller {
     fun deployScripts(context: Context, base: File) {
         val binDir = File(base, "bin")
         if (!binDir.exists()) binDir.mkdirs()
-        val legacyBinDir = File(context.filesDir, "app_payload/bin")
-        if (!legacyBinDir.exists()) legacyBinDir.mkdirs()
+        val legacyBinDirs = listOf(
+                File(context.filesDir, "app_payload/bin"),
+                File(context.dataDir, "app_payload/bin")
+        )
+        legacyBinDirs.forEach { if (!it.exists()) it.mkdirs() }
 
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val linker = "$nativeDir/libldlinux.so"
@@ -522,25 +525,28 @@ object OpenClawInstaller {
         )
         npmWrapper.chmodWithOs()
 
-        // Compatibilidad con instalaciones antiguas que invocan
-        // /data/user/0/<pkg>/files/app_payload/bin/node directamente.
-        val legacyNodeWrapper = File(legacyBinDir, "node")
-        legacyNodeWrapper.writeText(
-                """
-            #!/system/bin/sh
-            exec "${nodeWrapper.absolutePath}" "${'$'}@"
-        """.trimIndent()
-        )
-        legacyNodeWrapper.chmodWithOs()
+        // Compatibilidad con instalaciones antiguas que invocan wrappers legacy:
+        // - /data/user/0/<pkg>/files/app_payload/bin/*
+        // - /data/user/0/<pkg>/app_payload/bin/*
+        legacyBinDirs.forEach { legacyBinDir ->
+            val legacyNodeWrapper = File(legacyBinDir, "node")
+            legacyNodeWrapper.writeText(
+                    """
+                #!/system/bin/sh
+                exec "${nodeWrapper.absolutePath}" "${'$'}@"
+            """.trimIndent()
+            )
+            legacyNodeWrapper.chmodWithOs()
 
-        val legacyOpenClawWrapper = File(legacyBinDir, "openclaw")
-        legacyOpenClawWrapper.writeText(
-                """
-            #!/system/bin/sh
-            exec "${openClawWrapper.absolutePath}" "${'$'}@"
-        """.trimIndent()
-        )
-        legacyOpenClawWrapper.chmodWithOs()
+            val legacyOpenClawWrapper = File(legacyBinDir, "openclaw")
+            legacyOpenClawWrapper.writeText(
+                    """
+                #!/system/bin/sh
+                exec "${openClawWrapper.absolutePath}" "${'$'}@"
+            """.trimIndent()
+            )
+            legacyOpenClawWrapper.chmodWithOs()
+        }
         ensureLegacyWrapperPermissions(context)
 
         // Crear .mkshrc para alias automáticos en el terminal
@@ -566,25 +572,28 @@ object OpenClawInstaller {
     }
 
     fun ensureLegacyWrapperPermissions(context: Context) {
-        val legacyRoot = File(context.filesDir, "app_payload")
-        val legacyBin = File(legacyRoot, "bin")
-        val wrappers = listOf(File(legacyBin, "node"), File(legacyBin, "openclaw"))
+        val legacyRoots = listOf(File(context.filesDir, "app_payload"), File(context.dataDir, "app_payload"))
 
-        listOf(legacyRoot, legacyBin).forEach { dir ->
-            if (dir.exists()) {
-                dir.setReadable(true, false)
-                dir.setWritable(true, true)
-                dir.setExecutable(true, false)
-                dir.chmodWithOs(493)
+        legacyRoots.forEach { root ->
+            val binDir = File(root, "bin")
+            val wrappers = listOf(File(binDir, "node"), File(binDir, "openclaw"))
+
+            listOf(root, binDir).forEach { dir ->
+                if (dir.exists()) {
+                    dir.setReadable(true, false)
+                    dir.setWritable(true, true)
+                    dir.setExecutable(true, false)
+                    dir.chmodWithOs(493)
+                }
             }
-        }
 
-        wrappers.forEach { file ->
-            if (file.exists()) {
-                file.setReadable(true, false)
-                file.setWritable(true, true)
-                file.setExecutable(true, false)
-                file.chmodWithOs(493)
+            wrappers.forEach { file ->
+                if (file.exists()) {
+                    file.setReadable(true, false)
+                    file.setWritable(true, true)
+                    file.setExecutable(true, false)
+                    file.chmodWithOs(493)
+                }
             }
         }
     }

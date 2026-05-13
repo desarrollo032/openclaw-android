@@ -151,7 +151,7 @@ class OpenClawTerminalManager(private val context: Context) {
               unset LD_PRELOAD
               unset NODE_OPTIONS
               export NODE_NO_WARNINGS=1
-              "$binDir/node" "$openclawScript" "${'$'}@"
+              "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
             }
             npm() {
               if [ -f "$npmScript" ]; then
