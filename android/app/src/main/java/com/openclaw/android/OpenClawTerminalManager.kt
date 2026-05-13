@@ -103,6 +103,10 @@ class OpenClawTerminalManager(private val context: Context) {
             "SSL_CERT_FILE=${payloadDir.absolutePath}/etc/tls/cert.pem",
             "LANG=en_US.UTF-8",
             "LC_ALL=en_US.UTF-8",
+            "NODE_NO_WARNINGS=1",
+            "OPENCLAW_NO_RESPAWN=1",
+            "OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1",
+            "OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1",
             "ENV=${rc.absolutePath}",
             "OPENCLAW_TERMINAL_RC=${rc.absolutePath}",
             // Prompt corto — no ocupar toda la línea
@@ -150,13 +154,19 @@ class OpenClawTerminalManager(private val context: Context) {
               unset LD_PRELOAD
               unset NODE_OPTIONS
               export NODE_NO_WARNINGS=1
+              export OPENCLAW_NO_RESPAWN=1
+              export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
+              export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
               "$loader" --library-path "$libs" "$node" "${'$'}@"
             }
             openclaw() {
               unset LD_PRELOAD
               unset NODE_OPTIONS
               export NODE_NO_WARNINGS=1
-              "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
+              export OPENCLAW_NO_RESPAWN=1
+              export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
+              export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
+              "$loader" --library-path "$libs" "$node" --disable-warning=ExperimentalWarning "$openclawScript" "${'$'}@"
             }
             npm() {
               if [ -f "$npmScript" ]; then
@@ -183,6 +193,7 @@ class OpenClawTerminalManager(private val context: Context) {
      */
     fun createSession(client: TerminalSessionClient): TerminalSession? {
         return try {
+            OpenClawInstaller.ensureRuntimeWrappers(context)
             val shell = getShellPath()
             val env = buildEnvironment()
             val cwd = context.filesDir.absolutePath

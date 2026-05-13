@@ -291,6 +291,7 @@ class AndroidBridge(
     fun runCommand(command: String): String {
         return try {
             val termMgr = OpenClawTerminalManager(activity)
+            OpenClawInstaller.ensureRuntimeWrappers(activity)
             val envMap = mutableMapOf<String, String>()
             termMgr.buildEnvironment().forEach {
                 val parts = it.split("=", limit = 2)
@@ -335,7 +336,7 @@ class AndroidBridge(
     @JavascriptInterface
     fun getSystemInfo(): String {
         val nativeDir = File(activity.applicationInfo.nativeLibraryDir)
-        val payloadDir = activity.getDir("payload", Context.MODE_PRIVATE)
+        val payloadDir = OpenClawInstaller.getPayloadDir(activity)
         val ldlinux = File(nativeDir, "libldlinux.so")
         val nodeReal = File(nativeDir, "libnode.so")
         val busybox = File(nativeDir, "libbusybox.so")

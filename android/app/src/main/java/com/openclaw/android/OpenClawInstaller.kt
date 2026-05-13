@@ -37,7 +37,7 @@ object OpenClawInstaller {
         val nodeExists = nodeLib.exists() && nodeLib.isFile()
         
         if (payloadExists && nodeExists) {
-            ensureLegacyWrapperPermissions(context)
+            ensureRuntimeWrappers(context)
         }
         return payloadExists && nodeExists
     }
@@ -160,6 +160,9 @@ object OpenClawInstaller {
                         }
                     }
 
+                    deployScripts(context, base)
+                    fixPermissions(base)
+                    setupFilesLayout(context)
                     OpenClawTerminalManager(context).createBusyboxSymlinks()
 
                     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -281,6 +284,9 @@ object OpenClawInstaller {
                         )
                     }
 
+                    deployScripts(context, base)
+                    fixPermissions(base)
+                    setupFilesLayout(context)
                     OpenClawTerminalManager(context).createBusyboxSymlinks()
 
                     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -404,20 +410,16 @@ object OpenClawInstaller {
             }
         }
 
+    }
+
     fun setupFilesLayout(context: Context) {
         val filesDir = context.filesDir
         val payloadDir = getPayloadDir(context)
-        val usrDir = File(filesDir, "usr").apply { mkdirs() }
+        val usrDir = payloadDir.apply { mkdirs() }
         File(filesDir, "home").mkdirs()
         File(usrDir, "opt").mkdirs()
 
-        val links = listOf(
-                File(usrDir, "bin") to File(context.applicationInfo.nativeLibraryDir),
-                File(usrDir, "lib") to File(payloadDir, "lib"),
-                File(usrDir, "glibc") to File(payloadDir, "glibc"),
-                File(usrDir, "etc") to File(payloadDir, "etc"),
-                File(usrDir, "tmp") to context.cacheDir
-        )
+        val links = listOf(File(usrDir, "tmp") to context.cacheDir)
 
         links.forEach { (link, target) ->
             if (!link.exists()) {
@@ -429,33 +431,38 @@ object OpenClawInstaller {
             }
         }
     }
-    }
 
-    fun setupFilesLayout(context: Context) {
-        val filesDir = context.filesDir
-        val payloadDir = getPayloadDir(context)
-        val usrDir = File(filesDir, "usr").apply { mkdirs() }
-        File(filesDir, "home").mkdirs()
-        File(usrDir, "opt").mkdirs()
+    fun ensureRuntimeWrappers(context: Context) {
+        val base = getPayloadDir(context)
+        val primaryOpenClaw = File(base, "bin/openclaw")
+        val legacyWrappers =
+                listOf(
+                        File(context.filesDir, "app_payload/bin/node"),
+                        File(context.filesDir, "app_payload/bin/openclaw"),
+                        File(context.dataDir, "app_payload/bin/node"),
+                        File(context.dataDir, "app_payload/bin/openclaw")
+                )
 
-        val links = listOf(
-                File(usrDir, "bin") to File(context.applicationInfo.nativeLibraryDir),
-                File(usrDir, "lib") to File(payloadDir, "lib"),
-                File(usrDir, "glibc") to File(payloadDir, "glibc"),
-                File(usrDir, "etc") to File(payloadDir, "etc"),
-                File(usrDir, "tmp") to context.cacheDir
-        )
+        val primaryNeedsRepair =
+                !primaryOpenClaw.exists() ||
+                        !safeRead(primaryOpenClaw).contains("OPENCLAW_NO_RESPAWN=1") ||
+                        !safeRead(primaryOpenClaw).contains("--disable-warning=ExperimentalWarning")
+        val legacyNeedsRepair =
+                legacyWrappers.any { !it.exists() || safeRead(it).contains("app_payload/bin/node") }
 
-        links.forEach { (link, target) ->
-            if (!link.exists()) {
-                try {
-                    Os.symlink(target.absolutePath, link.absolutePath)
-                } catch (e: Exception) {
-                    Log.w(TAG, "No se pudo crear symlink ${link.absolutePath} -> ${target.absolutePath}: ${e.message}")
-                }
-            }
+        if (primaryNeedsRepair || legacyNeedsRepair) {
+            deployScripts(context, base)
+        } else {
+            ensureLegacyWrapperPermissions(context)
         }
     }
+
+    private fun safeRead(file: File): String =
+            try {
+                file.readText()
+            } catch (_: Exception) {
+                ""
+            }
 
     fun deployNativeLibs(context: Context, base: File) {
         val nativeDir = File(context.applicationInfo.nativeLibraryDir)
@@ -530,6 +537,9 @@ object OpenClawInstaller {
             unset LD_PRELOAD
             unset NODE_OPTIONS
             export NODE_NO_WARNINGS=1
+            export OPENCLAW_NO_RESPAWN=1
+            export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
+            export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
             export LD_LIBRARY_PATH="${'$'}LIBS"
             exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" "${'$'}@"
         """.trimIndent()
@@ -551,7 +561,10 @@ object OpenClawInstaller {
             unset LD_PRELOAD
             unset NODE_OPTIONS
             export NODE_NO_WARNINGS=1
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}OPENCLAW_SCRIPT" "${'$'}@"
+            export OPENCLAW_NO_RESPAWN=1
+            export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
+            export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" --disable-warning=ExperimentalWarning "${'$'}OPENCLAW_SCRIPT" "${'$'}@"
         """.trimIndent()
         )
         openClawWrapper.chmodWithOs()
@@ -589,7 +602,7 @@ object OpenClawInstaller {
             legacyNodeWrapper.writeText(
                     """
                 #!/system/bin/sh
-                exec "${nodeWrapper.absolutePath}" "${'$'}@"
+                exec /system/bin/sh "${nodeWrapper.absolutePath}" "${'$'}@"
             """.trimIndent()
             )
             legacyNodeWrapper.chmodWithOs()
@@ -598,7 +611,7 @@ object OpenClawInstaller {
             legacyOpenClawWrapper.writeText(
                     """
                 #!/system/bin/sh
-                exec "${openClawWrapper.absolutePath}" "${'$'}@"
+                exec /system/bin/sh "${openClawWrapper.absolutePath}" "${'$'}@"
             """.trimIndent()
             )
             legacyOpenClawWrapper.chmodWithOs()
