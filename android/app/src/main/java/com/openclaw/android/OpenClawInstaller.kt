@@ -23,11 +23,11 @@ private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
 
 object OpenClawInstaller {
 
-    fun getPayloadDir(context: Context): File = context.getDir("payload", Context.MODE_PRIVATE)
-    fun getConfigDir(context: Context): File = File(context.filesDir, ".openclaw")
+    fun getPayloadDir(context: Context): File = File(context.filesDir, "usr").apply { mkdirs() }
+    fun getConfigDir(context: Context): File = File(File(context.filesDir, "home"), ".openclaw")
 
     fun isPayloadReady(context: Context): Boolean {
-        val payloadDir = context.getDir("payload", Context.MODE_PRIVATE)
+        val payloadDir = getPayloadDir(context)
         val openclawDir = File(payloadDir, "lib/node_modules/openclaw")
         val nodeLib = File(context.applicationInfo.nativeLibraryDir, "libnode.so")
         
@@ -35,6 +35,9 @@ object OpenClawInstaller {
         val payloadExists = openclawDir.exists() && openclawDir.isDirectory()
         val nodeExists = nodeLib.exists() && nodeLib.isFile()
         
+        if (payloadExists && nodeExists) {
+            ensureLegacyWrapperPermissions(context)
+        }
         return payloadExists && nodeExists
     }
 
@@ -444,8 +447,11 @@ object OpenClawInstaller {
     fun deployScripts(context: Context, base: File) {
         val binDir = File(base, "bin")
         if (!binDir.exists()) binDir.mkdirs()
-        val legacyBinDir = File(context.filesDir, "app_payload/bin")
-        if (!legacyBinDir.exists()) legacyBinDir.mkdirs()
+        val legacyBinDirs = listOf(
+                File(context.filesDir, "app_payload/bin"),
+                File(context.dataDir, "app_payload/bin")
+        )
+        legacyBinDirs.forEach { if (!it.exists()) it.mkdirs() }
 
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val linker = "$nativeDir/libldlinux.so"
@@ -519,25 +525,29 @@ object OpenClawInstaller {
         )
         npmWrapper.chmodWithOs()
 
-        // Compatibilidad con instalaciones antiguas que invocan
-        // /data/user/0/<pkg>/files/app_payload/bin/node directamente.
-        val legacyNodeWrapper = File(legacyBinDir, "node")
-        legacyNodeWrapper.writeText(
-                """
-            #!/system/bin/sh
-            exec "${nodeWrapper.absolutePath}" "${'$'}@"
-        """.trimIndent()
-        )
-        legacyNodeWrapper.chmodWithOs()
+        // Compatibilidad con instalaciones antiguas que invocan wrappers legacy:
+        // - /data/user/0/<pkg>/files/app_payload/bin/*
+        // - /data/user/0/<pkg>/app_payload/bin/*
+        legacyBinDirs.forEach { legacyBinDir ->
+            val legacyNodeWrapper = File(legacyBinDir, "node")
+            legacyNodeWrapper.writeText(
+                    """
+                #!/system/bin/sh
+                exec "${nodeWrapper.absolutePath}" "${'$'}@"
+            """.trimIndent()
+            )
+            legacyNodeWrapper.chmodWithOs()
 
-        val legacyOpenClawWrapper = File(legacyBinDir, "openclaw")
-        legacyOpenClawWrapper.writeText(
-                """
-            #!/system/bin/sh
-            exec "${openClawWrapper.absolutePath}" "${'$'}@"
-        """.trimIndent()
-        )
-        legacyOpenClawWrapper.chmodWithOs()
+            val legacyOpenClawWrapper = File(legacyBinDir, "openclaw")
+            legacyOpenClawWrapper.writeText(
+                    """
+                #!/system/bin/sh
+                exec "${openClawWrapper.absolutePath}" "${'$'}@"
+            """.trimIndent()
+            )
+            legacyOpenClawWrapper.chmodWithOs()
+        }
+        ensureLegacyWrapperPermissions(context)
 
         // Crear .mkshrc para alias automáticos en el terminal
         val mkshrc = File(base, ".mkshrc")
@@ -558,6 +568,33 @@ object OpenClawInstaller {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to deploy assets/scripts", e)
+        }
+    }
+
+    fun ensureLegacyWrapperPermissions(context: Context) {
+        val legacyRoots = listOf(File(context.filesDir, "app_payload"), File(context.dataDir, "app_payload"))
+
+        legacyRoots.forEach { root ->
+            val binDir = File(root, "bin")
+            val wrappers = listOf(File(binDir, "node"), File(binDir, "openclaw"))
+
+            listOf(root, binDir).forEach { dir ->
+                if (dir.exists()) {
+                    dir.setReadable(true, false)
+                    dir.setWritable(true, true)
+                    dir.setExecutable(true, false)
+                    dir.chmodWithOs(493)
+                }
+            }
+
+            wrappers.forEach { file ->
+                if (file.exists()) {
+                    file.setReadable(true, false)
+                    file.setWritable(true, true)
+                    file.setExecutable(true, false)
+                    file.chmodWithOs(493)
+                }
+            }
         }
     }
 

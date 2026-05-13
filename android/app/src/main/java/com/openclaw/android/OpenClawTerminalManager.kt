@@ -26,7 +26,10 @@ class OpenClawTerminalManager(private val context: Context) {
         get() = File(context.applicationInfo.nativeLibraryDir)
 
     private val payloadDir: File
-        get() = context.getDir("payload", Context.MODE_PRIVATE)
+        get() = OpenClawInstaller.getPayloadDir(context)
+
+    private val homeDir: File
+        get() = File(context.filesDir, "home").apply { mkdirs() }
 
     val busyboxFile: File
         get() = File(nativeDir, "libbusybox.so")
@@ -89,13 +92,13 @@ class OpenClawTerminalManager(private val context: Context) {
         val rc = ensureShellRc()
 
         return arrayOf(
-            "HOME=${context.filesDir.absolutePath}",
+            "HOME=${homeDir.absolutePath}",
             "TERM=xterm-256color",
             "COLORTERM=truecolor",
             "PATH=${buildPath()}",
             "LD_LIBRARY_PATH=$libs",
             "TMPDIR=${context.cacheDir.absolutePath}",
-            "OPENCLAW_HOME=${context.filesDir.absolutePath}/.openclaw",
+            "OPENCLAW_HOME=${OpenClawInstaller.getConfigDir(context).absolutePath}",
             "NODE_PATH=${payloadDir.absolutePath}/lib/node_modules",
             "SSL_CERT_FILE=${payloadDir.absolutePath}/etc/tls/cert.pem",
             "LANG=en_US.UTF-8",
@@ -126,11 +129,13 @@ class OpenClawTerminalManager(private val context: Context) {
         val openclawScript = "$payload/lib/node_modules/openclaw/openclaw.mjs"
         val npmScript = "$payload/lib/node_modules/npm/bin/npm-cli.js"
         val openclawHome = OpenClawInstaller.getConfigDir(context).absolutePath
+        homeDir.mkdirs()
+        OpenClawInstaller.getConfigDir(context).mkdirs()
         val rc = File(context.filesDir, "openclaw-terminal.rc")
         rc.writeText(
                 """
             PS1='${'$'} '
-            HOME="${context.filesDir.absolutePath}"
+            HOME="${homeDir.absolutePath}"
             OPENCLAW_HOME="$openclawHome"
             mkdir -p "${'$'}OPENCLAW_HOME" 2>/dev/null
             cd "${'$'}OPENCLAW_HOME" 2>/dev/null || cd "${'$'}HOME"
@@ -151,7 +156,7 @@ class OpenClawTerminalManager(private val context: Context) {
               unset LD_PRELOAD
               unset NODE_OPTIONS
               export NODE_NO_WARNINGS=1
-              "$binDir/node" "$openclawScript" "${'$'}@"
+              "$loader" --library-path "$libs" "$node" "$openclawScript" "${'$'}@"
             }
             npm() {
               if [ -f "$npmScript" ]; then
