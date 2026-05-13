@@ -201,7 +201,8 @@ class OpenClawGatewayService : Service() {
             val libs             = "${nativeDir.absolutePath}:${glibcLibs}"
             val openclaw         = File(base, "lib/node_modules/openclaw/openclaw.mjs")
             val tmpDir           = File(cacheDir, "tmp").apply { mkdirs() }
-            val ocHome           = filesDir
+            val homeDir          = File(filesDir, "home").apply { mkdirs() }
+            val ocHome           = OpenClawInstaller.getConfigDir(this).apply { mkdirs() }
             val nodeCompileCache = getNodeCompileCacheDir()
 
             listOf(loader, nodeExec).forEach { f ->
@@ -242,7 +243,7 @@ class OpenClawGatewayService : Service() {
                     put("OA_GLIBC",        "1")
                     put("CONTAINER",       "1")
                     put("TMPDIR",          tmpDir.absolutePath)
-                    put("HOME",            base.absolutePath)
+                    put("HOME",            homeDir.absolutePath)
                     put("NODE_PATH",       "${base.absolutePath}/lib/node_modules")
                     put("OPENCLAW_HOME",   ocHome.absolutePath)
                     put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")

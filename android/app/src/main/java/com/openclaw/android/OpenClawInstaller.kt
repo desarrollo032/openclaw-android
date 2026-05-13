@@ -23,11 +23,11 @@ private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
 
 object OpenClawInstaller {
 
-    fun getPayloadDir(context: Context): File = context.getDir("payload", Context.MODE_PRIVATE)
-    fun getConfigDir(context: Context): File = File(context.filesDir, ".openclaw")
+    fun getPayloadDir(context: Context): File = File(context.filesDir, "usr").apply { mkdirs() }
+    fun getConfigDir(context: Context): File = File(File(context.filesDir, "home"), ".openclaw")
 
     fun isPayloadReady(context: Context): Boolean {
-        val payloadDir = context.getDir("payload", Context.MODE_PRIVATE)
+        val payloadDir = getPayloadDir(context)
         val openclawDir = File(payloadDir, "lib/node_modules/openclaw")
         val nodeLib = File(context.applicationInfo.nativeLibraryDir, "libnode.so")
         
