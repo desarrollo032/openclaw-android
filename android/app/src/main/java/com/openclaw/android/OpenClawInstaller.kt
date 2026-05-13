@@ -1,6 +1,7 @@
 package com.openclaw.android
 
 import android.content.Context
+import android.system.Os
 import android.util.Log
 import java.io.File
 import java.security.MessageDigest
@@ -127,6 +128,7 @@ object OpenClawInstaller {
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
                     fixPermissions(base)
+                    setupFilesLayout(context)
 
                     val migrationExists =
                             try {
@@ -231,6 +233,7 @@ object OpenClawInstaller {
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
                     fixPermissions(base)
+                    setupFilesLayout(context)
 
                     val migrationOk: Boolean
                     if (migrationFile != null) {
@@ -338,6 +341,7 @@ object OpenClawInstaller {
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
                     fixPermissions(base)
+                    setupFilesLayout(context)
                     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                             .edit()
                             .putBoolean(KEY_PAYLOAD_INSTALLED, true)
@@ -399,6 +403,32 @@ object OpenClawInstaller {
                 Log.e("Installer", "Error aplicando chmod global", e)
             }
         }
+
+    fun setupFilesLayout(context: Context) {
+        val filesDir = context.filesDir
+        val payloadDir = getPayloadDir(context)
+        val usrDir = File(filesDir, "usr").apply { mkdirs() }
+        File(filesDir, "home").mkdirs()
+        File(usrDir, "opt").mkdirs()
+
+        val links = listOf(
+                File(usrDir, "bin") to File(context.applicationInfo.nativeLibraryDir),
+                File(usrDir, "lib") to File(payloadDir, "lib"),
+                File(usrDir, "glibc") to File(payloadDir, "glibc"),
+                File(usrDir, "etc") to File(payloadDir, "etc"),
+                File(usrDir, "tmp") to context.cacheDir
+        )
+
+        links.forEach { (link, target) ->
+            if (!link.exists()) {
+                try {
+                    Os.symlink(target.absolutePath, link.absolutePath)
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo crear symlink ${link.absolutePath} -> ${target.absolutePath}: ${e.message}")
+                }
+            }
+        }
+    }
     }
 
     fun deployNativeLibs(context: Context, base: File) {

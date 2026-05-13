@@ -106,7 +106,7 @@ class OpenClawTerminalManager(private val context: Context) {
             "ENV=${rc.absolutePath}",
             "OPENCLAW_TERMINAL_RC=${rc.absolutePath}",
             // Prompt corto — no ocupar toda la línea
-            "PS1=$ ",
+            "PS1=~ $ ",
             // NO incluir LD_PRELOAD — crítico
         )
     }
@@ -134,7 +134,7 @@ class OpenClawTerminalManager(private val context: Context) {
         val rc = File(context.filesDir, "openclaw-terminal.rc")
         rc.writeText(
                 """
-            PS1='${'$'} '
+            PS1='~ ${'$'} '
             HOME="${homeDir.absolutePath}"
             OPENCLAW_HOME="$openclawHome"
             mkdir -p "${'$'}OPENCLAW_HOME" 2>/dev/null
