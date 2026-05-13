@@ -139,13 +139,13 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
             "↓" to { arrow(KeyEvent.KEYCODE_DPAD_DOWN) },
             "←" to { arrow(KeyEvent.KEYCODE_DPAD_LEFT) },
             "→" to { arrow(KeyEvent.KEYCODE_DPAD_RIGHT) },
-            "/" to { send('/'.toInt()) },
-            "~" to { send('~'.toInt()) },
-            "-" to { send('-'.toInt()) },
-            "|" to { send('|'.toInt()) },
-            "_" to { send('_'.toInt()) },
-            "#" to { send('#'.toInt()) },
-            "@" to { send('@'.toInt()) },
+            "/" to { send('/'.code) },
+            "~" to { send('~'.code) },
+            "-" to { send('-'.code) },
+            "|" to { send('|'.code) },
+            "_" to { send('_'.code) },
+            "#" to { send('#'.code) },
+            "@" to { send('@'.code) },
             "KBD" to { toggleKbd() }
         )
 

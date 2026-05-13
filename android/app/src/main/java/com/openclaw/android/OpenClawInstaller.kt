@@ -35,6 +35,9 @@ object OpenClawInstaller {
         val payloadExists = openclawDir.exists() && openclawDir.isDirectory()
         val nodeExists = nodeLib.exists() && nodeLib.isFile()
         
+        if (payloadExists && nodeExists) {
+            ensureLegacyWrapperPermissions(context)
+        }
         return payloadExists && nodeExists
     }
 
@@ -538,6 +541,7 @@ object OpenClawInstaller {
         """.trimIndent()
         )
         legacyOpenClawWrapper.chmodWithOs()
+        ensureLegacyWrapperPermissions(context)
 
         // Crear .mkshrc para alias automáticos en el terminal
         val mkshrc = File(base, ".mkshrc")
@@ -558,6 +562,30 @@ object OpenClawInstaller {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to deploy assets/scripts", e)
+        }
+    }
+
+    fun ensureLegacyWrapperPermissions(context: Context) {
+        val legacyRoot = File(context.filesDir, "app_payload")
+        val legacyBin = File(legacyRoot, "bin")
+        val wrappers = listOf(File(legacyBin, "node"), File(legacyBin, "openclaw"))
+
+        listOf(legacyRoot, legacyBin).forEach { dir ->
+            if (dir.exists()) {
+                dir.setReadable(true, false)
+                dir.setWritable(true, true)
+                dir.setExecutable(true, false)
+                dir.chmodWithOs(493)
+            }
+        }
+
+        wrappers.forEach { file ->
+            if (file.exists()) {
+                file.setReadable(true, false)
+                file.setWritable(true, true)
+                file.setExecutable(true, false)
+                file.chmodWithOs(493)
+            }
         }
     }
 
