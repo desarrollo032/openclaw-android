@@ -431,6 +431,32 @@ object OpenClawInstaller {
     }
     }
 
+    fun setupFilesLayout(context: Context) {
+        val filesDir = context.filesDir
+        val payloadDir = getPayloadDir(context)
+        val usrDir = File(filesDir, "usr").apply { mkdirs() }
+        File(filesDir, "home").mkdirs()
+        File(usrDir, "opt").mkdirs()
+
+        val links = listOf(
+                File(usrDir, "bin") to File(context.applicationInfo.nativeLibraryDir),
+                File(usrDir, "lib") to File(payloadDir, "lib"),
+                File(usrDir, "glibc") to File(payloadDir, "glibc"),
+                File(usrDir, "etc") to File(payloadDir, "etc"),
+                File(usrDir, "tmp") to context.cacheDir
+        )
+
+        links.forEach { (link, target) ->
+            if (!link.exists()) {
+                try {
+                    Os.symlink(target.absolutePath, link.absolutePath)
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo crear symlink ${link.absolutePath} -> ${target.absolutePath}: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun deployNativeLibs(context: Context, base: File) {
         val nativeDir = File(context.applicationInfo.nativeLibraryDir)
         val payloadBinDir = File(base, "bin")
