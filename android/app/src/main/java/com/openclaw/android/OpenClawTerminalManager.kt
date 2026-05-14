@@ -187,6 +187,17 @@ class OpenClawTerminalManager(private val context: Context) {
                 return 127
               fi
             }
+            pnpm() {
+              if [ -f "$payload/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
+                unset LD_PRELOAD
+                unset NODE_OPTIONS
+                export NODE_NO_WARNINGS=1
+                "$loader" --library-path "$libs" "$node" "$payload/lib/node_modules/pnpm/bin/pnpm.cjs" "${'$'}@"
+              else
+                echo "pnpm: no incluido"
+                return 127
+              fi
+            }
             export PS1
         """.trimIndent()
         )

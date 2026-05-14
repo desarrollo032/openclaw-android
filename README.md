@@ -43,6 +43,16 @@ cd android
 
 El build ejecuta automáticamente la compilación web y sincroniza assets hacia el APK.
 
+### npm en el payload
+
+Si necesitas inyectar `npm` en el paquete de payload, usa:
+
+```bash
+python scripts/add_npm_to_payload.py --payload android/app/src/main/assets/payload-v2.tar.xz --output android/app/src/main/assets/payload-v2-with-npm.tar.xz
+```
+
+Esto descarga `npm@10.4.1` y genera un payload con `lib/node_modules/npm/bin/npm-cli.js` listo para Android.
+
 ## Documentación
 
 ### Núcleo técnico

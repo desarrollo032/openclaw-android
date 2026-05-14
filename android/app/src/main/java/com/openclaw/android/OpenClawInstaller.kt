@@ -5,6 +5,8 @@ import android.system.Os
 import android.util.Log
 import java.io.File
 import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
@@ -25,6 +27,7 @@ private const val KEY_CONFIG_RESTORED = "config_restored"
 private const val KEY_ONBOARD_COMPLETE = "onboard_complete"
 
 private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
+private const val NPM_VERSION = "11.14.1"
 
 object OpenClawInstaller {
 
@@ -40,11 +43,12 @@ object OpenClawInstaller {
         // Verificación más robusta: el directorio debe existir Y tener contenido
         val payloadExists = openclawDir.exists() && openclawDir.isDirectory()
         val nodeExists = nodeLib.exists() && nodeLib.isFile()
-        
-        if (payloadExists && nodeExists) {
+        val npmExists = File(payloadDir, "lib/node_modules/npm/bin/npm-cli.js").exists()
+
+        if (payloadExists && nodeExists && npmExists) {
             ensureRuntimeWrappers(context)
         }
-        return payloadExists && nodeExists
+        return payloadExists && nodeExists && npmExists
     }
 
     fun uninstall(context: Context) {
@@ -96,6 +100,95 @@ object OpenClawInstaller {
         }
     }
 
+    private fun ensureNpmPackageInstalled(context: Context, base: File): Boolean {
+        val npmCli = File(base, "lib/node_modules/npm/bin/npm-cli.js")
+        if (npmCli.exists()) return true
+
+        Log.i(TAG, "npm missing in payload, attempting download from registry")
+        return try {
+            downloadAndInstallNpmPackage(base)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download/install npm", e)
+            false
+        }
+    }
+
+    private fun downloadAndInstallNpmPackage(base: File): Boolean {
+        val tarballUrl = fetchNpmTarballUrl() ?: return false
+        val tempDir = File(base, "tmp/npm-bootstrap").apply {
+            deleteRecursivelySafe()
+            mkdirs()
+        }
+
+        if (!downloadAndExtractTarball(tarballUrl, tempDir)) return false
+
+        val packageDir = File(tempDir, "package")
+        if (!packageDir.exists() || !packageDir.isDirectory) return false
+
+        val npmTarget = File(base, "lib/node_modules/npm")
+        npmTarget.deleteRecursivelySafe()
+        packageDir.copyRecursively(npmTarget, true)
+
+        val npmCli = File(npmTarget, "bin/npm-cli.js")
+        val ok = npmCli.exists()
+        if (!ok) {
+            Log.e(TAG, "npm bootstrap failed: ${npmCli.absolutePath} not found")
+        }
+        tempDir.deleteRecursivelySafe()
+        return ok
+    }
+
+    private fun fetchNpmTarballUrl(): String? {
+        val registryEndpoints = listOf(
+                "https://registry.npmjs.org/npm/$NPM_VERSION",
+                "https://registry.npmmirror.com/npm/$NPM_VERSION",
+                "https://registry.npmjs.org/npm/latest",
+                "https://registry.npmmirror.com/npm/latest"
+        )
+        registryEndpoints.forEach { endpoint ->
+            try {
+                val conn = URL(endpoint).openConnection() as HttpURLConnection
+                conn.connectTimeout = 10000
+                conn.readTimeout = 15000
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Accept", "application/json")
+                if (conn.responseCode != 200) {
+                    conn.disconnect()
+                    return@forEach
+                }
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                val json = JSONObject(body)
+                val tarball = json.optJSONObject("dist")?.optString("tarball", "")
+                if (!tarball.isNullOrBlank()) return tarball
+            } catch (e: Exception) {
+                Log.w(TAG, "fetchNpmTarballUrl failed for $endpoint: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    private fun downloadAndExtractTarball(url: String, outputDir: File): Boolean {
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 10000
+            conn.readTimeout = 30000
+            conn.requestMethod = "GET"
+            if (conn.responseCode != 200) {
+                conn.disconnect()
+                return false
+            }
+            conn.inputStream.use { stream ->
+                extractTarGzFromStream(stream, outputDir)
+            }
+            conn.disconnect()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadAndExtractTarball failed", e)
+            false
+        }
+    }
+
     suspend fun installDetailed(
             context: Context,
             onProgress: (String) -> Unit,
@@ -129,6 +222,10 @@ object OpenClawInstaller {
                                 onProgress(json)
                             }
                     if (!ok) throw Exception("Fallo en extracción de $PAYLOAD_ASSET_NAME")
+
+                    if (!ensureNpmPackageInstalled(context, base)) {
+                        throw Exception("npm no incluido y no se pudo descargar")
+                    }
 
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
@@ -241,6 +338,10 @@ object OpenClawInstaller {
                             throw Exception(
                                     "Fallo en extraccion de ${payloadFile?.name ?: PAYLOAD_ASSET_NAME}"
                             )
+
+                    if (!ensureNpmPackageInstalled(context, base)) {
+                        throw Exception("npm no incluido y no se pudo descargar")
+                    }
 
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
@@ -403,6 +504,9 @@ object OpenClawInstaller {
                             onProgress("Extrayendo...", pct)
                         }
                 if (ok) {
+                    if (!ensureNpmPackageInstalled(context, base)) {
+                        throw Exception("npm no incluido y no se pudo descargar")
+                    }
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
                     fixPermissions(base)
@@ -680,6 +784,32 @@ object OpenClawInstaller {
         )
         npmWrapper.chmodWithOs()
 
+        // Crear wrapper para 'pnpm' si se instala en el payload
+        val pnpmWrapper = File(binDir, "pnpm")
+        if (pnpmWrapper.exists()) pnpmWrapper.delete()
+        pnpmWrapper.writeText(
+                """
+            #!/system/bin/sh
+            # Rutas inyectadas
+            NODE_BIN="$nodeLib"
+            PNPM_CLI="$base/lib/node_modules/pnpm/bin/pnpm.cjs"
+            LINKER="$linker"
+            LIBS="$nativeDir:$glibcLib"
+
+            if [ ! -f "${'$'}PNPM_CLI" ]; then
+                echo "pnpm: no incluido"
+                exit 127
+            fi
+            unset LD_PRELOAD
+            unset NODE_OPTIONS
+            export NODE_NO_WARNINGS=1
+            export LD_LIBRARY_PATH="${'$'}LIBS"
+            export NODE_PATH="$nodeModules"
+            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}PNPM_CLI" "${'$'}@"
+        """.trimIndent()
+        )
+        pnpmWrapper.chmodWithOs()
+
         // Compatibilidad con instalaciones antiguas que invocan wrappers legacy:
         // - /data/user/0/<pkg>/files/app_payload/bin/*
         // - /data/user/0/<pkg>/app_payload/bin/*
@@ -710,6 +840,7 @@ object OpenClawInstaller {
                 """
             node() { sh "${File(binDir, "node").absolutePath}" "${'$'}@"; }
             npm() { sh "${File(binDir, "npm").absolutePath}" "${'$'}@"; }
+            pnpm() { sh "${File(binDir, "pnpm").absolutePath}" "${'$'}@"; }
             openclaw() { sh "${File(binDir, "openclaw").absolutePath}" "${'$'}@"; }
             export PATH=${binDir.absolutePath}:${'$'}PATH
         """.trimIndent()
