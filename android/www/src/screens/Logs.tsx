@@ -9,6 +9,7 @@ import { useRoute } from '../lib/router'
 import { bridge } from '../lib/bridge'
 import { LogsViewer } from '../components/LogsViewer'
 import { useGatewayStatus } from '../hooks/useGatewayStatus'
+import { getNativeGatewayState } from '../utils/androidBridge'
 
 type Tab = 'gateway' | 'native'
 
@@ -25,6 +26,7 @@ function formatUptime(secs: number): string {
 export function Logs() {
   const { navigate } = useRoute()
   const { health, reachability } = useGatewayStatus()
+  const nativeState = getNativeGatewayState()
 
   const [tab,    setTab]    = useState<Tab>('native')
   const [copied, setCopied] = useState(false)
@@ -79,6 +81,10 @@ export function Logs() {
 
   const uptime = health?.uptime ?? uptimeSecs
   const online = reachability === 'online'
+  const nativeLabel = nativeState === 'READY' ? 'Activo' : nativeState === 'STARTING' || nativeState === 'RESTARTING' ? 'Iniciando' : nativeState === 'FAILED' ? 'Falló' : 'Desconocido'
+  const httpLabel = health
+    ? health.status === 'ok' ? 'Disponible' : `Error HTTP (${health.status})`
+    : online ? 'No responde aún' : 'No disponible'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
@@ -109,6 +115,23 @@ export function Logs() {
         </button>
       </div>
 
+      <div style={S.statusBar}>
+        <div style={S.statusItem}>
+          <span style={{ ...S.statusDot, background: nativeState === 'READY' ? '#4ade80' : nativeState === 'FAILED' ? '#f87171' : '#facc15' }} />
+          <div>
+            <div style={S.statusLabel}>Bridge nativo</div>
+            <div style={S.statusValue}>{nativeLabel}</div>
+          </div>
+        </div>
+        <div style={S.statusItem}>
+          <span style={{ ...S.statusDot, background: health ? '#4ade80' : online ? '#facc15' : '#f87171' }} />
+          <div>
+            <div style={S.statusLabel}>Gateway HTTP</div>
+            <div style={S.statusValue}>{httpLabel}</div>
+          </div>
+        </div>
+      </div>
+
       {/* ── Content ── */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {/* Native logs tab — usa bridge.getGatewayLogs */}
@@ -128,13 +151,24 @@ export function Logs() {
         {/* Gateway HTTP logs — usa LogsViewer component */}
         {tab === 'gateway' && (
           online
-            ? <LogsViewer lines={150} />
+            ? <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                {!health && (
+                  <div style={S.warnBox}>
+                    <strong>Nota:</strong> El gateway nativo está activo, pero el HTTP aún no responde.
+                    Asegúrate de que `openclaw gateway run` esté corriendo y que el endpoint 127.0.0.1:18789 sea accesible.
+                  </div>
+                )}
+                <LogsViewer lines={150} />
+              </div>
             : (
               <div style={S.offline}>
                 <span style={{ fontSize: 32 }}>🔌</span>
                 <div style={{ color: 'var(--text3)', textAlign: 'center' }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Gateway sin respuesta</div>
-                  <div style={{ fontSize: 12 }}>Los logs HTTP no están disponibles.<br />Usa la pestaña Native para ver los logs locales.</div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Gateway HTTP sin respuesta</div>
+                  <div style={{ fontSize: 12 }}>
+                    La pestaña HTTP solo muestra logs cuando el gateway API responde.
+                    Si el gateway corre con `openclaw gateway run`, revisa la conexión local y prueba de nuevo.
+                  </div>
                 </div>
               </div>
             )
@@ -211,6 +245,12 @@ const S: Record<string, React.CSSProperties> = {
   sub:   { fontSize: 11, color: 'var(--text3)', marginTop: 1 },
   tabs:  { display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 },
   tab:   { flex: 1, padding: '10px', background: 'transparent', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'color 0.2s', letterSpacing: '0.2px' },
+  statusBar: { display: 'flex', gap: 12, padding: '12px 14px', background: 'rgba(8,8,16,0.9)', borderBottom: '1px solid var(--border)', flexShrink: 0, alignItems: 'center' },
+  statusItem: { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(31,41,55,0.9)', border: '1px solid rgba(148,163,184,0.12)', borderRadius: 12, flex: 1 },
+  statusDot: { width: 10, height: 10, borderRadius: '50%', flexShrink: 0 },
+  statusLabel: { fontSize: 11, color: 'var(--text3)', marginBottom: 2 },
+  statusValue: { fontSize: 13, fontWeight: 700, color: 'var(--text)' },
+  warnBox: { margin: '10px 14px', padding: '12px 14px', background: '#312e41', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 12, color: '#e5e7eb', fontSize: 12, lineHeight: 1.5 },
   toolbar: { display: 'flex', gap: 5, padding: '6px 8px', background: 'rgba(8,8,20,0.95)', borderBottom: '1px solid rgba(99,102,241,0.1)', flexShrink: 0, alignItems: 'center' },
   search:  { flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '5px 9px', color: 'var(--text)', fontSize: 12, outline: 'none' },
   toolBtn: { width: 28, height: 28, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--glass)', color: 'var(--text2)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
