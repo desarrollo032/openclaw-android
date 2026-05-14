@@ -19,8 +19,6 @@ data class AssetDetectionResult(
 
 object AssetDetector {
     private const val TAG = "AssetDetector"
-    const val PAYLOAD_ASSET   = "payload-v2.tar.xz"
-    const val MIGRATION_ASSET = "openclaw-apk-migration.tar.gz"
 
     suspend fun detect(context: Context): AssetDetectionResult = withContext(Dispatchers.IO) {
         detectSync(context)
@@ -29,8 +27,8 @@ object AssetDetector {
     fun detectSync(context: Context): AssetDetectionResult {
         logAllAssets(context)
 
-        val payloadActualName   = resolveAssetName(context, PAYLOAD_ASSET)
-        val migrationActualName = resolveAssetName(context, MIGRATION_ASSET)
+        val payloadActualName   = resolveAssetName(context, OpenClawConstants.PAYLOAD_ASSET)
+        val migrationActualName = resolveAssetName(context, OpenClawConstants.MIGRATION_ASSET)
 
         val payloadSize   = getAssetSize(context, payloadActualName)
         val migrationSize = getAssetSize(context, migrationActualName)

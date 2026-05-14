@@ -13,12 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.util.UUID
 
-private const val TAG             = "OpenClawGW"
-private const val NOTIFICATION_ID = 1001
-private const val CHANNEL_ID      = "openclaw_gateway"
-
-// Intent action para reiniciar el proceso desde la notificación
-private const val ACTION_RESTART  = "com.openclaw.android.ACTION_RESTART_GATEWAY"
+private const val TAG = "OpenClawGW"
 
 enum class GatewayState { STARTING, READY, RESTARTING, FAILED }
 
@@ -91,13 +86,13 @@ class OpenClawGatewayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Manejar acción de reinicio desde la notificación
-        if (intent?.action == ACTION_RESTART) {
+        if (intent?.action == OpenClawConstants.ACTION_RESTART_GATEWAY) {
             OpenClawLogger.log(TAG, "Restart requested via notification action")
             serviceScope.launch { restartProcess() }
             return START_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startForeground(OpenClawConstants.NOTIFICATION_ID, buildNotification())
 
         if (!OpenClawInstaller.isPayloadReady(this)) {
             OpenClawLogger.log(TAG, "Payload not ready — cannot start gateway")
@@ -317,7 +312,7 @@ class OpenClawGatewayService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
+                OpenClawConstants.CHANNEL_ID,
                 getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply { 
@@ -353,7 +348,7 @@ class OpenClawGatewayService : Service() {
         val restartIntent = PendingIntent.getService(
             this, 1,
             Intent(this, OpenClawGatewayService::class.java).apply {
-                action = ACTION_RESTART
+                action = OpenClawConstants.ACTION_RESTART_GATEWAY
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
@@ -365,7 +360,7 @@ class OpenClawGatewayService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, OpenClawConstants.CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSubText("Ejecución en segundo plano")
@@ -383,6 +378,6 @@ class OpenClawGatewayService : Service() {
 
     private fun updateNotification() {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIFICATION_ID, buildNotification())
+        nm.notify(OpenClawConstants.NOTIFICATION_ID, buildNotification())
     }
 }

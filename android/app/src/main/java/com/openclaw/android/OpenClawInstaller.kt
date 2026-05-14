@@ -17,15 +17,6 @@ import org.json.JSONObject
 
 private const val TAG = "OpenClawInstaller"
 
-const val PAYLOAD_ASSET_NAME = "payload-v2.tar.xz"
-const val MIGRATION_ASSET_NAME = "openclaw-apk-migration.tar.gz"
-
-// SharedPreferences keys
-private const val PREFS_NAME = "openclaw_install"
-private const val KEY_PAYLOAD_INSTALLED = "payload_installed"
-private const val KEY_CONFIG_RESTORED = "config_restored"
-private const val KEY_ONBOARD_COMPLETE = "onboard_complete"
-
 private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
 private const val NPM_VERSION = "11.14.1"
 
@@ -54,25 +45,25 @@ object OpenClawInstaller {
     fun uninstall(context: Context) {
         getPayloadDir(context).deleteRecursivelySafe()
         getConfigDir(context).deleteRecursivelySafe()
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+        context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
         Log.i(TAG, "Environment uninstalled successfully")
     }
 
     fun hasBundledAssets(context: Context): Boolean {
         return try {
-            context.assets.open(PAYLOAD_ASSET_NAME).use { true }
+            context.assets.open(OpenClawConstants.PAYLOAD_ASSET).use { true }
         } catch (_: Exception) {
             false
         }
     }
 
     fun isConfigRestored(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_ONBOARD_COMPLETE, false)) return true
-        if (prefs.getBoolean(KEY_CONFIG_RESTORED, false)) return true
+        val prefs = context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(OpenClawConstants.KEY_ONBOARD_COMPLETE, false)) return true
+        if (prefs.getBoolean(OpenClawConstants.KEY_CONFIG_RESTORED, false)) return true
         val jsonExists = File(getConfigDir(context), "openclaw.json").exists()
         if (jsonExists) {
-            prefs.edit().putBoolean(KEY_CONFIG_RESTORED, true).apply()
+            prefs.edit().putBoolean(OpenClawConstants.KEY_CONFIG_RESTORED, true).apply()
             return true
         }
         return false
@@ -86,7 +77,7 @@ object OpenClawInstaller {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(8 * 1024)
-            context.assets.open(PAYLOAD_ASSET_NAME).use { stream ->
+            context.assets.open(OpenClawConstants.PAYLOAD_ASSET).use { stream ->
                 var read: Int
                 while (stream.read(buffer).also { read = it } != -1) {
                     digest.update(buffer, 0, read)
@@ -202,7 +193,7 @@ object OpenClawInstaller {
                     base.mkdirs()
 
                     val ok =
-                            context.extractTarXz(PAYLOAD_ASSET_NAME, base) {
+                            context.extractTarXz(OpenClawConstants.PAYLOAD_ASSET, base) {
                                     pct,
                                     read,
                                     total,
@@ -216,12 +207,12 @@ object OpenClawInstaller {
                                                     put("totalMB", total / 1024 / 1024)
                                                     put("percent", pct)
                                                     put("currentFile", currentFile)
-                                                    put("stepName", PAYLOAD_ASSET_NAME)
+                                                    put("stepName", OpenClawConstants.PAYLOAD_ASSET)
                                                 }
                                                 .toString()
                                 onProgress(json)
                             }
-                    if (!ok) throw Exception("Fallo en extracción de $PAYLOAD_ASSET_NAME")
+                    if (!ok) throw Exception("Fallo en extracción de ${OpenClawConstants.PAYLOAD_ASSET}")
 
                     if (!ensureNpmPackageInstalled(context, base)) {
                         throw Exception("npm no incluido y no se pudo descargar")
@@ -233,7 +224,7 @@ object OpenClawInstaller {
 
                     val migrationExists =
                             try {
-                                context.assets.open(MIGRATION_ASSET_NAME).close()
+                                context.assets.open(OpenClawConstants.MIGRATION_ASSET).close()
                                 true
                             } catch (_: Exception) {
                                 false
@@ -243,9 +234,9 @@ object OpenClawInstaller {
                         val migrationDest =
                                 openClawArchiveDestination(
                                         context,
-                                        assetContainsOpenClawRoot(context, MIGRATION_ASSET_NAME)
+                                        assetContainsOpenClawRoot(context, OpenClawConstants.MIGRATION_ASSET)
                                 )
-                        context.extractTarGz(MIGRATION_ASSET_NAME, migrationDest) {
+                        context.extractTarGz(OpenClawConstants.MIGRATION_ASSET, migrationDest) {
                                 pct,
                                 read,
                                 total,
@@ -259,7 +250,7 @@ object OpenClawInstaller {
                                                 put("totalMB", total / 1024 / 1024)
                                                 put("percent", pct)
                                                 put("currentFile", currentFile)
-                                                put("stepName", MIGRATION_ASSET_NAME)
+                                                put("stepName", OpenClawConstants.MIGRATION_ASSET)
                                             }
                                             .toString()
                             onProgress(json)
@@ -271,9 +262,9 @@ object OpenClawInstaller {
                     setupFilesLayout(context)
                     OpenClawTerminalManager(context).createBusyboxSymlinks()
 
-                    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
                             .edit()
-                            .putBoolean(KEY_PAYLOAD_INSTALLED, true)
+                            .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
                             .apply()
 
                     onComplete()
@@ -318,7 +309,7 @@ object OpenClawInstaller {
                                 }
                     } else {
                         payloadOk =
-                                context.extractTarXz(PAYLOAD_ASSET_NAME, base) {
+                                context.extractTarXz(OpenClawConstants.PAYLOAD_ASSET, base) {
                                         _,
                                         read,
                                         total,
@@ -326,7 +317,7 @@ object OpenClawInstaller {
                                     onProgress(
                                             progressJson(
                                                     1,
-                                                    PAYLOAD_ASSET_NAME,
+                                                    OpenClawConstants.PAYLOAD_ASSET,
                                                     read,
                                                     total,
                                                     currentFile
@@ -336,7 +327,7 @@ object OpenClawInstaller {
                     }
                     if (!payloadOk)
                             throw Exception(
-                                    "Fallo en extraccion de ${payloadFile?.name ?: PAYLOAD_ASSET_NAME}"
+                                    "Fallo en extraccion de ${payloadFile?.name ?: OpenClawConstants.PAYLOAD_ASSET}"
                             )
 
                     if (!ensureNpmPackageInstalled(context, base)) {
@@ -372,14 +363,14 @@ object OpenClawInstaller {
                                             }
                                     extractTarGzFromStream(tracked, migrationDest)
                                 }
-                    } else if (assetExists(context, MIGRATION_ASSET_NAME)) {
+                    } else if (assetExists(context, OpenClawConstants.MIGRATION_ASSET)) {
                         val migrationDest =
                                 openClawArchiveDestination(
                                         context,
-                                        assetContainsOpenClawRoot(context, MIGRATION_ASSET_NAME)
+                                        assetContainsOpenClawRoot(context, OpenClawConstants.MIGRATION_ASSET)
                                 )
                         migrationOk =
-                                context.extractTarGz(MIGRATION_ASSET_NAME, migrationDest) {
+                                context.extractTarGz(OpenClawConstants.MIGRATION_ASSET, migrationDest) {
                                         _,
                                         read,
                                         total,
@@ -387,7 +378,7 @@ object OpenClawInstaller {
                                     onProgress(
                                             progressJson(
                                                     2,
-                                                    MIGRATION_ASSET_NAME,
+                                                    OpenClawConstants.MIGRATION_ASSET,
                                                     read,
                                                     total,
                                                     currentFile
@@ -399,7 +390,7 @@ object OpenClawInstaller {
                     }
                     if (!migrationOk) {
                         throw Exception(
-                                "Fallo en extraccion de ${migrationFile?.name ?: MIGRATION_ASSET_NAME}"
+                                "Fallo en extraccion de ${migrationFile?.name ?: OpenClawConstants.MIGRATION_ASSET}"
                         )
                     }
 
@@ -408,9 +399,9 @@ object OpenClawInstaller {
                     setupFilesLayout(context)
                     OpenClawTerminalManager(context).createBusyboxSymlinks()
 
-                    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
                             .edit()
-                            .putBoolean(KEY_PAYLOAD_INSTALLED, true)
+                            .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
                             .apply()
 
                     onComplete()
@@ -500,7 +491,7 @@ object OpenClawInstaller {
                 base.deleteRecursivelySafe()
                 base.mkdirs()
                 val ok =
-                        context.extractTarXz(PAYLOAD_ASSET_NAME, base) { pct, _, _, _ ->
+                        context.extractTarXz(OpenClawConstants.PAYLOAD_ASSET, base) { pct, _, _, _ ->
                             onProgress("Extrayendo...", pct)
                         }
                 if (ok) {
@@ -511,9 +502,9 @@ object OpenClawInstaller {
                     deployScripts(context, base)
                     fixPermissions(base)
                     setupFilesLayout(context)
-                    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
                             .edit()
-                            .putBoolean(KEY_PAYLOAD_INSTALLED, true)
+                            .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
                             .apply()
                 }
                 ok
@@ -885,14 +876,14 @@ object OpenClawInstaller {
     }
 
     fun isOnboardComplete(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_ONBOARD_COMPLETE, false)
+        val prefs = context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(OpenClawConstants.KEY_ONBOARD_COMPLETE, false)
     }
 
     fun markOnboardComplete(context: Context) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
-                .putBoolean(KEY_ONBOARD_COMPLETE, true)
+                .putBoolean(OpenClawConstants.KEY_ONBOARD_COMPLETE, true)
                 .apply()
     }
 }

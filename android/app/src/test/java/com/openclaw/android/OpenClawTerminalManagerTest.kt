@@ -59,7 +59,10 @@ class OpenClawTerminalManagerTest {
         wrapper shouldContain "OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1"
         wrapper shouldContain "OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1"
         wrapper shouldContain "export OPENCLAW_HOME=\"${File(context.filesDir, "home/.openclaw").absolutePath}\""
-        wrapper shouldContain "export TMPDIR=\"${File(context.filesDir, "home/.openclaw/tmp").absolutePath}\""
+        // deployScripts construye tmpDir como openclawHome + "/tmp" (con barra)
+        val openclawHome = File(context.filesDir, "home/.openclaw").absolutePath
+        val expectedTmpdir = "$openclawHome/tmp"
+        wrapper shouldContain "export TMPDIR=\"$expectedTmpdir\""
         wrapper shouldContain "--disable-warning=ExperimentalWarning"
         wrapper shouldNotContain "app_payload/bin/node"
     }
