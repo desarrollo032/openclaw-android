@@ -58,6 +58,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: android/www/package-lock.json
 
+      - name: Install npm dependencies
+        working-directory: android/www
+        run: npm ci
+
       - uses: android-actions/setup-android@v4
 
       - name: Install Android SDK 35
