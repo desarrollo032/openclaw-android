@@ -66,10 +66,21 @@ class OpenClawInstallerTest : DescribeSpec({
         }
 
         describe("getConfigDir") {
-            it("should return .openclaw directory in filesDir") {
+            it("should return .openclaw directory under filesDir home") {
                 val dir = OpenClawInstaller.getConfigDir(context)
                 dir.name shouldBe ".openclaw"
-                dir.parentFile shouldBe context.filesDir
+                dir.parentFile shouldBe File(context.filesDir, "home")
+            }
+        }
+
+        describe("setupFilesLayout") {
+            it("should create the home and usr layout expected by the runtime") {
+                OpenClawInstaller.setupFilesLayout(context)
+
+                File(context.filesDir, "home").isDirectory shouldBe true
+                File(context.filesDir, "home/.openclaw/tmp").isDirectory shouldBe true
+                File(context.filesDir, "usr/bin").isDirectory shouldBe true
+                File(context.filesDir, "usr/opt").isDirectory shouldBe true
             }
         }
 

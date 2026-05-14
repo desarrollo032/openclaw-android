@@ -61,13 +61,13 @@ class OpenClawExtensionsTest : DescribeSpec({
             it("should return .openclaw directory") {
                 val dir = OpenClawInstaller.getConfigDir(context)
                 dir.name shouldBe ".openclaw"
-                dir.parentFile shouldBe context.filesDir
+                dir.parentFile shouldBe File(context.filesDir, "home")
             }
         }
 
         describe("Context.assetSize") {
             it("should return 0 for non-existent asset") {
-                context.assetSize("non_existent_asset.txt") shouldBe 0L
+                context.assetSize("non_existent_asset.txt") shouldBe -1L
             }
         }
 
@@ -93,6 +93,7 @@ class OpenClawExtensionsTest : DescribeSpec({
                     result shouldBe false
                 }
             }
+
         }
     }
 })

@@ -194,16 +194,18 @@ class OpenClawGatewayService : Service() {
 
         try {
             val base             = OpenClawInstaller.getPayloadDir(this)
+            val filesDir         = this.filesDir
             val nativeDir        = File(applicationInfo.nativeLibraryDir)
             val loader           = File(nativeDir, "libldlinux.so")
             val nodeExec         = File(nativeDir, "libnode.so")
             val glibcLibs        = File(base, "glibc/lib").absolutePath
             val libs             = "${nativeDir.absolutePath}:${glibcLibs}"
             val openclaw         = File(base, "lib/node_modules/openclaw/openclaw.mjs")
-            val tmpDir           = File(cacheDir, "tmp").apply { mkdirs() }
             val homeDir          = File(filesDir, "home").apply { mkdirs() }
-            val ocHome           = OpenClawInstaller.getConfigDir(this).apply { mkdirs() }
+            val ocHome           = File(homeDir, ".openclaw").apply { mkdirs() }
+            val tmpDir           = File(ocHome, "tmp").apply { mkdirs() }
             val nodeCompileCache = getNodeCompileCacheDir()
+            val channelsDir      = File(base, "lib/node_modules/openclaw/channels")
 
             listOf(loader, nodeExec).forEach { f ->
                 if (!f.exists()) {
@@ -240,15 +242,24 @@ class OpenClawGatewayService : Service() {
                 redirectErrorStream(true)
                 environment().apply {
                     remove("LD_PRELOAD")
-                    // No setear LD_LIBRARY_PATH global: el linker recibe --library-path
                     put("OA_GLIBC",        "1")
                     put("CONTAINER",       "1")
                     put("TMPDIR",          tmpDir.absolutePath)
                     put("HOME",            homeDir.absolutePath)
-                    put("NODE_PATH",       "${base.absolutePath}/lib/node_modules")
+                    put("TERM",            "xterm-256color")
+                    put("COLORTERM",       "truecolor")
+                    put("USER",            "openclaw")
+                    put("LOGNAME",         "openclaw")
+                    put("PS1",             "~ $ ")
+                    put("PATH",            "${File(filesDir, "usr/bin").absolutePath}:${nativeDir.absolutePath}:/system/bin:/system/xbin")
+                    put("LD_LIBRARY_PATH", libs)
+                    put("NODE_PATH",       File(base, "lib/node_modules").absolutePath)
                     put("OPENCLAW_HOME",   ocHome.absolutePath)
-                    put("SSL_CERT_FILE",   "${base.absolutePath}/etc/tls/cert.pem")
-                    put("PATH",            "${base.absolutePath}/bin:/system/bin")
+                    put("SSL_CERT_FILE",   File(base, "etc/tls/cert.pem").absolutePath)
+                    put("LANG",            "en_US.UTF-8")
+                    if (channelsDir.exists()) {
+                        put("OPENCLAW_PLUGIN_PATH", channelsDir.absolutePath)
+                    }
                     put("NODE_NO_WARNINGS",                          "1")
                     put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
                     put("OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED",   "1")

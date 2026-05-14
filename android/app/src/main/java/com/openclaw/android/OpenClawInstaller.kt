@@ -4,9 +4,13 @@ import android.content.Context
 import android.system.Os
 import android.util.Log
 import java.io.File
+import java.io.InputStream
+import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.json.JSONObject
 
 private const val TAG = "OpenClawInstaller"
@@ -24,7 +28,8 @@ private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
 
 object OpenClawInstaller {
 
-    fun getPayloadDir(context: Context): File = File(context.filesDir, "usr").apply { mkdirs() }
+    fun getPayloadDir(context: Context): File =
+            context.getDir("payload", Context.MODE_PRIVATE).apply { mkdirs() }
     fun getConfigDir(context: Context): File = File(File(context.filesDir, "home"), ".openclaw")
 
     fun isPayloadReady(context: Context): Boolean {
@@ -128,7 +133,6 @@ object OpenClawInstaller {
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
                     fixPermissions(base)
-                    setupFilesLayout(context)
 
                     val migrationExists =
                             try {
@@ -139,7 +143,12 @@ object OpenClawInstaller {
                             }
 
                     if (migrationExists) {
-                        context.extractTarGz(MIGRATION_ASSET_NAME, context.filesDir) {
+                        val migrationDest =
+                                openClawArchiveDestination(
+                                        context,
+                                        assetContainsOpenClawRoot(context, MIGRATION_ASSET_NAME)
+                                )
+                        context.extractTarGz(MIGRATION_ASSET_NAME, migrationDest) {
                                 pct,
                                 read,
                                 total,
@@ -236,10 +245,14 @@ object OpenClawInstaller {
                     deployNativeLibs(context, base)
                     deployScripts(context, base)
                     fixPermissions(base)
-                    setupFilesLayout(context)
 
                     val migrationOk: Boolean
                     if (migrationFile != null) {
+                        val migrationDest =
+                                openClawArchiveDestination(
+                                        context,
+                                        migrationFile.inputStream().use(::tarGzContainsOpenClawRoot)
+                                )
                         migrationOk =
                                 migrationFile.inputStream().use { raw ->
                                     val tracked =
@@ -256,11 +269,16 @@ object OpenClawInstaller {
                                                         )
                                                 )
                                             }
-                                    extractTarGzFromStream(tracked, context.filesDir)
+                                    extractTarGzFromStream(tracked, migrationDest)
                                 }
                     } else if (assetExists(context, MIGRATION_ASSET_NAME)) {
+                        val migrationDest =
+                                openClawArchiveDestination(
+                                        context,
+                                        assetContainsOpenClawRoot(context, MIGRATION_ASSET_NAME)
+                                )
                         migrationOk =
-                                context.extractTarGz(MIGRATION_ASSET_NAME, context.filesDir) {
+                                context.extractTarGz(MIGRATION_ASSET_NAME, migrationDest) {
                                         _,
                                         read,
                                         total,
@@ -329,6 +347,47 @@ object OpenClawInstaller {
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun assetContainsOpenClawRoot(context: Context, filename: String): Boolean =
+            try {
+                context.assets.open(filename).use(::tarGzContainsOpenClawRoot)
+            } catch (_: Exception) {
+                false
+            }
+
+    private fun openClawArchiveDestination(context: Context, containsOpenClawRoot: Boolean): File {
+        val homeDir = File(context.filesDir, "home").apply { mkdirs() }
+        return if (containsOpenClawRoot) {
+            homeDir
+        } else {
+            File(homeDir, ".openclaw").apply { mkdirs() }
+        }
+    }
+
+    private fun tarGzContainsOpenClawRoot(inputStream: InputStream): Boolean =
+            try {
+                GZIPInputStream(inputStream.buffered(1 shl 16)).use { gzIn ->
+                    TarArchiveInputStream(gzIn).use { tarIn ->
+                        @Suppress("DEPRECATION") var entry = tarIn.nextTarEntry
+                        while (entry != null) {
+                            val name = normalizeArchiveEntryRoot(entry.name)
+                            if (name == ".openclaw" || name.startsWith(".openclaw/")) return true
+                            @Suppress("DEPRECATION")
+                            entry = tarIn.nextTarEntry
+                        }
+                    }
+                }
+                false
+            } catch (_: Exception) {
+                false
+            }
+
+    private fun normalizeArchiveEntryRoot(rawName: String): String {
+        var name = rawName.replace('\\', '/').trim()
+        while (name.startsWith("./")) name = name.removePrefix("./")
+        while (name.startsWith("/")) name = name.removePrefix("/")
+        return name
     }
 
     suspend fun installPayload(
@@ -414,27 +473,45 @@ object OpenClawInstaller {
 
     fun setupFilesLayout(context: Context) {
         val filesDir = context.filesDir
-        val payloadDir = getPayloadDir(context)
-        val usrDir = payloadDir.apply { mkdirs() }
-        File(filesDir, "home").mkdirs()
-        File(usrDir, "opt").mkdirs()
+        val payload = getPayloadDir(context)
+        val homeDir = File(filesDir, "home").apply { mkdirs() }
 
-        val links = listOf(File(usrDir, "tmp") to context.cacheDir)
+        File(homeDir, ".openclaw/tmp").mkdirs()
+        File(filesDir, "usr/bin").mkdirs()
+        File(filesDir, "usr/opt").mkdirs()
 
-        links.forEach { (link, target) ->
-            if (!link.exists()) {
-                try {
-                    Os.symlink(target.absolutePath, link.absolutePath)
-                } catch (e: Exception) {
-                    Log.w(TAG, "No se pudo crear symlink ${link.absolutePath} -> ${target.absolutePath}: ${e.message}")
-                }
+        mapOf(
+                "usr/lib" to File(payload, "lib"),
+                "usr/glibc" to File(payload, "glibc"),
+                "usr/etc" to File(payload, "etc"),
+                "usr/tmp" to context.cacheDir
+        ).forEach { (rel, target) -> ensureSymlink(filesDir, rel, target) }
+    }
+
+    private fun ensureSymlink(filesDir: File, rel: String, target: File) {
+        val link = File(filesDir, rel)
+        try {
+            link.parentFile?.mkdirs()
+            val linkPath = link.toPath()
+            if (Files.isSymbolicLink(linkPath)) {
+                val current = runCatching { Files.readSymbolicLink(linkPath).toString() }.getOrNull()
+                if (current == target.absolutePath) return
+                Files.deleteIfExists(linkPath)
+            } else if (link.exists()) {
+                link.deleteRecursivelySafe()
             }
+            Os.symlink(target.absolutePath, link.absolutePath)
+        } catch (e: Exception) {
+            Log.w(
+                    TAG,
+                    "No se pudo crear symlink ${link.absolutePath} -> ${target.absolutePath}: ${e.message}"
+            )
         }
     }
 
     fun ensureRuntimeWrappers(context: Context) {
         val base = getPayloadDir(context)
-        val primaryOpenClaw = File(base, "bin/openclaw")
+        val primaryOpenClaw = File(context.filesDir, "usr/bin/openclaw")
         val legacyWrappers =
                 listOf(
                         File(context.filesDir, "app_payload/bin/node"),
@@ -508,7 +585,7 @@ object OpenClawInstaller {
     }
 
     fun deployScripts(context: Context, base: File) {
-        val binDir = File(base, "bin")
+        val binDir = File(context.filesDir, "usr/bin")
         if (!binDir.exists()) binDir.mkdirs()
         val legacyBinDirs = listOf(
                 File(context.filesDir, "app_payload/bin"),
@@ -520,6 +597,9 @@ object OpenClawInstaller {
         val linker = "$nativeDir/libldlinux.so"
         val nodeLib = "$nativeDir/libnode.so"
         val glibcLib = "$base/glibc/lib"
+        val nodeModules = "$base/lib/node_modules"
+        val openclawHome = File(context.filesDir, "home/.openclaw").absolutePath
+        val tmpDir = "$openclawHome/tmp"
         val ocPathFull = "$base/lib/node_modules/openclaw/openclaw.mjs"
         val npmPathFull = "$base/lib/node_modules/npm/bin/npm-cli.js"
 
@@ -541,6 +621,7 @@ object OpenClawInstaller {
             export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
             export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
             export LD_LIBRARY_PATH="${'$'}LIBS"
+            export NODE_PATH="$nodeModules"
             exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" "${'$'}@"
         """.trimIndent()
         )
@@ -564,6 +645,10 @@ object OpenClawInstaller {
             export OPENCLAW_NO_RESPAWN=1
             export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
             export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
+            export LD_LIBRARY_PATH="${'$'}LIBS"
+            export NODE_PATH="$nodeModules"
+            export OPENCLAW_HOME="$openclawHome"
+            export TMPDIR="$tmpDir"
             exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" --disable-warning=ExperimentalWarning "${'$'}OPENCLAW_SCRIPT" "${'$'}@"
         """.trimIndent()
         )
@@ -589,6 +674,7 @@ object OpenClawInstaller {
             unset NODE_OPTIONS
             export NODE_NO_WARNINGS=1
             export LD_LIBRARY_PATH="${'$'}LIBS"
+            export NODE_PATH="$nodeModules"
             exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}NPM_CLI" "${'$'}@"
         """.trimIndent()
         )

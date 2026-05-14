@@ -140,8 +140,8 @@ fun extractTarXzFromStream(
                 TarArchiveInputStream(xzIn).use { tarIn ->
                     @Suppress("DEPRECATION") var entry = tarIn.nextTarEntry
                     while (entry != null) {
-                        val name = entry.name.trimStart('.', '/')
-                        if (name.isEmpty()) {
+                        val name = sanitizeArchiveEntryName(entry.name)
+                        if (name == null) {
                             @Suppress("DEPRECATION")
                             entry = tarIn.nextTarEntry
                             continue
@@ -196,8 +196,8 @@ fun extractTarGzFromStream(inputStream: InputStream, targetDir: File): Boolean =
                 TarArchiveInputStream(gzIn).use { tarIn ->
                     @Suppress("DEPRECATION") var entry = tarIn.nextTarEntry
                     while (entry != null) {
-                        val name = entry.name.trimStart('.', '/')
-                        if (name.isEmpty()) {
+                        val name = sanitizeArchiveEntryName(entry.name)
+                        if (name == null) {
                             @Suppress("DEPRECATION")
                             entry = tarIn.nextTarEntry
                             continue
@@ -244,6 +244,15 @@ fun extractTarGzFromStream(inputStream: InputStream, targetDir: File): Boolean =
         }
 
 // ── Permissions ───────────────────────────────────────────────────────────────
+
+private fun sanitizeArchiveEntryName(rawName: String): String? {
+    var name = rawName.replace('\\', '/').trim()
+    while (name.startsWith("./")) name = name.removePrefix("./")
+    while (name.startsWith("/")) name = name.removePrefix("/")
+    if (name.isEmpty() || name == ".") return null
+    if (name.split('/').any { it == ".." }) return null
+    return name
+}
 
 /**
  * Best-effort chmod. On Android 12+ SELinux blocks Os.chmod() and even /system/bin/chmod from the

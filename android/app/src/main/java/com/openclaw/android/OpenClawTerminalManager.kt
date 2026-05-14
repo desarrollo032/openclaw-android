@@ -72,11 +72,10 @@ class OpenClawTerminalManager(private val context: Context) {
      */
     private fun buildPath(): String {
         return listOf(
-            "${payloadDir.absolutePath}/bin",  // openclaw, node symlinks
+            File(context.filesDir, "usr/bin").absolutePath,
             nativeDir.absolutePath,            // libnode.so, libldlinux.so
             "/system/bin",                     // sh, toybox, ls, grep...
-            "/system/xbin",                    // herramientas extra
-            "/data/local/tmp"                  // herramientas temporales
+            "/system/xbin"                     // herramientas extra
         ).joinToString(":")
     }
 
@@ -89,18 +88,22 @@ class OpenClawTerminalManager(private val context: Context) {
     fun buildEnvironment(): Array<String> {
         val glibcLibs = File(payloadDir, "glibc/lib").absolutePath
         val libs = "${nativeDir.absolutePath}:${glibcLibs}"
+        val openclawHome = OpenClawInstaller.getConfigDir(context).apply { mkdirs() }
+        val tmpDir = File(openclawHome, "tmp").apply { mkdirs() }
         val rc = ensureShellRc()
 
         return arrayOf(
             "HOME=${homeDir.absolutePath}",
+            "OPENCLAW_HOME=${openclawHome.absolutePath}",
+            "TMPDIR=${tmpDir.absolutePath}",
             "TERM=xterm-256color",
             "COLORTERM=truecolor",
+            "USER=openclaw",
+            "LOGNAME=openclaw",
             "PATH=${buildPath()}",
             "LD_LIBRARY_PATH=$libs",
-            "TMPDIR=${context.cacheDir.absolutePath}",
-            "OPENCLAW_HOME=${OpenClawInstaller.getConfigDir(context).absolutePath}",
-            "NODE_PATH=${payloadDir.absolutePath}/lib/node_modules",
-            "SSL_CERT_FILE=${payloadDir.absolutePath}/etc/tls/cert.pem",
+            "NODE_PATH=${File(payloadDir, "lib/node_modules").absolutePath}",
+            "SSL_CERT_FILE=${File(payloadDir, "etc/tls/cert.pem").absolutePath}",
             "LANG=en_US.UTF-8",
             "LC_ALL=en_US.UTF-8",
             "NODE_NO_WARNINGS=1",
@@ -126,27 +129,32 @@ class OpenClawTerminalManager(private val context: Context) {
     private fun ensureShellRc(): File {
         val payload = payloadDir.absolutePath
         val native = nativeDir.absolutePath
-        val binDir = "$payload/bin"
+        val binDir = File(context.filesDir, "usr/bin").absolutePath
         val libs = "$native:$payload/glibc/lib"
         val loader = "$native/libldlinux.so"
         val node = "$native/libnode.so"
         val openclawScript = "$payload/lib/node_modules/openclaw/openclaw.mjs"
         val npmScript = "$payload/lib/node_modules/npm/bin/npm-cli.js"
         val openclawHome = OpenClawInstaller.getConfigDir(context).absolutePath
+        val tmpDir = "$openclawHome/tmp"
         homeDir.mkdirs()
         OpenClawInstaller.getConfigDir(context).mkdirs()
+        File(tmpDir).mkdirs()
         val rc = File(context.filesDir, "openclaw-terminal.rc")
         rc.writeText(
                 """
             PS1='~ ${'$'} '
             HOME="${homeDir.absolutePath}"
             OPENCLAW_HOME="$openclawHome"
+            TMPDIR="$tmpDir"
             mkdir -p "${'$'}OPENCLAW_HOME" 2>/dev/null
+            mkdir -p "${'$'}TMPDIR" 2>/dev/null
             cd "${'$'}OPENCLAW_HOME" 2>/dev/null || cd "${'$'}HOME"
 
             # Priorizar ABSOLUTAMENTE los wrappers oficiales en $binDir
             export PATH="$binDir:${'$'}{PATH}"
             export OPENCLAW_HOME
+            export TMPDIR
 
             # Evitar ejecutar archivos .js/.mjs directamente por error
             # Funciones que evitan ejecutar wrappers desde app_payload/bin directamente.
@@ -303,7 +311,7 @@ class OpenClawTerminalManager(private val context: Context) {
         // Solo crear symlinks si NO hay toybox (caso muy raro)
         val busybox = File(nativeDir, "libbusybox.so")
         if (!busybox.exists()) return
-        val binDir = File(payloadDir, "bin")
+        val binDir = File(context.filesDir, "usr/bin")
         binDir.mkdirs()
         listOf("sh","ls","cat","grep","find","tar",
                "chmod","mkdir","cp","mv","rm","echo",
