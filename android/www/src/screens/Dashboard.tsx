@@ -37,7 +37,7 @@ const MGMT_ROWS = [
   { icon: '↑', bg: '#14532d', col: '#4ade80', title: 'Update',    cmd: 'openclaw update',       sub: 'Actualizar OpenClaw y componentes' },
   { icon: '🔧', bg:'#2d2200', col: '#fb923c', title: 'Configure', cmd: 'openclaw configure',    sub: 'Configurar el entorno' },
   { icon: '🩺', bg:'#2d1a00', col: '#fb923c', title: 'Doctor',    cmd: 'openclaw doctor',       sub: 'Diagnóstico del sistema' },
-  { icon: '⚡', bg: '#2d2800', col: '#facc15', title: 'Skills',   cmd: 'openclaw skills',       sub: 'Gestionar skills instalados' },
+  { icon: '⚡', bg: '#2d2800', col: '#facc15', title: 'Skills',   cmd: 'openclaw skills',       sub: 'Gestionar skills instalados', path: '/skills' },
 ] as const
 
 export function Dashboard() {
@@ -232,7 +232,13 @@ export function Dashboard() {
             icon={r.icon} bg={r.bg} col={r.col}
             title={r.title} sub={r.sub}
             last={i === MGMT_ROWS.length - 1}
-            onClick={() => runInTerminal(r.cmd)} />
+            onClick={() => {
+              if (r.path) {
+                navigate(r.path)
+              } else {
+                runInTerminal(r.cmd)
+              }
+            }} />
         ))}
       </div>
 

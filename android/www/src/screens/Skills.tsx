@@ -116,7 +116,7 @@ export function Skills() {
       
       <div style={{ ...S.card, marginTop: 24, padding: 16, borderStyle: 'dashed', background: 'rgba(255,255,255,0.02)' }}>
         <div style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 13, lineHeight: 1.5 }}>
-          Puedes instalar nuevas habilidades desde la terminal con el comando <code style={S.inlineCode}>openclaw skills --install</code>.
+          Gestiona skills instalados aquí, o usa la terminal si necesitas instalar nuevas capacidades.
         </div>
       </div>
     </div>
