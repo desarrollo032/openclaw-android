@@ -26,9 +26,6 @@ class OpenClawGatewayService : Service() {
     // Token de autenticación — generado en cada arranque, nunca persiste en disco
     private var dashboardToken: String = ""
 
-    // Uptime tracking
-    private var processStartTime = 0L
-
     // Contador de reinicios para la notificación
     private var restartCount = 0
 
@@ -269,7 +266,7 @@ class OpenClawGatewayService : Service() {
 
 
             gatewayProcess = pb.start()
-            processStartTime = System.currentTimeMillis()
+            markProcessStart()
             val pid = gatewayProcess.hashCode() // Java Process no expone PID en API < 26
             OpenClawLogger.log(TAG, "Process started [pid~${pid}]: ${loader.name} → ${nodeExec.name} → openclaw.mjs")
             _state.value = GatewayState.STARTING
@@ -299,11 +296,11 @@ class OpenClawGatewayService : Service() {
     // ── Uptime ────────────────────────────────────────────────────────────────
 
     private fun formatUptime(): String {
-        if (processStartTime == 0L) return ""
-        val elapsed = (System.currentTimeMillis() - processStartTime) / 1000
+        val seconds = getUptimeSeconds()
+        if (seconds == 0L) return ""
         return when {
-            elapsed < 3600 -> "${elapsed / 60}m ${elapsed % 60}s"
-            else           -> "${elapsed / 3600}h ${(elapsed % 3600) / 60}m"
+            seconds < 3600 -> "${seconds / 60}m ${seconds % 60}s"
+            else           -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
         }
     }
 

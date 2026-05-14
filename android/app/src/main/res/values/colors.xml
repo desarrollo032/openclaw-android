@@ -20,4 +20,16 @@
     <color name="tabTextFinished">#484f58</color>
     <color name="tabAccent">#58a6ff</color>
     <color name="tabBorder">#30363d</color>
+
+    <!-- OpenClawTerminalActivity colors -->
+    <color name="terminal_bg_dark">#0a0a0f</color>
+    <color name="terminal_toolbar_bg">#0a0a14</color>
+    <color name="terminal_keys_bg">#0f172a</color>
+    <color name="terminal_key_text">#cbd5e1</color>
+    <color name="terminal_key_ripple">#1e293b</color>
+    <color name="terminal_status_online">#4ade80</color>
+    <color name="terminal_status_stroke">#22c55e</color>
+    <color name="terminal_status_offline">#f87171</color>
+    <color name="terminal_toolbar_btn">#a0a0c0</color>
+    <color name="terminal_toolbar_ripple">#333355</color>
 </resources>

@@ -157,26 +157,7 @@ fun extractTarXzFromStream(
                             FileOutputStream(outFile).use { fos ->
                                 tarIn.copyTo(fos, bufferSize = 65536)
                             }
-                            // Apply permissions, but BLOCK executable bits for:
-                            // 1. Any file with .js/.mjs/.ts/.json extension
-                            // 2. Any file located in /lib/ directory
-                            val isJavascriptFile =
-                                    name.endsWith(".js") ||
-                                            name.endsWith(".mjs") ||
-                                            name.endsWith(".ts") ||
-                                            name.endsWith(".json")
-                            val isInLibDir = name.contains("/lib/")
-                            val isExec = entry.mode and 0b001_000_000 != 0
-
-                            outFile.setReadable(true, false)
-                            outFile.setWritable(true, false)
-
-                            // Never make these files executable
-                            if (!isJavascriptFile && !isInLibDir && isExec) {
-                                outFile.setExecutable(true, false)
-                            } else {
-                                outFile.setExecutable(false, false)
-                            }
+                            applyArchiveFilePermissions(outFile, name, entry.mode)
                         }
                         @Suppress("DEPRECATION")
                         entry = tarIn.nextTarEntry
@@ -213,24 +194,7 @@ fun extractTarGzFromStream(inputStream: InputStream, targetDir: File): Boolean =
                             FileOutputStream(outFile).use { fos ->
                                 tarIn.copyTo(fos, bufferSize = 65536)
                             }
-                            // Apply permissions, same rules as extractTarXzFromStream!
-                            val isJavascriptFile =
-                                    name.endsWith(".js") ||
-                                            name.endsWith(".mjs") ||
-                                            name.endsWith(".ts") ||
-                                            name.endsWith(".json")
-                            val isInLibDir = name.contains("/lib/")
-                            val isExec = entry.mode and 0b001_000_000 != 0
-
-                            outFile.setReadable(true, false)
-                            outFile.setWritable(true, false)
-
-                            // Never make these files executable
-                            if (!isJavascriptFile && !isInLibDir && isExec) {
-                                outFile.setExecutable(true, false)
-                            } else {
-                                outFile.setExecutable(false, false)
-                            }
+                            applyArchiveFilePermissions(outFile, name, entry.mode)
                         }
                         @Suppress("DEPRECATION")
                         entry = tarIn.nextTarEntry
@@ -303,3 +267,24 @@ fun formatBytes(bytes: Long): String =
             bytes < 1024L * 1024 * 1024 -> "%.1f MB".format(bytes / (1024f * 1024))
             else -> "%.2f GB".format(bytes / (1024f * 1024 * 1024))
         }
+
+/**
+ * Applies safe file permissions for extracted archive entries.
+ * Blocks executable bits for:
+ * 1. Files with .js/.mjs/.ts/.json extension
+ * 2. Files located in /lib/ directory
+ */
+private fun applyArchiveFilePermissions(file: File, name: String, entryMode: Int) {
+    val isJavascriptFile = name.endsWith(".js") || name.endsWith(".mjs") || name.endsWith(".ts") || name.endsWith(".json")
+    val isInLibDir = name.contains("/lib/")
+    val isExec = entryMode and 0b001_000_000 != 0
+
+    file.setReadable(true, false)
+    file.setWritable(true, false)
+
+    if (!isJavascriptFile && !isInLibDir && isExec) {
+        file.setExecutable(true, false)
+    } else {
+        file.setExecutable(false, false)
+    }
+}

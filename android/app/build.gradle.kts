@@ -152,7 +152,7 @@ android {
     defaultConfig {
         applicationId = "com.openclaw.android"
         minSdk = 31
-        targetSdk = 34
+        targetSdk = 35
         versionCode = gitVersionCode
         versionName = gitVersionName
 
@@ -184,7 +184,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { viewBinding = true }
 
     // ── Test Configuration ────────────────────────────────────────────────────
     testOptions {
@@ -206,7 +205,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
@@ -214,7 +213,7 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.26.0")
     implementation("org.tukaani:xz:1.9")
     implementation("androidx.webkit:webkit:1.10.0")
-    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+
 
     // ── Termux Terminal Libraries (Local AARs) ───────────────────────────────
     implementation(files("libs/terminal-emulator.aar"))
@@ -230,7 +229,8 @@ dependencies {
     testImplementation("io.kotest:kotest-assertions-core:5.8.0")
     testImplementation("io.kotest:kotest-property:5.8.0")
     testImplementation("androidx.arch.core:core-testing:2.2.0")
-    testImplementation("org.robolectric:robolectric:4.11.1")
+    // Robolectric 4.14.1+ needed for SDK 35 support
+    testImplementation("org.robolectric:robolectric:4.14.1")
 
     // ── Integration & UI Testing ─────────────────────────────────────────────
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

@@ -50,17 +50,19 @@ class AndroidBridge(
         val assets = AssetDetector.detectSync(activity)
         val payloadOverride = payloadOverrideFile.takeIf { it.exists() && it.length() > 0L }
         val migrationOverride = migrationOverrideFile.takeIf { it.exists() && it.length() > 0L }
+        val canDownload = OpenClawInstaller.hasBundledAssets(activity).not() // remote available when no embedded assets
         return JSONObject().apply {
             put("bootstrapInstalled", payloadReady)
             put("platformInstalled", if (payloadReady) "openclaw" else "")
             put("onboardComplete", onboardComplete)
             put("payloadReady", payloadReady)
-            put("payloadAvailable", assets.payloadAvailable || payloadOverride != null)
+            put("payloadAvailable", assets.payloadAvailable || payloadOverride != null || canDownload)
             put("payloadSizeBytes", payloadOverride?.length() ?: assets.payloadSizeBytes)
-            put("payloadSource", if (payloadOverride != null) "local" else if (assets.payloadAvailable) "apk" else "missing")
-            put("migrationAvailable", assets.migrationAvailable || migrationOverride != null)
+            put("payloadSource", if (payloadOverride != null) "local" else if (assets.payloadAvailable) "apk" else if (canDownload) "remote" else "missing")
+            put("migrationAvailable", assets.migrationAvailable || migrationOverride != null || canDownload)
             put("migrationSizeBytes", migrationOverride?.length() ?: assets.migrationSizeBytes)
-            put("migrationSource", if (migrationOverride != null) "local" else if (assets.migrationAvailable) "apk" else "missing")
+            put("migrationSource", if (migrationOverride != null) "local" else if (assets.migrationAvailable) "apk" else if (canDownload) "remote" else "missing")
+            put("canDownloadRemotely", canDownload)
             put("freeSpaceMB", assets.freeSpaceBytes / 1024 / 1024)
             put("requiredSpaceMB", 400)
             put("hasEnoughSpace", assets.hasEnoughSpace)
@@ -69,11 +71,6 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun checkInstallation(): String {
-        return getSetupStatus()
-    }
-
-    @JavascriptInterface
-    fun getBootstrapStatus(): String {
         return getSetupStatus()
     }
 
@@ -243,11 +240,6 @@ class AndroidBridge(
     @JavascriptInterface
     fun showTerminal() {
         openTerminal()
-    }
-
-    @JavascriptInterface
-    fun showWebView() {
-        // Dashboard already runs inside this WebView. Kept for frontend compatibility.
     }
 
     @JavascriptInterface

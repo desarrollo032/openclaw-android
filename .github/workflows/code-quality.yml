@@ -164,6 +164,12 @@ jobs:
 
       - uses: android-actions/setup-android@v4
 
+      - name: Install Android SDK 35
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-35" 2>/dev/null || \
+          yes | $ANDROID_HOME/tools/bin/sdkmanager --install "platforms;android-35" 2>/dev/null || \
+          echo "SDK 35 already installed or sdkmanager not available"
+
       - name: Cache Gradle
         uses: actions/cache@v5
         with:
@@ -214,6 +220,12 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: android/www/package-lock.json
+
+      - name: Install Android SDK 35
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-35" 2>/dev/null || \
+          yes | $ANDROID_HOME/tools/bin/sdkmanager --install "platforms;android-35" 2>/dev/null || \
+          echo "SDK 35 already installed or sdkmanager not available"
 
       - name: Cache Gradle
         uses: actions/cache@v5

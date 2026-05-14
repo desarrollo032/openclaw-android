@@ -156,39 +156,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         androidBridge?.handlePickedFile(uri)
     }
 
-    private fun handleMigrationFilePicked(uri: Uri) {
-        // Obtener nombre real del archivo desde la URI
-        var filename = "archivo.tar.gz"
-        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (nameIndex != -1 && cursor.moveToFirst()) {
-                filename = cursor.getString(nameIndex)
-            }
-        }
-
-        val size = try {
-            contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
-        } catch (e: Exception) { 0L }
-        
-        val sizeMB = size / 1024 / 1024
-        
-        // Mostrar confirmación visual nativa
-        android.widget.Toast.makeText(this, "Archivo seleccionado: $filename (${sizeMB}MB)", android.widget.Toast.LENGTH_LONG).show()
-        Log.i(TAG, "File picked: $filename, size: $sizeMB MB")
-
-        androidBridge?.notifyReact("onMigrationFilePicked", 
-            "{\"filename\":\"$filename\", \"sizeMB\":$sizeMB}")
-    }
-
-    private fun dispatchNativeFilePicked(callbackId: String, uri: Uri, success: Boolean) {
-        val escapedUri = JSONObject.quote(uri.toString())
-        val successJson = if (success) "true" else "false"
-        binding.webView.evaluateJavascript(
-            "window.dispatchEvent(new CustomEvent('native:file_picked_$callbackId', { detail: { uri: $escapedUri, success: $successJson } }));",
-            null
-        )
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         binding.webView.settings.apply {
@@ -219,12 +186,11 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         binding.webView.webChromeClient = WebChromeClient()
     }
 
-    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         AlertDialog.Builder(this)
             .setTitle("¿Salir?")
             .setMessage("El gateway seguirá corriendo en segundo plano.")
-            .setPositiveButton("Salir") { _, _ -> finish() }
+            .setPositiveButton("Salir") { _, _ -> finish(); super.onBackPressed() }
             .setNegativeButton("Cancelar", null)
             .show()
     }

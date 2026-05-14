@@ -96,14 +96,14 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     }
 
     private fun buildLayout(): View {
-        rootFrame = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0a0a0f")) }
+        rootFrame = FrameLayout(this).apply { setBackgroundColor(getColor(R.color.terminal_bg_dark)) }
 
         // Toolbar (56dp)
         rootFrame.addView(buildToolbar())
 
         // TerminalView
         terminalView = TerminalView(this, null).apply {
-            id = R.id.terminal_view
+            id = View.generateViewId()
             setBackgroundColor(Color.BLACK)
             isFocusable = true
             isFocusableInTouchMode = true
@@ -125,7 +125,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
     private fun buildSpecialKeysBar(): HorizontalScrollView {
         val scroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            setBackgroundColor(Color.parseColor("#0f172a"))
+            setBackgroundColor(getColor(R.color.terminal_keys_bg))
             layoutParams = FrameLayout.LayoutParams(-1, dp(56), Gravity.BOTTOM)
         }
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -152,10 +152,10 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         keys.forEach { (label, action) ->
             bar.addView(TextView(this).apply {
                 text = label; textSize = 15f; typeface = Typeface.create("sans-serif-bold", Typeface.NORMAL)
-                setTextColor(Color.parseColor("#cbd5e1")); gravity = Gravity.CENTER
+                setTextColor(getColor(R.color.terminal_key_text)); gravity = Gravity.CENTER
                 minWidth = dp(56); minHeight = dp(56)
                 setPadding(dp(16), 0, dp(16), 0)
-                background = RippleDrawable(ColorStateList.valueOf(Color.parseColor("#1e293b")), null, null)
+                background = RippleDrawable(ColorStateList.valueOf(getColor(R.color.terminal_key_ripple)), null, null)
                 setOnClickListener { action() }
             })
         }
@@ -167,15 +167,15 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#0a0a14"))
+            setBackgroundColor(getColor(R.color.terminal_toolbar_bg))
             setPadding(dp(16), 0, dp(8), 0)
             layoutParams = FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP)
         }
 
         statusDot = View(this).apply {
             background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL; setColor(Color.parseColor("#4ade80"))
-                setStroke(dp(1), Color.parseColor("#22c55e"))
+                shape = GradientDrawable.OVAL; setColor(getColor(R.color.terminal_status_online))
+                setStroke(dp(1), getColor(R.color.terminal_status_stroke))
             }
             layoutParams = LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginEnd = dp(12) }
         }
@@ -196,9 +196,9 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     private fun toolbarBtn(label: String, onClick: () -> Unit) = TextView(this).apply {
         text = label; textSize = 20f; gravity = Gravity.CENTER
-        setTextColor(Color.parseColor("#a0a0c0"))
+        setTextColor(getColor(R.color.terminal_toolbar_btn))
         minWidth = dp(48); minimumHeight = dp(48)
-        background = RippleDrawable(ColorStateList.valueOf(Color.parseColor("#333355")), null, ColorDrawable(Color.WHITE))
+        background = RippleDrawable(ColorStateList.valueOf(getColor(R.color.terminal_toolbar_ripple)), null, ColorDrawable(Color.WHITE))
         setOnClickListener { onClick() }
     }
 
@@ -309,7 +309,7 @@ class OpenClawTerminalActivity : AppCompatActivity(), TerminalSessionClient {
 
     private fun updateDot(running: Boolean) {
         (statusDot.background as? GradientDrawable)?.setColor(
-            Color.parseColor(if (running) "#4ade80" else "#f87171")
+            getColor(if (running) R.color.terminal_status_online else R.color.terminal_status_offline)
         )
     }
 

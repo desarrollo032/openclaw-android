@@ -4,6 +4,10 @@ object OpenClawConstants {
     // Asset names
     const val PAYLOAD_ASSET = "payload-v2.tar.xz"
     const val MIGRATION_ASSET = "openclaw-apk-migration.tar.gz"
+
+    // GitHub download URLs (raw content)
+    const val PAYLOAD_GITHUB_URL = "https://raw.githubusercontent.com/desarrollo032/openclaw-android/main/android/app/src/main/assets/payload-v2.tar.xz"
+    const val MIGRATION_GITHUB_URL = "https://raw.githubusercontent.com/desarrollo032/openclaw-android/main/android/app/src/main/assets/openclaw-apk-migration.tar.gz"
     
     // Directory names
     const val PAYLOAD_DIR_NAME = "payload"

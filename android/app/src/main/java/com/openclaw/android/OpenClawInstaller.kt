@@ -1,6 +1,8 @@
 package com.openclaw.android
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.system.Os
 import android.util.Log
 import java.io.File
@@ -185,93 +187,7 @@ object OpenClawInstaller {
             onProgress: (String) -> Unit,
             onComplete: () -> Unit,
             onError: (String) -> Unit
-    ): Unit =
-            withContext(Dispatchers.IO) {
-                try {
-                    val base = getPayloadDir(context)
-                    base.deleteRecursivelySafe()
-                    base.mkdirs()
-
-                    val ok =
-                            context.extractTarXz(OpenClawConstants.PAYLOAD_ASSET, base) {
-                                    pct,
-                                    read,
-                                    total,
-                                    currentFile ->
-                                val json =
-                                        JSONObject()
-                                                .apply {
-                                                    put("step", 1)
-                                                    put("totalSteps", 2)
-                                                    put("extractedMB", read / 1024 / 1024)
-                                                    put("totalMB", total / 1024 / 1024)
-                                                    put("percent", pct)
-                                                    put("currentFile", currentFile)
-                                                    put("stepName", OpenClawConstants.PAYLOAD_ASSET)
-                                                }
-                                                .toString()
-                                onProgress(json)
-                            }
-                    if (!ok) throw Exception("Fallo en extracción de ${OpenClawConstants.PAYLOAD_ASSET}")
-
-                    if (!ensureNpmPackageInstalled(context, base)) {
-                        throw Exception("npm no incluido y no se pudo descargar")
-                    }
-
-                    deployNativeLibs(context, base)
-                    deployScripts(context, base)
-                    fixPermissions(base)
-
-                    val migrationExists =
-                            try {
-                                context.assets.open(OpenClawConstants.MIGRATION_ASSET).close()
-                                true
-                            } catch (_: Exception) {
-                                false
-                            }
-
-                    if (migrationExists) {
-                        val migrationDest =
-                                openClawArchiveDestination(
-                                        context,
-                                        assetContainsOpenClawRoot(context, OpenClawConstants.MIGRATION_ASSET)
-                                )
-                        context.extractTarGz(OpenClawConstants.MIGRATION_ASSET, migrationDest) {
-                                pct,
-                                read,
-                                total,
-                                currentFile ->
-                            val json =
-                                    JSONObject()
-                                            .apply {
-                                                put("step", 2)
-                                                put("totalSteps", 2)
-                                                put("extractedMB", read / 1024 / 1024)
-                                                put("totalMB", total / 1024 / 1024)
-                                                put("percent", pct)
-                                                put("currentFile", currentFile)
-                                                put("stepName", OpenClawConstants.MIGRATION_ASSET)
-                                            }
-                                            .toString()
-                            onProgress(json)
-                        }
-                    }
-
-                    deployScripts(context, base)
-                    fixPermissions(base)
-                    setupFilesLayout(context)
-                    OpenClawTerminalManager(context).createBusyboxSymlinks()
-
-                    context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
-                            .apply()
-
-                    onComplete()
-                } catch (e: Exception) {
-                    onError(e.message ?: "Error desconocido")
-                }
-            }
+    ): Unit = installDetailedFromFiles(context, null, null, onProgress, onComplete, onError)
 
     suspend fun installDetailedFromFiles(
             context: Context,
@@ -287,8 +203,10 @@ object OpenClawInstaller {
                     base.deleteRecursivelySafe()
                     base.mkdirs()
 
+                    // ── Determine payload source (file | embedded asset | GitHub download) ──
                     val payloadOk: Boolean
                     if (payloadFile != null) {
+                        // Source: locally-provided file (from URI picker)
                         payloadOk =
                                 payloadFile.inputStream().use { raw ->
                                     val tracked =
@@ -307,7 +225,8 @@ object OpenClawInstaller {
                                             }
                                     extractTarXzFromStream(tracked, base)
                                 }
-                    } else {
+                    } else if (hasBundledAssets(context)) {
+                        // Source: embedded APK asset
                         payloadOk =
                                 context.extractTarXz(OpenClawConstants.PAYLOAD_ASSET, base) {
                                         _,
@@ -324,6 +243,41 @@ object OpenClawInstaller {
                                             )
                                     )
                                 }
+                    } else {
+                        // Source: download from GitHub
+                        if (!isNetworkAvailable(context)) {
+                            throw Exception(
+                                    "No hay conexión a Internet. " +
+                                            "El payload no está incluido en esta compilación y " +
+                                            "no se pudo descargar porque el dispositivo no tiene acceso a Internet."
+                            )
+                        }
+                        val downloadedPayload = downloadPayloadFromGithub(context) { read, total ->
+                            val pct = if (total > 0) ((read * 100) / total).toInt().coerceIn(0, 100) else 0
+                            onProgress(
+                                    progressJson(1, "Descargando payload...", read, total, "")
+                            )
+                        }
+                        if (downloadedPayload == null) {
+                            throw Exception("No se pudo descargar el payload desde GitHub")
+                        }
+                        payloadOk =
+                                downloadedPayload.inputStream().use { raw ->
+                                    val tracked =
+                                            ProgressInputStream(raw, downloadedPayload.length()) {
+                                                    read, total ->
+                                                onProgress(
+                                                        progressJson(
+                                                                1,
+                                                                downloadedPayload.name,
+                                                                read,
+                                                                total,
+                                                                ""
+                                                        )
+                                                )
+                                            }
+                                    extractTarXzFromStream(tracked, base)
+                                }
                     }
                     if (!payloadOk)
                             throw Exception(
@@ -338,6 +292,7 @@ object OpenClawInstaller {
                     deployScripts(context, base)
                     fixPermissions(base)
 
+                    // ── Determine migration source (file | embedded asset | GitHub download) ──
                     val migrationOk: Boolean
                     if (migrationFile != null) {
                         val migrationDest =
@@ -386,7 +341,48 @@ object OpenClawInstaller {
                                     )
                                 }
                     } else {
-                        migrationOk = true
+                        // Migration is optional — try downloading from GitHub
+                        val downloadedMigration = if (isNetworkAvailable(context)) {
+                            downloadMigrationFromGithub(context) { read, total ->
+                                onProgress(
+                                        progressJson(
+                                                2,
+                                                "Descargando migracion...",
+                                                read,
+                                                total,
+                                                ""
+                                        )
+                                )
+                            }
+                        } else {
+                            null
+                        }
+                        if (downloadedMigration != null) {
+                            val migrationDest =
+                                    openClawArchiveDestination(
+                                            context,
+                                            downloadedMigration.inputStream().use(::tarGzContainsOpenClawRoot)
+                                    )
+                            migrationOk =
+                                    downloadedMigration.inputStream().use { raw ->
+                                        val tracked =
+                                                ProgressInputStream(raw, downloadedMigration.length()) {
+                                                        read, total ->
+                                                    onProgress(
+                                                            progressJson(
+                                                                    2,
+                                                                    downloadedMigration.name,
+                                                                    read,
+                                                                    total,
+                                                                    ""
+                                                            )
+                                                    )
+                                                }
+                                        extractTarGzFromStream(tracked, migrationDest)
+                                    }
+                        } else {
+                            migrationOk = true
+                        }
                     }
                     if (!migrationOk) {
                         throw Exception(
@@ -885,5 +881,146 @@ object OpenClawInstaller {
                 .edit()
                 .putBoolean(OpenClawConstants.KEY_ONBOARD_COMPLETE, true)
                 .apply()
+    }
+
+    // ── Connectivity ──────────────────────────────────────────────────────────────
+
+    /**
+     * Checks whether the device currently has an active internet connection.
+     * Uses [ConnectivityManager] to determine network capability.
+     * Safe to call from any thread.
+     */
+    fun isNetworkAvailable(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (e: Exception) {
+            Log.w(TAG, "isNetworkAvailable check failed", e)
+            false
+        }
+    }
+
+    // ── Download from GitHub ─────────────────────────────────────────────────────
+
+    /**
+     * Downloads the payload archive from GitHub to a temporary file.
+     * Returns the file if successful, or null on failure.
+     */
+    suspend fun downloadPayloadFromGithub(
+            context: Context,
+            onProgress: (read: Long, total: Long) -> Unit
+    ): File? = withContext(Dispatchers.IO) {
+        try {
+            val destFile = File(context.cacheDir, "openclaw_payload_downloaded.tar.xz")
+            val success = downloadFile(
+                    url = OpenClawConstants.PAYLOAD_GITHUB_URL,
+                    destFile = destFile,
+                    expectedSha256 = if (PAYLOAD_SHA256 == "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE") null else PAYLOAD_SHA256,
+                    onProgress = onProgress
+            )
+            if (success) destFile else null
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadPayloadFromGithub failed", e)
+            null
+        }
+    }
+
+    /**
+     * Downloads the migration archive from GitHub to a temporary file.
+     * Returns the file if successful, or null on failure.
+     */
+    suspend fun downloadMigrationFromGithub(
+            context: Context,
+            onProgress: (read: Long, total: Long) -> Unit
+    ): File? = withContext(Dispatchers.IO) {
+        try {
+            val destFile = File(context.cacheDir, "openclaw_migration_downloaded.tar.gz")
+            val success = downloadFile(
+                    url = OpenClawConstants.MIGRATION_GITHUB_URL,
+                    destFile = destFile,
+                    expectedSha256 = null,
+                    onProgress = onProgress
+            )
+            if (success) destFile else null
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadMigrationFromGithub failed", e)
+            null
+        }
+    }
+
+    /**
+     * Downloads a file from a URL with progress tracking and optional SHA-256 verification.
+     */
+    private suspend fun downloadFile(
+            url: String,
+            destFile: File,
+            expectedSha256: String?,
+            onProgress: (read: Long, total: Long) -> Unit
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            Log.i(TAG, "Downloading $url")
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Accept", "application/octet-stream")
+            conn.setRequestProperty("User-Agent", "OpenClaw-Android/1.0")
+
+            if (conn.responseCode != 200) {
+                Log.e(TAG, "Download failed: HTTP ${conn.responseCode} for $url")
+                conn.disconnect()
+                return@withContext false
+            }
+
+            val contentLength = conn.contentLength.toLong().coerceAtLeast(0L)
+            Log.i(TAG, "Download size: $contentLength bytes")
+
+            destFile.parentFile?.mkdirs()
+            destFile.outputStream().use { output ->
+                conn.inputStream.use { input ->
+                    val tracked = ProgressInputStream(input, contentLength, onProgress)
+                    tracked.copyTo(output, bufferSize = 65536)
+                }
+            }
+            conn.disconnect()
+
+            if (destFile.length() == 0L) {
+                Log.e(TAG, "Downloaded file is empty: $url")
+                destFile.delete()
+                return@withContext false
+            }
+
+            // SHA-256 verification (only if a real hash is configured)
+            if (!expectedSha256.isNullOrBlank()) {
+                Log.i(TAG, "Verifying SHA-256...")
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(8 * 1024)
+                destFile.inputStream().use { stream ->
+                    var read: Int
+                    while (stream.read(buffer).also { read = it } != -1) {
+                        digest.update(buffer, 0, read)
+                    }
+                }
+                val computed = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!computed.equals(expectedSha256, ignoreCase = true)) {
+                    Log.e(TAG, "SHA-256 mismatch! Expected: $expectedSha256, Got: $computed")
+                    destFile.delete()
+                    return@withContext false
+                }
+                Log.i(TAG, "SHA-256 verification passed")
+            }
+
+            Log.i(TAG, "Download complete: ${destFile.absolutePath} (${destFile.length()} bytes)")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadFile failed for $url", e)
+            // Clean up partial download
+            try {
+                destFile.delete()
+            } catch (_: Exception) {}
+            false
+        }
     }
 }
