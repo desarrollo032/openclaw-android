@@ -1,97 +1,24 @@
-import { useState, useEffect, useCallback } from 'react'
 import { useRoute } from '../lib/router'
-import { bridge } from '../lib/bridge'
-import { useNativeEvent } from '../lib/useNativeEvent'
-import { t } from '../i18n'
-
-interface Platform {
-  id: string
-  name: string
-  icon: string
-  desc: string
-}
+import { Settings2 } from 'lucide-react'
+import { PageHeader } from '../components/PageHeader'
+import { ContentCard } from '../components/ContentCard'
 
 export function SettingsPlatforms() {
   const { navigate } = useRoute()
-  const [available, setAvailable] = useState<Platform[]>([])
-  const [active, setActive] = useState('')
-  const [installing, setInstalling] = useState<string | null>(null)
-  const [progress, setProgress] = useState(0)
-
-  useEffect(() => {
-    const fetchPlatforms = () => {
-      const data = bridge.callJson<Platform[]>('getAvailablePlatforms')
-      if (data) setAvailable(data)
-
-      const ap = bridge.callJson<{ id: string }>('getActivePlatform')
-      if (ap) setActive(ap.id)
-    }
-    fetchPlatforms()
-  }, [])
-
-  const onProgress = useCallback((data: unknown) => {
-    const d = data as { target?: string; progress?: number }
-    if (d.progress !== undefined) setProgress(d.progress)
-    if (d.progress !== undefined && d.progress >= 1) {
-      if (d.target) setActive(d.target)
-      setInstalling(null)
-    }
-  }, [])
-  useNativeEvent('install_progress', onProgress)
-
-
-  function handleInstall(id: string) {
-    setInstalling(id)
-    setProgress(0)
-    bridge.call('installPlatform', id)
-  }
-
   return (
-    <div className="page">
-      <div className="page-header">
-        <button className="back-btn" onClick={() => navigate('/settings')}>←</button>
-        <div className="page-title">{t('platforms_title')}</div>
-      </div>
-
-      {installing && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 14, marginBottom: 8 }}>{t('platforms_installing', { name: installing })}</div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
-          </div>
-        </div>
-      )}
-
-      {available.map(p => {
-        const isActive = p.id === active
-        return (
-          <div key={p.id} className="card">
-            <div className="card-row">
-              <span className="card-icon">{p.icon.startsWith('/') ? <img src={p.icon.replace(/^\//, './')} alt={p.name} style={{ width: 32, height: 32 }} /> : p.icon}</span>
-              <div className="card-content">
-                <div className="card-label">
-                  {p.name}
-                  {isActive && (
-                    <span style={{ color: 'var(--success)', fontSize: 12, marginLeft: 8 }}>
-                      {t('platforms_active')}
-                    </span>
-                  )}
-                </div>
-                <div className="card-desc">{p.desc}</div>
-              </div>
-              {!isActive && (
-                <button
-                  className="btn btn-small btn-primary"
-                  onClick={() => handleInstall(p.id)}
-                  disabled={installing !== null}
-                >
-                  {t('platforms_install')}
-                </button>
-              )}
-            </div>
-          </div>
-        )
-      })}
+    <div className="page-container flex flex-col gap-5 pb-4 animate-fade-in">
+      <PageHeader
+        title="Plataformas"
+        subtitle="Gestionar plataformas instaladas"
+        icon={Settings2}
+      />
+      <ContentCard
+        icon={Settings2}
+        title="Plataformas"
+        subtitle="Gestiona plataformas desde la terminal"
+        command="openclaw configure --section platform"
+        onAction={() => navigate('/terminal')}
+      />
     </div>
   )
 }

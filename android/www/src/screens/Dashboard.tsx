@@ -1,558 +1,204 @@
-/**
- * src/screens/Dashboard.tsx — v4
- * Fiel a la estructura original:
- *   - Card gateway status
- *   - ENTORNO DE EJECUCIÓN (Node.js, git, openclaw)
- *   - COMANDOS (Gateway, Status, Onboard, Logs) — siempre visible
- *   - GESTIÓN (Update, Configure, Doctor, Skills) — siempre visible
- *   - Footer con versión del paquete
- */
-
-import { useState, useCallback, useEffect } from "react";
-import { bridge } from "../lib/bridge";
-import { GatewayStatus } from "../components/GatewayStatus";
-import { InstallationCard } from "../components/InstallationCard";
-import { t } from "../i18n";
-import { navigate } from "../lib/router";
+import { useState, useCallback, useEffect } from "react"
+import { bridge } from "../lib/bridge"
+import { GatewayStatus } from "../components/GatewayStatus"
+import { InstallationCard } from "../components/InstallationCard"
+import { navigate } from "../lib/router"
+import { Play, Box, Terminal as TerminalIcon, Zap, Cpu, Activity, Star, RefreshCw } from "lucide-react"
 
 interface AppInfo {
-  versionName: string;
-  versionCode: number;
-  packageName: string;
+  versionName: string
+  versionCode: number
+  packageName: string
 }
+
 interface SystemInfo {
-  nodeVersion?: string;
-  npmVersion?: string;
-  openclawVersion?: string;
-  gitVersion?: string;
-  payloadReady?: boolean;
-  diagnostics?: string;
+  nodeVersion?: string
+  npmVersion?: string
+  openclawVersion?: string
+  gitVersion?: string
+  payloadReady?: boolean
+  diagnostics?: string
 }
 
-interface CmdRowItem {
-  icon: string;
-  bg: string;
-  col: string;
-  title: string;
-  cmd: string;
-  sub: string;
-  path?: string;
+interface CmdGroup {
+  title: string
+  icon: React.ElementType
+  items: { icon: React.ElementType; label: string; cmd: string; desc: string; color: string; path?: string }[]
 }
 
-// ── Icon map con las exactas de la imagen ─────────────────────────────────────
-const CMD_ROWS: CmdRowItem[] = [
+const CMD_GROUPS: CmdGroup[] = [
   {
-    icon: "▶",
-    bg: "#1b3a5c",
-    col: "#60a5fa",
-    title: "Gateway",
-    cmd: "openclaw gateway",
-    sub: "Iniciar el gateway",
+    title: "Quick Actions",
+    icon: Zap,
+    items: [
+      { icon: Play, label: "Gateway", cmd: "openclaw gateway", desc: "Iniciar el gateway", color: "#60a5fa" },
+      { icon: Activity, label: "Status", cmd: "openclaw status", desc: "Estado del sistema", color: "#4ade80" },
+      { icon: Star, label: "Onboard", cmd: "openclaw onboard", desc: "Configuración inicial", color: "#fbbf24" },
+      { icon: TerminalIcon, label: "Logs", cmd: "openclaw logs --follow", desc: "Logs en vivo", color: "#a78bfa" },
+    ],
   },
   {
-    icon: "●",
-    bg: "#14532d",
-    col: "#4ade80",
-    title: "Status",
-    cmd: "openclaw status",
-    sub: "Mostrar estado del gateway",
+    title: "Administración",
+    icon: Cpu,
+    items: [
+      { icon: RefreshCw, label: "Update", cmd: "openclaw update", desc: "Actualizar componentes", color: "#4ade80", path: "/settings/updates" },
+      { icon: Zap, label: "Skills", cmd: "openclaw skills", desc: "Gestionar capacidades", color: "#facc15", path: "/skills" },
+      { icon: Activity, label: "Doctor", cmd: "openclaw doctor", desc: "Diagnóstico del sistema", color: "#fb923c" },
+      { icon: Box, label: "Config", cmd: "openclaw configure", desc: "Configurar entorno", color: "#22d3ee" },
+    ],
   },
-  {
-    icon: "★",
-    bg: "#3b2c00",
-    col: "#fbbf24",
-    title: "Onboard",
-    cmd: "openclaw onboard",
-    sub: "Asistente de configuración inicial",
-  },
-  {
-    icon: "≡",
-    bg: "#1e1a3e",
-    col: "#a78bfa",
-    title: "Logs",
-    cmd: "openclaw logs --follow",
-    sub: "Seguir logs en vivo",
-  },
-];
-
-const MGMT_ROWS: CmdRowItem[] = [
-  {
-    icon: "↑",
-    bg: "#14532d",
-    col: "#4ade80",
-    title: "Update",
-    cmd: "openclaw update",
-    sub: "Actualizar OpenClaw y componentes",
-  },
-  {
-    icon: "🔧",
-    bg: "#2d2200",
-    col: "#fb923c",
-    title: "Configure",
-    cmd: "openclaw configure",
-    sub: "Configurar el entorno",
-  },
-  {
-    icon: "🩺",
-    bg: "#2d1a00",
-    col: "#fb923c",
-    title: "Doctor",
-    cmd: "openclaw doctor",
-    sub: "Diagnóstico del sistema",
-  },
-  {
-    icon: "⚡",
-    bg: "#2d2800",
-    col: "#facc15",
-    title: "Skills",
-    cmd: "openclaw skills",
-    sub: "Gestionar skills instalados",
-    path: "/skills",
-  },
-];
+]
 
 export function Dashboard() {
-  const [nodeVer, setNodeVer] = useState<string | null>(null);
-  const [npmVer, setNpmVer] = useState<string | null>(null);
-  const [ocVer, setOcVer] = useState<string | null>(null);
-  const [gitVer, setGitVer] = useState<string | null>(null);
-  const [lastFile, setLastFile] = useState<string | null>(null);
+  const [nodeVer, setNodeVer] = useState<string | null>(null)
+  const [npmVer, setNpmVer] = useState<string | null>(null)
+  const [ocVer, setOcVer] = useState<string | null>(null)
+  const [gitVer, setGitVer] = useState<string | null>(null)
+  const [lastFile, setLastFile] = useState<string | null>(null)
+  const [greeting] = useState(() => {
+    const h = new Date().getHours()
+    if (h < 12) return "Buenos días"
+    if (h < 18) return "Buenas tardes"
+    return "Buenas noches"
+  })
 
   const getBridgeSystemInfo = useCallback((): SystemInfo => {
-    if (!bridge.isAvailable()) return {};
-    return bridge.callJson<SystemInfo>("getSystemInfo") ?? {};
-  }, []);
+    if (!bridge.isAvailable()) return {}
+    return bridge.callJson<SystemInfo>("getSystemInfo") ?? {}
+  }, [])
 
   const refreshVersions = useCallback(async () => {
-    if (!bridge.isAvailable()) return;
-    let info: SystemInfo | null = null;
-
+    if (!bridge.isAvailable()) return
+    let info: SystemInfo | null = null
     try {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 2000);
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 2000)
       const res = await fetch("http://127.0.0.1:18789/api/status", {
-        headers: {
-          Authorization: `Bearer ${window.__OPENCLAW_TOKEN ?? ""}`,
-        },
+        headers: { Authorization: `Bearer ${window.__OPENCLAW_TOKEN ?? ""}` },
         signal: controller.signal,
-      });
-      window.clearTimeout(timeout);
-
+      })
+      window.clearTimeout(timeout)
       if (res.ok) {
-        const data = await res.json();
-        info = {
-          nodeVersion: data.nodeVersion,
-          npmVersion: data.npmVersion,
-          openclawVersion: data.version,
-          gitVersion: "no incluido",
-          payloadReady: true,
-        };
+        const data = await res.json()
+        info = { nodeVersion: data.nodeVersion, npmVersion: data.npmVersion, openclawVersion: data.version, gitVersion: "no incluido", payloadReady: true }
       }
-    } catch {
-      info = null;
-    }
+    } catch { info = null }
+    info ??= getBridgeSystemInfo()
+    const nodeDisplay = info.nodeVersion && info.nodeVersion !== "unknown" ? info.nodeVersion : info.payloadReady ? "reintentando..." : "instalando..."
+    const ocDisplay = info.openclawVersion && info.openclawVersion !== "unknown" ? info.openclawVersion : info.payloadReady ? "desconocido" : "instalando..."
+    setNodeVer(nodeDisplay)
+    setNpmVer(info.npmVersion && info.npmVersion !== "unknown" ? info.npmVersion : "no incluido")
+    setOcVer(ocDisplay)
+    setGitVer(info.gitVersion || "no incluido")
+  }, [getBridgeSystemInfo])
 
-    info ??= getBridgeSystemInfo();
-
-    // Mejoras en la visualización de estados
-    const nodeDisplay =
-      info.nodeVersion && info.nodeVersion !== "unknown"
-        ? info.nodeVersion
-        : info.payloadReady
-          ? "reintentando..."
-          : "instalando...";
-
-    const ocDisplay =
-      info.openclawVersion && info.openclawVersion !== "unknown"
-        ? info.openclawVersion
-        : info.payloadReady
-          ? "desconocido"
-          : "instalando...";
-
-    setNodeVer(nodeDisplay);
-    setNpmVer(
-      info.npmVersion && info.npmVersion !== "unknown"
-        ? info.npmVersion
-        : "no incluido",
-    );
-    setOcVer(ocDisplay);
-    setGitVer(info.gitVersion || "no incluido");
-  }, [getBridgeSystemInfo]);
-
-  // Suscribirse a eventos nativos
   useEffect(() => {
     const onFilePicked = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (typeof detail === "string") {
-        const data = JSON.parse(detail);
-        setLastFile(data.filename);
-      }
-    };
-
-    window.addEventListener("onMigrationFilePicked", onFilePicked);
-
-    const onGatewayReady = () => {
-      void refreshVersions();
-    };
-    window.addEventListener("android:onGatewayReady", onGatewayReady);
-    window.addEventListener("onGatewayReady", onGatewayReady);
-
-    // Intento inicial
-    void refreshVersions();
-    const t1 = setTimeout(() => void refreshVersions(), 2000);
-    const t2 = setTimeout(() => void refreshVersions(), 5000);
-
-    return () => {
-      window.removeEventListener("onMigrationFilePicked", onFilePicked);
-      window.removeEventListener("android:onGatewayReady", onGatewayReady);
-      window.removeEventListener("onGatewayReady", onGatewayReady);
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [refreshVersions]);
-
-  const appInfo = bridge.isAvailable()
-    ? bridge.callJson<AppInfo>("getAppInfo")
-    : null;
-
-  const runInTerminal = useCallback((cmd: string) => {
-    try {
-      sessionStorage.setItem("openclaw.pendingTerminalCommand", cmd);
-    } catch {
-      // ignore
+      const detail = (e as CustomEvent).detail
+      if (typeof detail === "string") { try { const data = JSON.parse(detail); setLastFile(data.filename) } catch { /* */ } }
     }
-    window.dispatchEvent(new CustomEvent("terminal:run", { detail: cmd }));
-    navigate("/terminal");
-  }, []);
+    window.addEventListener("onMigrationFilePicked", onFilePicked)
+    const onGatewayReady = () => { void refreshVersions() }
+    window.addEventListener("android:onGatewayReady", onGatewayReady)
+    window.addEventListener("onGatewayReady", onGatewayReady)
+    void refreshVersions()
+    const t1 = setTimeout(() => void refreshVersions(), 2000)
+    const t2 = setTimeout(() => void refreshVersions(), 5000)
+    return () => {
+      window.removeEventListener("onMigrationFilePicked", onFilePicked)
+      window.removeEventListener("android:onGatewayReady", onGatewayReady)
+      window.removeEventListener("onGatewayReady", onGatewayReady)
+      clearTimeout(t1); clearTimeout(t2)
+    }
+  }, [refreshVersions])
+
+  const appInfo = bridge.isAvailable() ? bridge.callJson<AppInfo>("getAppInfo") : null
 
   const envTools = [
-    {
-      icon: "⬡",
-      label: "Node.js",
-      value: nodeVer,
-      color: "#6366f1",
-      installed:
-        !!nodeVer &&
-        nodeVer !== "unknown" &&
-        nodeVer !== "instalando..." &&
-        nodeVer !== "pendiente..." &&
-        nodeVer !== "cargando..." &&
-        nodeVer !== "reintentando..." &&
-        nodeVer !== "configurando glibc...",
-    },
-    {
-      icon: "npm",
-      label: "npm",
-      value: npmVer === "no incluido" ? "No incluido" : npmVer,
-      color: "#ef4444",
-      installed: !!npmVer && npmVer !== "no incluido" && npmVer !== "unknown",
-    },
-    {
-      icon: "⎇",
-      label: "git",
-      value: gitVer === "no incluido" ? "No incluido" : gitVer,
-      color: "#22d3ee",
-      installed: false,
-    },
-    {
-      icon: "🦀",
-      label: "openclaw",
-      value: ocVer,
-      color: "#f97316",
-      installed: !!ocVer && ocVer !== "unknown" && ocVer !== "instalando...",
-    },
-  ];
+    { label: "Node.js",  value: nodeVer,          color: "#6c5ce7" },
+    { label: "npm",      value: npmVer === "no incluido" ? "—" : npmVer, color: "#ff4757" },
+    { label: "git",      value: gitVer === "no incluido" ? "—" : gitVer, color: "#00cec9" },
+    { label: "openclaw", value: ocVer,            color: "#ffa502" },
+  ]
+
+  const runCommand = (cmd: string, path?: string) => {
+    if (cmd === "openclaw gateway") { bridge.call("startGateway"); return }
+    if (path) { navigate(path); return }
+    try { sessionStorage.setItem("openclaw.pendingTerminalCommand", cmd) } catch { /* */ }
+    window.dispatchEvent(new CustomEvent("terminal:run", { detail: cmd }))
+  }
 
   return (
-    <div style={S.page}>
-      {/* ── 0. Installation card (React widget) ── */}
-      <InstallationCard />
-
-      {/* ── 1. Gateway status card ── */}
-      <GatewayStatus />
-
-      {/* ── 2. ENTORNO DE EJECUCIÓN ── */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-end",
-        }}
-      >
-        <div style={S.sectionLabel}>{t("dash_section_env")}</div>
+    <div className="page-container flex flex-col gap-4 pt-6 pb-4 animate-fade-in">
+      {/* ── Greeting ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-text-primary tracking-tight">{greeting}</h1>
+          <p className="text-[12px] sm:text-[13px] text-text-muted mt-0.5">Panel de control</p>
+        </div>
         {lastFile && (
-          <div
-            style={{
-              fontSize: 10,
-              color: "#4ade80",
-              marginBottom: 10,
-              fontWeight: 600,
-            }}
-          >
-            📦 {lastFile} seleccionado
-          </div>
+          <span className="badge badge-accent text-[10px] truncate max-w-[120px]">{lastFile}</span>
         )}
       </div>
-      <div style={S.envCard}>
-        {envTools.map((tool, i) => (
-          <div
-            key={tool.label}
-            style={{
-              ...S.envTool,
-              borderRight:
-                i < envTools.length - 1 ? "1px solid var(--border)" : "none",
-            }}
-          >
-            <div
-              style={{
-                ...S.envIcon,
-                background: `${tool.color}15`,
-                border: `1px solid ${tool.color}25`,
-              }}
-            >
-              <span style={{ fontSize: 18 }}>{tool.icon}</span>
-            </div>
-            <span style={S.envLabel}>{tool.label}</span>
-            <span
-              style={{
-                ...S.envValue,
-                color: tool.installed ? tool.color : "var(--text4)",
-              }}
-            >
-              {tool.value ?? "no incluido"}
-            </span>
-            <div
-              style={{
-                ...S.envDot,
-                background: tool.installed ? "#4ade80" : "#6b7280",
-                boxShadow: tool.installed ? "0 0 5px #4ade80" : "none",
-              }}
-            />
+
+      {/* ── Environment badges ── */}
+      <div className="flex flex-wrap gap-2">
+        {envTools.map(tool => (
+          <div key={tool.label}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full glass text-[11px]">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: tool.color }} />
+            <span className="font-medium text-text-secondary">{tool.label}</span>
+            <span className="font-semibold text-text-primary">{tool.value ?? "—"}</span>
           </div>
         ))}
       </div>
 
-      {/* ── 3. COMANDOS ── */}
-      <div style={S.sectionLabel}>{t("dash_section_cmds")}</div>
-      <div style={S.cmdCard}>
-        {CMD_ROWS.map((r, i) => (
-          <CmdRow
-            key={r.cmd}
-            icon={r.icon}
-            bg={r.bg}
-            col={r.col}
-            title={r.title}
-            sub={r.sub}
-            last={i === CMD_ROWS.length - 1}
-            onClick={() => {
-              if (r.cmd === "openclaw gateway") {
-                bridge.call("startGateway");
-              }
-              runInTerminal(r.cmd);
-            }}
-          />
-        ))}
+      {/* ── Gateway + Installation ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <GatewayStatus />
+        <InstallationCard />
       </div>
 
-      {/* ── 4. GESTIÓN ── */}
-      <div style={S.sectionLabel}>GESTIÓN</div>
-      <div style={S.cmdCard}>
-        {MGMT_ROWS.map((r, i) => (
-          <CmdRow
-            key={r.cmd}
-            icon={r.icon}
-            bg={r.bg}
-            col={r.col}
-            title={r.title}
-            sub={r.sub}
-            last={i === MGMT_ROWS.length - 1}
-            onClick={() => {
-              if (r.path) {
-                navigate(r.path);
-              } else {
-                runInTerminal(r.cmd);
-              }
-            }}
-          />
-        ))}
-      </div>
+      {/* ── Command Groups ── */}
+      {CMD_GROUPS.map((group, gi) => (
+        <div key={group.title} style={{ animationDelay: `${gi * 0.1}s` }} className="animate-slide-up">
+          <div className="flex items-center gap-1.5 mb-3 px-0.5">
+            <group.icon size={12} className="text-text-muted" />
+            <span className="text-[10px] font-semibold text-text-muted tracking-widest uppercase">{group.title}</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {group.items.map((item, ii) => {
+              const Icon = item.icon
+              return (
+                <button key={item.cmd}
+                  onClick={() => runCommand(item.cmd, item.path)}
+                  className="card card-hover p-3.5 text-left flex flex-col gap-2.5 group"
+                  style={{ animationDelay: `${gi * 0.1 + ii * 0.05}s` }}>
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all duration-200 group-hover:scale-110 group-hover:shadow-lg"
+                    style={{ background: `${item.color}15` }}>
+                    <Icon size={16} style={{ color: item.color }} strokeWidth={2} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-text-primary leading-tight">{item.label}</div>
+                    <div className="text-[11px] text-text-muted leading-tight mt-1">{item.desc}</div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
 
-      {/* ── Footer ── */}
+      {/* ── App info footer ── */}
       {appInfo && (
-        <div style={S.footer}>
-          {appInfo.packageName} · v{appInfo.versionName} · build{" "}
-          {appInfo.versionCode}
+        <div className="flex items-center justify-center gap-3 py-3 mt-2">
+          <div className="gradient-divider flex-1" />
+          <span className="text-[10px] text-text-muted font-medium tracking-tight">
+            {appInfo.packageName} · v{appInfo.versionName}
+          </span>
+          <div className="gradient-divider flex-1" />
         </div>
       )}
     </div>
-  );
+  )
 }
-
-// ── CmdRow ────────────────────────────────────────────────────────────────────
-
-function CmdRow({
-  icon,
-  bg,
-  col,
-  title,
-  sub,
-  onClick,
-  last,
-}: {
-  icon: string;
-  bg: string;
-  col: string;
-  title: string;
-  sub: string;
-  onClick: () => void;
-  last?: boolean;
-}) {
-  return (
-    <button
-      style={{
-        ...S.cmdRow,
-        borderBottom: last ? "none" : "1px solid var(--border)",
-      }}
-      onClick={onClick}
-      onTouchStart={(e) => {
-        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-      }}
-      onTouchEnd={(e) => {
-        e.currentTarget.style.background = "transparent";
-      }}
-    >
-      {/* Colored icon tile — exactly like the image */}
-      <div
-        style={{
-          width: 38,
-          height: 38,
-          borderRadius: 11,
-          background: bg,
-          color: col,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 16,
-          fontWeight: 700,
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </div>
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          gap: 2,
-          textAlign: "left",
-        }}
-      >
-        <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-          {title}
-        </span>
-        <span style={{ fontSize: 11, color: "var(--text3)" }}>{sub}</span>
-      </div>
-      <span style={{ color: "var(--text4)", fontSize: 20, lineHeight: 1 }}>
-        ›
-      </span>
-    </button>
-  );
-}
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-const S: Record<string, React.CSSProperties> = {
-  page: {
-    padding: "12px 14px 32px",
-    maxWidth: 600,
-    margin: "0 auto",
-    overflowY: "auto",
-  },
-
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    color: "var(--text3)",
-    marginBottom: 10,
-    marginTop: 22,
-    paddingLeft: 2,
-    textTransform: "uppercase",
-  },
-
-  // Env card — 3 columns like the screenshot
-  envCard: {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--r-xl)",
-    display: "flex",
-    overflow: "hidden",
-    boxShadow: "var(--sh-inset)",
-  },
-  envTool: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 4,
-    padding: "14px 8px 12px",
-  },
-  envIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 2,
-  },
-  envLabel: {
-    fontSize: 11,
-    color: "var(--text2)",
-    fontWeight: 600,
-  },
-  envValue: {
-    fontSize: 11,
-    fontFamily: "'JetBrains Mono', monospace",
-    fontWeight: 600,
-    textAlign: "center",
-    wordBreak: "break-all",
-    lineHeight: 1.3,
-  },
-  envDot: {
-    width: 7,
-    height: 7,
-    borderRadius: "50%",
-    marginTop: 2,
-    transition: "all 0.4s",
-  },
-
-  // Command rows card
-  cmdCard: {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--r-xl)",
-    overflow: "hidden",
-    marginBottom: 4,
-    boxShadow: "var(--sh-inset)",
-  },
-  cmdRow: {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    padding: "13px 16px",
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    transition: "background 0.12s",
-  },
-
-  footer: {
-    textAlign: "center",
-    color: "var(--text4)",
-    fontSize: 11,
-    marginTop: 20,
-    paddingBottom: 8,
-  },
-};

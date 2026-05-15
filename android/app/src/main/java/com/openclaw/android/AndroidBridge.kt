@@ -70,6 +70,36 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun checkBootstrap() {
+        // Inicia verificacion - el estado se obtiene via getBootstrapStatus() polling
+    }
+
+    @JavascriptInterface
+    fun getBootstrapStatus(): String {
+        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        val onboardComplete = OpenClawInstaller.isOnboardComplete(activity)
+        return JSONObject().apply {
+            put("installed", payloadReady && onboardComplete)
+            put("installing", false)
+            put("error", if (!payloadReady && !onboardComplete) "Pendiente de instalacion" else "")
+        }.toString()
+    }
+
+    @JavascriptInterface
+    fun checkPayload() {
+        // Inicia verificacion - el estado se obtiene via getPayloadStatus() polling
+    }
+
+    @JavascriptInterface
+    fun getPayloadStatus(): String {
+        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        return JSONObject().apply {
+            put("installed", payloadReady)
+            put("installing", false)
+        }.toString()
+    }
+
+    @JavascriptInterface
     fun checkInstallation(): String {
         return getSetupStatus()
     }
@@ -229,6 +259,22 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun getLocale(): String {
+        return activity.resources.configuration.locales[0]?.toLanguageTag() ?: "en"
+    }
+
+    @JavascriptInterface
+    fun getSystemTheme(): String {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val uiMode = activity.resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            if (uiMode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
+        } else {
+            "light"
+        }
+    }
+
+    @JavascriptInterface
     fun openTerminal() {
         // /system/bin/sh siempre disponible en Android
         // No necesita verificación previa
@@ -312,6 +358,12 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun runOpenClawCommand(cmd: String): String {
+        // Alias de runCommand para comandos openclaw
+        return runCommand(cmd)
+    }
+
+    @JavascriptInterface
     fun runCommandAsync(callbackId: String, command: String) {
         scope.launch(Dispatchers.IO) {
             val result = runCommand(command)
@@ -322,6 +374,18 @@ class AndroidBridge(
                 )
             }
         }
+    }
+
+    @JavascriptInterface
+    fun getAssetStatus(): String {
+        val assets = AssetDetector.detectSync(activity)
+        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        return JSONObject().apply {
+            put("bootstrap", assets.payloadAvailable || payloadReady)
+            put("payload", payloadReady)
+            put("platform", payloadReady)
+            put("tools", false)
+        }.toString()
     }
 
     @RequiresApi(Build.VERSION_CODES.O)

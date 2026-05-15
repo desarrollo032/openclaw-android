@@ -1,30 +1,59 @@
 import { createContext, useContext } from 'react'
-import { en } from './en'
-import { es } from './es'
 
+// ── Auto-descubrimiento de archivos de idioma ──
+// Simplemente agregando un archivo .json en locales/ se detecta automáticamente.
+// El archivo en.json es la fuente de verdad para el tipo TranslationKey.
+import type en from './locales/en.json'
 export type TranslationKey = keyof typeof en
 type Translations = Record<TranslationKey, string>
 
-const locales: Record<string, Translations> = { en, es }
+// Mapa de código de idioma → nombre nativo (para el selector de idioma).
+// Al agregar un nuevo idioma (ej: fr.json), agregar también su entrada aquí.
+const LANGUAGE_LABELS: Record<string, string> = {
+  en: 'English',
+  es: 'Español',
+}
+
+// Carga todos los JSON de locales/ de forma eager (se incluyen en el bundle)
+const localeModules = import.meta.glob('./locales/*.json', { eager: true, import: 'default' }) as unknown as Record<string, Translations>
+
+const locales: Record<string, Translations> = {}
+const availableLocaleCodes: string[] = []
+
+for (const [path, translations] of Object.entries(localeModules)) {
+  // Extraer código: "./locales/en.json" → "en"
+  const code = path.match(/\/(\w+)\.json$/)?.[1]
+  if (code && path.endsWith('.json')) {
+    locales[code] = translations
+    availableLocaleCodes.push(code)
+  }
+}
+
+// Orden alfabético para consistencia
+availableLocaleCodes.sort()
 
 function detectLocale(): string {
-  // 1. Check saved preference
+  // 1. Preferencia guardada por el usuario
   try {
     const saved = localStorage.getItem('locale')
     if (saved && locales[saved]) return saved
   } catch {
-    // localStorage may not be available
+    // localStorage puede no estar disponible
   }
 
-  // 2. Detect from browser/system language
+  // 2. Detectar del idioma del sistema/navegador
   const langs = navigator.languages || [navigator.language || '']
   const lang = langs.find(l => l) || ''
-  if (lang.toLowerCase().startsWith('es')) return 'es'
-  return 'en'
+  for (const code of availableLocaleCodes) {
+    if (lang.toLowerCase().startsWith(code)) return code
+  }
+
+  // 3. Fallback al primer idioma disponible
+  return availableLocaleCodes[0] || 'en'
 }
 
 let currentLocale = detectLocale()
-let currentTranslations = locales[currentLocale] || en
+let currentTranslations = locales[currentLocale] || locales[availableLocaleCodes[0]] || {} as Translations
 
 export function getLocale(): string {
   return currentLocale
@@ -65,7 +94,11 @@ if (typeof window !== 'undefined') {
 }
 
 export function t(key: TranslationKey, vars?: Record<string, string>): string {
-  let text = currentTranslations[key] || en[key] || key
+  let text = currentTranslations[key]
+  // Fallback al primer locale disponible (inglés generalmente)
+  if (!text && availableLocaleCodes[0]) {
+    text = locales[availableLocaleCodes[0]]?.[key] || key
+  }
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
       text = text.replace(`{${k}}`, v)
@@ -74,11 +107,11 @@ export function t(key: TranslationKey, vars?: Record<string, string>): string {
   return text
 }
 
-// Context for triggering re-renders on locale change
+// Context para forzar re-renderizados cuando cambia el locale
 export const LocaleContext = createContext<string>(currentLocale)
 export const useLocale = () => useContext(LocaleContext)
 
-export const availableLocales = [
-  { code: 'en', label: 'English' },
-  { code: 'es', label: 'Español' },
-]
+export const availableLocales = availableLocaleCodes.map(code => ({
+  code,
+  label: LANGUAGE_LABELS[code] || code,
+}))

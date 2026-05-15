@@ -1,199 +1,101 @@
-/**
- * src/components/LogsViewer.tsx
- * Visualizador de logs del gateway. Usa useLogs() para datos vía HTTP.
- * Tag colorido, auto-scroll, copiar, limpiar.
- */
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { getLogs } from '../api/gateway'
+import { RefreshCw } from 'lucide-react'
+import { SearchInput } from './SearchInput'
+import { CopyButton } from './CopyButton'
+import { EmptyState } from './EmptyState'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
-import { useLogs } from '../hooks/useLogs'
-import { bridge } from '../lib/bridge'
-import type { LogEntry } from '../api/gateway'
-
-// ── Tag coloring ──────────────────────────────────────────────────────────────
-
-const TAG_COLORS: Record<string, string> = {
-  OpenClawGW: '#6366f1',
-  INSTALL:    '#22d3ee',
-  ERROR:      '#f87171',
-  WARN:       '#facc15',
-  DEBUG:      '#6b7280',
+interface LogEntry {
+  level: string
+  message: string
 }
 
-function tagColor(tag: string): string {
-  for (const key of Object.keys(TAG_COLORS)) {
-    if (tag.toUpperCase().includes(key.toUpperCase())) return TAG_COLORS[key]
-  }
-  return '#7070a0'
+function getLevelBadge(level: string): { variant: string; label: string } {
+  const l = level.toUpperCase()
+  if (l === 'E' || l === 'ERROR')   return { variant: 'badge-error', label: 'ERROR' }
+  if (l === 'W' || l === 'WARN')    return { variant: 'badge-warning', label: 'WARN' }
+  if (l === 'I' || l === 'INFO')    return { variant: 'badge-info', label: 'INFO' }
+  if (l === 'OK')                   return { variant: 'badge-success', label: 'OK' }
+  return { variant: 'badge-info', label: level }
 }
 
-function levelColor(level?: string): string {
-  switch (level) {
-    case 'error': return '#f87171'
-    case 'warn':  return '#facc15'
-    case 'debug': return '#6b7280'
-    default:      return '#a5b4fc'
-  }
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
-interface Props {
-  lines?: number
-  compact?: boolean
-}
-
-export function LogsViewer({ lines = 100, compact = false }: Props) {
-  const { logs, isLoading, error, refresh, clear } = useLogs(lines)
-  const [search, setSearch]       = useState('')
-  const [levelFilter, setLevelFilter] = useState<string>('all')
-  const [copied, setCopied]       = useState(false)
+export function LogsViewer() {
+  const [data, setData] = useState<LogEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll al fondo
-  useEffect(() => {
-    if (autoScroll) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs, autoScroll])
-
-  const onScroll = () => {
-    const el = scrollRef.current
-    if (!el) return
-    setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
-  }
-
-  const filtered = logs.filter((l: LogEntry) => {
-    const matchLevel = levelFilter === 'all' || l.level === levelFilter
-    const matchSearch = !search || l.message.toLowerCase().includes(search.toLowerCase()) ||
-                        l.tag?.toLowerCase().includes(search.toLowerCase())
-    return matchLevel && matchSearch
-  })
-
-  const copyAll = useCallback(() => {
-    const text = filtered.map((l: LogEntry) =>
-      `[${l.timestamp}] [${l.tag ?? '?'}] ${l.message}`
-    ).join('\n')
+  const loadLogs = useCallback(async () => {
     try {
-      navigator.clipboard?.writeText(text)
-    } catch {
-      bridge.call('copyToClipboard', text)
-    }
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }, [filtered])
+      const entries = await getLogs()
+      if (Array.isArray(entries)) setData(entries.map(e => ({ level: e.level ?? 'info', message: e.message ?? '' })))
+    } catch { /* */ }
+    setLoading(false)
+  }, [])
 
-  const handleClear = async () => {
-    if (!confirm('¿Limpiar todos los logs?')) return
-    await clear()
-  }
+  useEffect(() => {
+    loadLogs()
+    const id = setInterval(loadLogs, 4000)
+    return () => clearInterval(id)
+  }, [loadLogs])
+
+  useEffect(() => {
+    if (autoScroll && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight
+    }
+  }, [data, autoScroll])
+
+  const filtered = search
+    ? data.filter(e => e.message.toLowerCase().includes(search.toLowerCase()) || e.level.toLowerCase().includes(search.toLowerCase()))
+    : data
+
+  const copyText = filtered.map(e => `[${e.level}] ${e.message}`).join('\n')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#050509' }}>
+    <div className="flex flex-col gap-2">
       {/* ── Toolbar ── */}
-      <div style={S.toolbar}>
-        <div style={S.searchWrap}>
-          <span style={{ color: 'var(--text3)', fontSize: 13 }}>🔍</span>
-          <input style={S.searchInput}
-            placeholder="Buscar..."
-            value={search}
-            onChange={e => setSearch(e.target.value)} />
-          {search && <button style={S.clearBtn} onClick={() => setSearch('')}>✕</button>}
-        </div>
-
-        {/* Level filter */}
-        {!compact && (
-          <div style={{ display: 'flex', gap: 4 }}>
-            {['all', 'error', 'warn', 'info', 'debug'].map(lv => (
-              <button key={lv}
-                style={{ ...S.lvBtn, background: levelFilter === lv ? levelColor(lv === 'all' ? 'info' : lv) + '20' : 'transparent', color: levelFilter === lv ? levelColor(lv === 'all' ? 'info' : lv) : 'var(--text3)' }}
-                onClick={() => setLevelFilter(lv)}>
-                {lv.slice(0, 3).toUpperCase()}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
-          <button style={S.toolBtn} onClick={copyAll}>{copied ? '✓' : '📋'}</button>
-          <button style={S.toolBtn} onClick={handleClear}>🗑</button>
-          <button style={{ ...S.toolBtn, animation: isLoading ? 'spin 0.7s linear infinite' : 'none' }} onClick={refresh}>↻</button>
-        </div>
+      <div className="flex items-center gap-2">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Filtrar logs..."
+          className="flex-1"
+        />
+        <CopyButton text={copyText} label="Copiar" />
+        <button onClick={() => { setLoading(true); loadLogs() }}
+          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-all"
+          aria-label="Actualizar logs">
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      {/* ── Log lines ── */}
-      <div style={S.logArea} ref={scrollRef} onScroll={onScroll}>
-        {isLoading && filtered.length === 0 && (
-          <div style={S.empty}>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(99,102,241,0.2)', borderTopColor: '#6366f1', animation: 'spin 0.8s linear infinite' }} />
-          </div>
+      {/* ── Logs content ── */}
+      <div ref={containerRef}
+        className="rounded-xl bg-bg-code border border-glass-border h-[60vh] overflow-y-auto font-mono text-xs leading-relaxed p-4 space-y-1">
+        {filtered.length === 0 && !loading && (
+          <EmptyState title="Sin logs" subtitle={search ? 'Ningún log coincide con la búsqueda' : undefined} />
         )}
-        {!isLoading && filtered.length === 0 && (
-          <div style={S.empty}>
-            <span style={{ fontSize: 28 }}>📭</span>
-            <span style={{ color: 'var(--text3)', fontSize: 12 }}>
-              {error ?? (search ? 'Sin coincidencias' : 'Sin logs')}
+        {filtered.map((entry, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <span className={`badge shrink-0 ${getLevelBadge(entry.level).variant}`}>
+              {getLevelBadge(entry.level).label}
             </span>
-          </div>
-        )}
-
-        {filtered.map((l: LogEntry, i: number) => (
-          <div key={i} style={S.logLine}>
-            {/* Timestamp (compacto) */}
-            <span style={S.ts}>{l.timestamp ? l.timestamp.slice(-8) : ''}</span>
-            {/* Tag */}
-            {l.tag && (
-              <span style={{ ...S.tag, color: tagColor(l.tag), border: `1px solid ${tagColor(l.tag)}30` }}>
-                {l.tag.slice(0, 12)}
-              </span>
-            )}
-            {/* Level */}
-            {l.level && (
-              <span style={{ ...S.levelBadge, color: levelColor(l.level) }}>
-                {l.level.toUpperCase().slice(0, 1)}
-              </span>
-            )}
-            {/* Message */}
-            <span style={{ color: '#c0c0d8', flex: 1, wordBreak: 'break-all', fontSize: 11.5 }}>
-              {l.message}
-            </span>
+            <span className="text-text-secondary break-all">{entry.message}</span>
           </div>
         ))}
-        <div ref={bottomRef} />
       </div>
 
       {/* ── Footer ── */}
-      <div style={S.footer}>
-        <span style={{ color: 'var(--text4)', fontSize: 10 }}>
-          {filtered.length}/{logs.length} líneas
-        </span>
-        {!autoScroll && (
-          <button style={{ background: 'none', border: 'none', color: 'var(--purple)', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
-            onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>
-            ↓ Al final
-          </button>
-        )}
+      <div className="flex items-center justify-between text-[10px] text-text-dim px-1">
+        <span>{filtered.length} líneas {search ? `(filtradas de ${data.length})` : ''}</span>
+        <button onClick={() => setAutoScroll(!autoScroll)}
+          className={`px-2 py-0.5 rounded text-[9px] font-medium transition-colors ${
+            autoScroll ? 'text-accent' : 'text-text-dim'
+          }`}>
+          Auto-scroll {autoScroll ? 'ON' : 'OFF'}
+        </button>
       </div>
     </div>
   )
-}
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-const S: Record<string, React.CSSProperties> = {
-  toolbar: {
-    display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-    padding: '7px 10px', background: 'rgba(8,8,20,0.95)',
-    borderBottom: '1px solid rgba(99,102,241,0.1)', flexShrink: 0,
-  },
-  searchWrap: { display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 10px', minWidth: 120, flex: 1 },
-  searchInput: { flex: 1, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text)', fontSize: 12, WebkitUserSelect: 'text', userSelect: 'text' },
-  clearBtn: { background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 11 },
-  lvBtn: { border: 'none', borderRadius: 5, fontSize: 9, fontWeight: 800, padding: '3px 7px', cursor: 'pointer', letterSpacing: '0.3px' },
-  toolBtn: { width: 28, height: 28, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--glass)', color: 'var(--text2)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  logArea: { flex: 1, overflowY: 'auto', padding: '4px 8px', fontFamily: "'JetBrains Mono', monospace" },
-  logLine: { display: 'flex', alignItems: 'flex-start', gap: 5, padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,0.02)' },
-  ts:    { fontSize: 9, color: 'var(--text4)', flexShrink: 0, paddingTop: 2, fontFamily: 'monospace' },
-  tag:   { fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, flexShrink: 0 },
-  levelBadge: { fontSize: 9, fontWeight: 900, flexShrink: 0, paddingTop: 2 },
-  empty:  { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '40px 20px', color: 'var(--text3)' },
-  footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 10px', borderTop: '1px solid var(--border)', flexShrink: 0 },
 }

@@ -6,6 +6,9 @@ import { LocaleContext, getLocale, subscribeLocale } from './i18n'
 import { notifyReady, onTokenRefresh, getToken } from './utils/androidBridge'
 import './styles/global.css'
 
+// Dark mode Tailwind v4 — siempre oscuro en Android
+document.documentElement.classList.add('dark')
+
 // Inicializar el token desde AndroidBridge al arrancar
 window.__OPENCLAW_TOKEN = getToken()
 
@@ -24,7 +27,7 @@ window.__oc = {
 
 export function Root() {
   const [locale, setLocaleState] = useState(getLocale)
-  
+
   // Suscribirse a cambios de idioma (manuales o del sistema)
   useEffect(() => subscribeLocale(() => setLocaleState(getLocale())), [])
 

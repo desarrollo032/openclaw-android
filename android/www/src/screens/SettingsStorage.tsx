@@ -1,128 +1,80 @@
-import { useState, useEffect } from 'react'
-import { useRoute } from '../lib/router'
+import { useState } from 'react'
 import { bridge } from '../lib/bridge'
-import { t } from '../i18n'
-
-interface StorageInfo {
-  totalBytes: number
-  freeBytes: number
-  bootstrapBytes: number
-  wwwBytes: number
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-}
-
-const STORAGE_COLORS = {
-  bootstrap: '#58a6ff',
-  www: '#3fb950',
-  free: 'var(--bg-tertiary)',
-}
+import { HardDrive, Trash2, RefreshCw } from 'lucide-react'
+import { PageHeader } from '../components/PageHeader'
 
 export function SettingsStorage() {
-  const { navigate } = useRoute()
-  const [info, setInfo] = useState<StorageInfo | null>(null)
+  const [storage, setStorage] = useState<{ used: number; total: number; cache: number } | null>(null)
   const [clearing, setClearing] = useState(false)
 
-  useEffect(() => {
-    const fetchStorage = () => {
-      const data = bridge.callJson<StorageInfo>('getStorageInfo')
-      if (data) setInfo(data)
-    }
-    fetchStorage()
-  }, [])
+  useState(() => {
+    if (!bridge.isAvailable()) return
+    try {
+      const s = bridge.callJson<{ used: number; total: number; cache: number }>('getStorageInfo')
+      if (s) setStorage(s)
+    } catch { /* */ }
+  })
 
-  function handleClearCache() {
+  const clearCache = () => {
+    if (!bridge.isAvailable()) return
     setClearing(true)
-    bridge.call('clearCache')
-    setTimeout(() => {
-      setClearing(false)
-      const data = bridge.callJson<StorageInfo>('getStorageInfo')
-      if (data) setInfo(data)
-    }, 2000)
+    try {
+      bridge.call('clearCache')
+      if (storage) setStorage({ ...storage, cache: 0 })
+    } catch { /* */ }
+    setClearing(false)
   }
 
-  const totalUsed = info ? info.bootstrapBytes + info.wwwBytes : 0
+  const pct = storage ? Math.round((storage.used / storage.total) * 100) : 0
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <button className="back-btn" onClick={() => navigate('/settings')}>←</button>
-        <div className="page-title">{t('storage_title')}</div>
-      </div>
+    <div className="page-container flex flex-col gap-5 pb-4 animate-fade-in">
+      <PageHeader
+        title="Almacenamiento"
+        subtitle="Gestión de espacio y caché"
+        icon={HardDrive}
+      />
 
-      {info && (
-        <>
-          <div style={{ fontSize: 15, marginBottom: 20 }}>
-            {t('storage_total')}<strong>{formatBytes(totalUsed)}</strong>
+      <div className="card p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-accent-soft flex items-center justify-center">
+            <HardDrive size={20} className="text-accent" />
           </div>
-
-          <div className="card">
-            <div className="card-row">
-              <div className="card-content">
-                <div className="card-label">{t('storage_bootstrap')}</div>
-                <div className="card-desc">{formatBytes(info.bootstrapBytes)}</div>
-              </div>
-            </div>
-            <div className="storage-bar">
-              <div
-                className="storage-fill"
-                style={{
-                  width: `${Math.min(100, (info.bootstrapBytes / (info.totalBytes - info.freeBytes)) * 100)}%`,
-                  background: STORAGE_COLORS.bootstrap,
-                }}
-              />
+          <div>
+            <div className="text-sm font-semibold text-text-primary">Almacenamiento</div>
+            <div className="text-[11px] text-text-muted">
+              {storage ? `${(storage.used / 1024).toFixed(1)} GB / ${(storage.total / 1024).toFixed(1)} GB` : 'Cargando...'}
             </div>
           </div>
-
-          <div className="card">
-            <div className="card-row">
-              <div className="card-content">
-                <div className="card-label">{t('storage_www')}</div>
-                <div className="card-desc">{formatBytes(info.wwwBytes)}</div>
-              </div>
-            </div>
-            <div className="storage-bar">
-              <div
-                className="storage-fill"
-                style={{
-                  width: `${Math.min(100, (info.wwwBytes / (info.totalBytes - info.freeBytes)) * 100)}%`,
-                  background: STORAGE_COLORS.www,
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-row">
-              <div className="card-content">
-                <div className="card-label">{t('storage_free')}</div>
-                <div className="card-desc">{formatBytes(info.freeBytes)}</div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 24 }}>
-            <button
-              className="btn btn-secondary"
-              onClick={handleClearCache}
-              disabled={clearing}
-            >
-              {clearing ? t('storage_clearing') : t('storage_clear')}
-            </button>
-          </div>
-        </>
-      )}
-
-      {!info && (
-        <div style={{ textAlign: 'center', color: 'var(--text-secondary)', marginTop: 40 }}>
-          {t('storage_loading')}
         </div>
-      )}
+
+        {storage && (
+          <>
+            <div className="progress-track mb-2">
+              <div className="progress-fill" style={{ width: `${Math.min(pct, 100)}%` }} />
+            </div>
+            <div className="text-[10px] text-text-dim mb-4">{pct}% utilizado</div>
+
+            <div className="pt-4 border-t border-glass-border">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-text-primary">Caché</span>
+                <span className="text-[11px] text-text-muted">{(storage.cache / 1024).toFixed(1)} MB</span>
+              </div>
+              <button onClick={clearCache} disabled={clearing}
+                className="btn btn-danger text-xs w-full py-2">
+                {clearing ? <RefreshCw size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                {clearing ? 'Limpiando...' : 'Limpiar caché'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {!storage && (
+          <div className="flex items-center justify-center py-4 text-xs text-text-dim">
+            <RefreshCw size={12} className="animate-spin mr-2" /> Cargando...
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -13,6 +13,8 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "allowArbitraryExtensions": true,
     "noEmit": true,
     "jsx": "react-jsx",
 

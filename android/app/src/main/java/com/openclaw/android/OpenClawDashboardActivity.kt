@@ -176,6 +176,22 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 Log.d(TAG, "Dashboard loaded: $url")
+
+                // Enviar locale y tema al WebView al cargar la pagina
+                val locale = resources.configuration.locales[0]?.toLanguageTag() ?: "en"
+                val isDark = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val uiMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                    uiMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                } else {
+                    false
+                }
+                val configJson = JSONObject().apply {
+                    put("locale", locale)
+                    put("theme", if (isDark) "dark" else "light")
+                }.toString()
+                androidBridge?.notifyReact("onSystemConfig", configJson)
+                androidBridge?.notifyReact("onLocaleChanged", JSONObject().apply { put("locale", locale) }.toString())
+                androidBridge?.notifyReact("onThemeChanged", JSONObject().apply { put("theme", if (isDark) "dark" else "light") }.toString())
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {

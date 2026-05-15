@@ -1,384 +1,235 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRoute } from '../lib/router'
-import { t, getLocale, setLocale, availableLocales } from '../i18n'
-import {
-  fetchModels, fetchGatewayConfig, patchGatewayConfig, setActiveModel,
-  getProviderMeta, type ModelEntry,
-} from '../lib/gateway'
+import { getLocale, setLocale, availableLocales, t } from '../i18n'
+import { fetchModels, fetchGatewayConfig, patchGatewayConfig, getProviderMeta, type ModelEntry } from '../lib/gateway'
 import { useGatewayStatus } from '../hooks/useGatewayStatus'
-
-interface LocalPrefs {
-  notifications: boolean
-}
+import { RefreshCw, Search, Check, Thermometer, Braces, AlertCircle, Settings2, Wrench, Battery, Package, Info, Globe, Trash2, ChevronRight, Sliders, Cpu, HardDrive, Bell, Database, Settings as SettingsIcon } from 'lucide-react'
+import { SectionHeader } from '../components/SectionHeader'
 
 export function Settings() {
   const { navigate } = useRoute()
-
   const [models, setModels] = useState<ModelEntry[]>([])
-  const [modelsLoading, setModelsLoading] = useState(true)
-  const [activeModel, setActiveModelState] = useState<string>('')
+  const [search, setSearch] = useState('')
+  const [selectedProvider, setSelectedProvider] = useState('all')
   const [temperature, setTemperature] = useState(0.7)
-  const [contextSize, setContextSize] = useState(32000)
-
-  const [prefs, setPrefs] = useState<LocalPrefs>({ notifications: true })
-  const [saving, setSaving] = useState(false)
-  const [savedMsg, setSavedMsg] = useState('')
-  const [modelSearch, setModelSearch] = useState('')
-  const [showAllModels, setShowAllModels] = useState(false)
-  const [providerFilter, setProviderFilter] = useState<string>('all')
-  const [modelsError, setModelsError] = useState<string | null>(null)
-  
-  const { reachability } = useGatewayStatus()
-  const online = reachability === 'online'
+  const [contextTokens, setContextTokens] = useState(4096)
+  const [activeModelId, setActiveModelId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saved, setSaved] = useState('')
+  const [locale, setLocaleState] = useState(getLocale())
+  const { health } = useGatewayStatus()
 
   const load = useCallback(async () => {
-    if (!online) {
-      setModelsError('Gateway no está disponible')
-      setModelsLoading(false)
-      return
-    }
-    
-    setModelsLoading(true)
-    setModelsError(null)
+    setLoading(true)
     try {
-      const [cfg, mdls] = await Promise.all([
-        fetchGatewayConfig(),
-        fetchModels(),
-      ])
+      const [m, cfg] = await Promise.all([fetchModels(), fetchGatewayConfig()])
+      setModels(m ?? [])
+      setActiveModelId(cfg?.agents?.defaults?.model?.primary ?? '')
+      setTemperature(cfg?.agents?.defaults?.temperature ?? 0.7)
+      setContextTokens(cfg?.agents?.defaults?.contextTokens ?? 4096)
+    } catch { /* */ }
+    setLoading(false)
+  }, [])
 
-      if (cfg) {
-        const primary = cfg.agents?.defaults?.model?.primary ?? ''
-        setActiveModelState(primary)
-        setTemperature(cfg.agents?.defaults?.temperature ?? 0.7)
-        setContextSize((cfg.agents?.defaults as Record<string, unknown>)?.['contextTokens'] as number ?? 32000)
-      }
-      setModels(mdls)
-    } catch (e) {
-      setModelsError('Error al cargar los modelos')
-      console.error(e)
-    } finally {
-      setModelsLoading(false)
+  useEffect(() => { load() }, [load])
+
+  const saveConfig = async (patch: Record<string, unknown>) => {
+    const ok = await patchGatewayConfig(patch as never)
+    if (ok) { setSaved('✓ Guardado'); setTimeout(() => setSaved(''), 2000) }
+  }
+
+  const selectModel = async (id: string) => {
+    setActiveModelId(id)
+    await saveConfig({ agents: { defaults: { model: { primary: id } } } } as Record<string, unknown>)
+  }
+
+  const providers = models.reduce((acc: { id: string; label: string; icon: string; modelCount: number }[], m) => {
+    if (!acc.find(p => p.id === m.provider)) {
+      const meta = getProviderMeta(m.provider)
+      acc.push({ id: m.provider, label: meta.label, icon: meta.icon, modelCount: models.filter(x => x.provider === m.provider).length })
     }
-  }, [online])
+    return acc
+  }, [])
 
-  useEffect(() => { load() }, [load, online])
+  const filteredModels = models.filter(m =>
+    (selectedProvider === 'all' || m.provider === selectedProvider) &&
+    (m.name.toLowerCase().includes(search.toLowerCase()) || m.id.toLowerCase().includes(search.toLowerCase()))
+  )
 
-  const showSaved = (msg = '✓ Guardado') => {
-    setSavedMsg(msg)
-    setTimeout(() => setSavedMsg(''), 2000)
+  function SettingRow({ icon: Icon, label, desc, onClick }: { icon: React.ElementType; label: string; desc: string; onClick: () => void }) {
+    return (
+      <button onClick={onClick}
+        className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl hover:bg-glass-bg transition-all text-left group">
+        <div className="w-9 h-9 rounded-xl bg-glass-bg flex items-center justify-center group-hover:bg-accent-soft transition-colors">
+          <Icon size={16} className="text-text-secondary group-hover:text-accent transition-colors" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-text-primary group-hover:text-accent transition-colors">{label}</div>
+          <div className="text-[11px] text-text-muted mt-0.5">{desc}</div>
+        </div>
+        <ChevronRight size={14} className="text-text-dim group-hover:text-text-secondary transition-colors" />
+      </button>
+    )
   }
 
-  const handleSetModel = async (id: string) => {
-    setActiveModelState(id)
-    setSaving(true)
-    const ok = await setActiveModel(id)
-    setSaving(false)
-    if (ok) showSaved()
-  }
-
-  const handleSaveParams = async () => {
-    setSaving(true)
-    const ok = await patchGatewayConfig({
-      agents: { defaults: { temperature, contextTokens: contextSize } as Record<string, unknown> }
-    })
-    setSaving(false)
-    if (ok) showSaved()
-  }
-
-  const providers = ['all', ...Array.from(new Set(models.map(m => m.provider))).sort()]
-  const filteredModels = models.filter(m => {
-    const matchProvider = providerFilter === 'all' || m.provider === providerFilter
-    const matchSearch = !modelSearch || m.id.toLowerCase().includes(modelSearch.toLowerCase())
-      || m.name.toLowerCase().includes(modelSearch.toLowerCase())
-      || m.providerLabel.toLowerCase().includes(modelSearch.toLowerCase())
-    return matchProvider && matchSearch
-  })
-
-  const displayedModels = showAllModels ? filteredModels : filteredModels.slice(0, 12)
-  const activeEntry = models.find(m => m.id === activeModel)
+  const gatewayVer = health ? `${(health as unknown as Record<string, unknown>)?.version ?? '—'}` : '—'
 
   return (
-    <div style={S.page}>
-      <div style={S.header}>
-        <div style={S.title}>Configuración</div>
-        {savedMsg && <span style={S.savedMsg}>{savedMsg}</span>}
-      </div>
-
-      {/* ── Active model banner ── */}
-      {activeEntry && (
-        <div style={S.activeModelCard}>
-          <span style={{ fontSize: 28, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>{getProviderMeta(activeEntry.provider).icon}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, marginBottom: 2 }}>Modelo activo</div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: '#fff', letterSpacing: '-0.2px' }}>{activeEntry.name}</div>
-            <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
-              {activeEntry.providerLabel}
-              {activeEntry.contextWindow ? ` · ${(activeEntry.contextWindow / 1000).toFixed(0)}K ctx` : ''}
-              {activeEntry.reasoning ? ' · 🧠' : ''}
-            </div>
-          </div>
-          {saving && <div style={S.spinner} />}
+    <div className="page-container flex flex-col gap-5 pt-6 pb-4 animate-fade-in">
+      <div className="flex items-center gap-3.5">
+        <div className="w-11 h-11 rounded-xl bg-accent-soft flex items-center justify-center shrink-0 shadow-sm">
+          <SettingsIcon size={22} className="text-accent" />
         </div>
-      )}
-
-      {/* ── Model selector ── */}
-      <div style={S.sectionHeader}>
-        <span style={S.sectionLabel}>MODELO DE IA</span>
-        <button 
-          style={{ ...S.iconBtn, opacity: modelsLoading ? 0.6 : 1 }} 
-          onClick={load}
-          disabled={modelsLoading}
-          aria-label={modelsLoading ? 'Cargando modelos...' : 'Actualizar lista de modelos'}
-          aria-busy={modelsLoading}
-        >
-          <span style={{ display: 'inline-block', animation: modelsLoading ? 'spin 0.7s linear infinite' : 'none' }}>↻</span>
-          {modelsLoading ? ' Actualizando...' : ' Actualizar'}
-        </button>
-      </div>
-
-      <div style={S.card}>
-        <div style={{ padding: 12 }}>
-          {modelsLoading ? (
-            <div style={S.emptyState}>
-              <div style={S.spinnerDark} />
-              <span style={{ marginTop: 8 }}>Cargando modelos...</span>
-            </div>
-          ) : modelsError ? (
-            <div style={S.emptyState}>
-              <span style={{ fontSize: 24, marginBottom: 8 }}>⚠️</span>
-              <span style={{ textAlign: 'center' }}>{modelsError}</span>
-              <button 
-                style={{ ...S.actionBtn, width: 'auto', padding: '6px 16px', marginTop: 12, opacity: modelsLoading ? 0.6 : 1 }} 
-                onClick={load}
-                disabled={modelsLoading || !online}
-                aria-label="Reintentar cargar modelos"
-                aria-busy={modelsLoading}
-              >
-                {modelsLoading ? (
-                  <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 4 }}>⟳</span>Reintentando...</>
-                ) : (
-                  'Reintentar'
-                )}
-              </button>
-            </div>
-          ) : models.length === 0 ? (
-            <div style={S.emptyState}>
-              <span style={{ fontSize: 24, marginBottom: 8 }}>⚠️</span>
-              <span style={{ textAlign: 'center' }}>No se encontraron modelos. Verifica el gateway.</span>
-              <button 
-                style={{ ...S.actionBtn, width: 'auto', padding: '6px 16px', marginTop: 12, opacity: modelsLoading ? 0.6 : 1 }} 
-                onClick={load}
-                disabled={modelsLoading || !online}
-                aria-label="Reintentar cargar modelos"
-                aria-busy={modelsLoading}
-              >
-                {modelsLoading ? (
-                  <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 4 }}>⟳</span>Reintentando...</>
-                ) : (
-                  'Reintentar'
-                )}
-              </button>
-            </div>
-          ) : (
-            <>
-              <input
-                style={S.searchInput}
-                placeholder="Buscar modelo o provider..."
-                value={modelSearch}
-                onChange={e => setModelSearch(e.target.value)}
-              />
-
-              <div style={S.filterRow}>
-                {providers.map(p => {
-                  const meta = p === 'all' ? { label: 'Todos', icon: '🌐' } : getProviderMeta(p)
-                  const active = providerFilter === p
-                  return (
-                    <button key={p} onClick={() => setProviderFilter(p)} style={{ ...S.filterChip, ...(active ? S.filterChipActive : {}) }}>
-                      <span>{meta.icon}</span>
-                      <span>{meta.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {displayedModels.map(m => {
-                  const meta = getProviderMeta(m.provider)
-                  const isActive = m.id === activeModel
-                  return (
-                    <button key={m.id} onClick={() => handleSetModel(m.id)} style={{ ...S.modelItem, ...(isActive ? S.modelItemActive : {}) }}>
-                      <span style={{ fontSize: 22, width: 28, textAlign: 'center' }}>{meta.icon}</span>
-                      <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: isActive ? 700 : 600, color: isActive ? '#fff' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {m.name}
-                        </div>
-                        <div style={{ fontSize: 11, color: isActive ? 'rgba(255,255,255,0.7)' : 'var(--text3)', fontFamily: "'JetBrains Mono', monospace", marginTop: 2 }}>
-                          {m.providerLabel} {m.contextWindow ? `· ${(m.contextWindow / 1000).toFixed(0)}K` : ''} {m.reasoning ? '· 🧠' : ''}
-                        </div>
-                      </div>
-                      {isActive && <span style={{ color: '#fff', fontSize: 18, fontWeight: 800 }}>✓</span>}
-                    </button>
-                  )
-                })}
-
-                {filteredModels.length > 12 && (
-                  <button style={S.showMoreBtn} onClick={() => setShowAllModels(v => !v)}>
-                    {showAllModels ? 'Mostrar menos' : `Ver ${filteredModels.length - 12} modelos más`}
-                  </button>
-                )}
-
-                {filteredModels.length === 0 && (
-                  <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 16, fontSize: 13 }}>
-                    Sin resultados para "{modelSearch}"
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-text-primary tracking-tight">{t('settings_title')}</h1>
+          <p className="text-[12px] sm:text-[13px] text-text-muted mt-0.5">{t('settings_subtitle')}</p>
         </div>
       </div>
 
-      {/* ── AI Parameters ── */}
-      <div style={S.sectionLabel}>PARÁMETROS DE IA</div>
-      <div style={S.card}>
-        <div style={{ padding: 16 }}>
-          <div style={S.sliderGroup}>
-            <div style={S.sliderHeader}>
-              <span>Temperatura</span>
-              <span style={S.sliderValue}>{temperature.toFixed(1)}</span>
-            </div>
-            <input type="range" style={S.slider} min="0" max="2" step="0.1" value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))} />
-            <div style={S.sliderLabels}><span>Preciso (0)</span><span>Creativo (2)</span></div>
+      {/* ── Active Model ── */}
+      <div className="card p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-accent-soft flex items-center justify-center">
+            <Cpu size={20} className="text-accent" />
           </div>
-
-          <div style={S.sliderGroup}>
-            <div style={S.sliderHeader}>
-              <span>Tokens de contexto</span>
-              <span style={S.sliderValue}>{contextSize.toLocaleString()}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-text-primary truncate">{activeModelId || 'Sin modelo activo'}</div>
+            <div className="text-[11px] text-text-muted mt-0.5">
+              {loading ? 'Cargando...' : `${models.length} modelos disponibles`}
             </div>
-            <input type="range" style={S.slider} min="4096" max="200000" step="4096" value={contextSize} onChange={e => setContextSize(parseInt(e.target.value))} />
-            <div style={S.sliderLabels}><span>4K</span><span>200K</span></div>
           </div>
-
-          <button 
-            style={{ ...S.primaryBtn, opacity: saving ? 0.7 : 1 }} 
-            onClick={handleSaveParams} 
-            disabled={saving}
-            aria-label={saving ? 'Guardando parámetros...' : 'Guardar parámetros de IA'}
-            aria-busy={saving}
-          >
-            {saving ? (
-              <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 6 }}>⟳</span>Guardando...</>
-            ) : (
-              'Guardar parámetros'
-            )}
+          <button onClick={load} className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-glass-bg transition-all">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
-      </div>
 
-      {/* ── Preferences ── */}
-      <div style={S.sectionLabel}>PREFERENCIAS Y GESTIÓN</div>
-      <div style={S.card}>
-        <NavRow icon="🔔" title="Notificaciones" desc="Avisos de tareas completadas"
-          right={
-            <div style={{ ...S.toggle, background: prefs.notifications ? '#6366f1' : 'var(--surface3)' }} onClick={() => setPrefs(p => ({ ...p, notifications: !p.notifications }))}>
-              <div style={{ ...S.toggleKnob, transform: prefs.notifications ? 'translateX(18px)' : 'translateX(0)' }} />
-            </div>
-          } />
-        <NavRow icon="💾" title={t('settings_storage')} desc={t('settings_storage_desc')} onClick={() => navigate('/settings/storage')} />
-        <NavRow icon="📡" title="Canales" desc="Telegram, WhatsApp, Discord..." onClick={() => navigate('/settings/channels')} />
-        <NavRow icon="🔌" title="Plataformas" desc="Gestionar providers de IA" onClick={() => navigate('/settings/platforms')} />
-        <NavRow icon="⚡" title="Avanzado" desc="Token API y openclaw.json" onClick={() => navigate('/settings/advanced')} />
-        <NavRow icon="🔧" title="Herramientas" desc="tmux, SSH, code-server..." onClick={() => navigate('/settings/tools')} />
-        <NavRow icon="🔋" title="Keep Alive" desc="Batería y Phantom Process Killer" onClick={() => navigate('/settings/keepalive')} />
-        <NavRow icon="⬆️" title="Actualizaciones" desc="Verificar nuevas versiones" onClick={() => navigate('/settings/updates')} />
-        <NavRow icon="ℹ️" title="Acerca de" desc="Versión, licencia, runtime" onClick={() => navigate('/settings/about')} last />
-      </div>
+        {/* ── Model search & filter ── */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex-1 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-input-bg border border-glass-border focus-within:border-accent/20 transition-all">
+            <Search size={13} className="text-text-dim" />
+            <input className="flex-1 bg-transparent border-none outline-none text-xs text-text-primary placeholder-text-muted"
+              placeholder="Buscar modelo..." value={search} onChange={e => setSearch(e.target.value)} />
+            {search && <button onClick={() => setSearch('')} className="text-text-dim hover:text-text-primary text-xs">✕</button>}
+          </div>
+          {saved && <span className="text-[11px] text-green font-medium animate-fade-in">{saved}</span>}
+        </div>
 
-      {/* ── Language ── */}
-      <div style={S.sectionLabel}>IDIOMA</div>
-      <div style={{ display: 'flex', gap: 10 }}>
-        {availableLocales.map(loc => {
-          const active = getLocale() === loc.code
-          return (
-            <button key={loc.code} style={{ ...S.langBtn, ...(active ? S.langBtnActive : {}) }}
-              onClick={() => setLocale(loc.code)}>
-              {loc.label}
+        {/* ── Provider filter chips ── */}
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-1 mb-2">
+          <button onClick={() => setSelectedProvider('all')}
+            className={`chip text-[10px] shrink-0 ${selectedProvider === 'all' ? 'active' : ''}`}>Todos</button>
+          {providers.map(p => (
+            <button key={p.id} onClick={() => setSelectedProvider(p.id)}
+              className={`chip text-[10px] shrink-0 flex items-center gap-1.5 ${selectedProvider === p.id ? 'active' : ''}`}>
+              <span>{p.icon}</span> {p.label} <span className="opacity-50">({p.modelCount})</span>
             </button>
-          )
-        })}
+          ))}
+        </div>
+
+        {/* ── Model list ── */}
+        <div className="space-y-1 max-h-48 overflow-y-auto">
+          {filteredModels.length === 0 && (
+            <div className="py-6 text-center text-xs text-text-muted">Sin resultados</div>
+          )}
+          {filteredModels.map(m => (
+            <button key={m.id} onClick={() => selectModel(m.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                activeModelId === m.id ? 'bg-accent-soft border border-accent/20' : 'hover:bg-glass-bg border border-transparent'
+              }`}>
+              <span className="text-sm">{getProviderMeta(m.provider).icon}</span>
+              <div className="flex-1 text-left min-w-0">
+                <div className="text-xs font-semibold text-text-primary truncate">{m.name}</div>
+                <div className="text-[10px] text-text-muted truncate">{m.id}</div>
+              </div>
+              {activeModelId === m.id && <Check size={13} className="text-accent shrink-0" />}
+            </button>
+          ))}
+        </div>
+
+        {/* ── AI Parameters ── */}
+        <div className="mt-4 pt-4 border-t border-glass-border space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <Thermometer size={11} className="text-text-muted" />
+                <span className="text-[10px] font-semibold text-text-muted tracking-wider uppercase">Temperatura</span>
+              </div>
+              <span className="text-[11px] font-mono text-accent">{temperature.toFixed(1)}</span>
+            </div>
+            <input type="range" min={0} max={2} step={0.1} value={temperature}
+              onChange={e => { const v = parseFloat(e.target.value); setTemperature(v); saveConfig({ agents: { defaults: { temperature: v } } } as Record<string, unknown>) }}
+              className="w-full h-1.5 rounded-full appearance-none bg-glass-bg accent-accent cursor-pointer" />
+            <div className="flex justify-between text-[9px] text-text-dim mt-1">
+              <span>Preciso</span>
+              <span>Creativo</span>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <Braces size={11} className="text-text-muted" />
+                <span className="text-[10px] font-semibold text-text-muted tracking-wider uppercase">Contexto máximo</span>
+              </div>
+              <span className="text-[11px] font-mono text-accent">{contextTokens.toLocaleString()}</span>
+            </div>
+            <input type="range" min={1024} max={32768} step={1024} value={contextTokens}
+              onChange={e => { const v = parseInt(e.target.value); setContextTokens(v); saveConfig({ agents: { defaults: { contextTokens: v } } } as Record<string, unknown>) }}
+              className="w-full h-1.5 rounded-full appearance-none bg-glass-bg accent-accent cursor-pointer" />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Settings sections ── */}
+      <SectionHeader icon={Bell} title="Notificaciones" />
+      <div className="card divide-y divide-glass-border overflow-hidden">
+        <SettingRow icon={Bell} label="Canales" desc="Telegram, Discord, WhatsApp" onClick={() => navigate('/settings/channels')} />
+      </div>
+
+      <SectionHeader icon={HardDrive} title="Almacenamiento" />
+      <div className="card divide-y divide-glass-border overflow-hidden">
+        <SettingRow icon={Database} label="Almacenamiento" desc="Gestión de espacio y caché" onClick={() => navigate('/settings/storage')} />
+      </div>
+
+      <SectionHeader icon={Cpu} title="Sistema" />
+      <div className="card divide-y divide-glass-border overflow-hidden">
+        <SettingRow icon={Sliders} label="Avanzado" desc="Configuración avanzada del sistema" onClick={() => navigate('/settings/advanced')} />
+        <SettingRow icon={Settings2} label="Plataformas" desc="Gestionar plataformas instaladas" onClick={() => navigate('/settings/platforms')} />
+        <SettingRow icon={Wrench} label="Herramientas" desc="Gestionar herramientas" onClick={() => navigate('/settings/tools')} />
+        <SettingRow icon={Battery} label="Keep Alive" desc="Gestión de batería y procesos" onClick={() => navigate('/settings/keepalive')} />
+        <SettingRow icon={Package} label="Actualizaciones" desc="Buscar y aplicar updates" onClick={() => navigate('/settings/updates')} />
+      </div>
+
+      <SectionHeader icon={Globe} title="Idioma" />
+      <div className="card p-1 flex gap-1">
+        {availableLocales.map(l => (
+          <button key={l.code} onClick={() => { setLocale(l.code); setLocaleState(l.code) }}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              locale === l.code ? 'bg-accent text-white shadow-sm' : 'text-text-muted hover:text-text-secondary'
+            }`}>
+            {l.label}
+          </button>
+        ))}
+      </div>
+
+      <SectionHeader icon={Info} title="Información" />
+      <div className="card divide-y divide-glass-border overflow-hidden">
+        <SettingRow icon={Info} label="Acerca de" desc={`Gateway v${gatewayVer}`} onClick={() => navigate('/settings/about')} />
       </div>
 
       {/* ── Danger zone ── */}
-      <div style={{ marginTop: 40, marginBottom: 20 }}>
-        <button style={S.dangerBtn} onClick={() => {
-          if (confirm('¿Borrar todo el historial local?')) { localStorage.clear(); window.location.reload() }
-        }}>
-          🗑️ Borrar historial y datos locales
+      <div className="card p-4 border-red/10">
+        <div className="flex items-center gap-2.5 mb-2">
+          <AlertCircle size={14} className="text-red" />
+          <span className="text-[10px] font-semibold text-text-muted tracking-widest uppercase">Zona de peligro</span>
+        </div>
+        <p className="text-xs text-text-muted mb-3 leading-relaxed">
+          Esto eliminará toda la configuración local y recargará la aplicación.
+        </p>
+        <button onClick={() => { localStorage.clear(); location.reload() }}
+          className="btn btn-danger w-full text-xs py-2.5">
+          <Trash2 size={13} /> Limpiar todo y reiniciar
         </button>
       </div>
     </div>
   )
-}
-
-function NavRow({ icon, title, desc, onClick, right, last }: { icon: string; title: string; desc: string; onClick?: () => void; right?: React.ReactNode; last?: boolean }) {
-  return (
-    <div onClick={onClick} style={{ ...S.navRow, borderBottom: last ? 'none' : '1px solid var(--border)', cursor: onClick ? 'pointer' : 'default' }}>
-      <div style={S.navIcon}>{icon}</div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{title}</span>
-        <span style={{ fontSize: 11, color: 'var(--text3)' }}>{desc}</span>
-      </div>
-      {right ? right : <span style={{ color: 'var(--text4)', fontSize: 18 }}>›</span>}
-    </div>
-  )
-}
-
-const S: Record<string, React.CSSProperties> = {
-  page: { padding: '12px 14px 32px', maxWidth: 600, margin: '0 auto', overflowY: 'auto' },
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, paddingTop: 8 },
-  title: { fontSize: 22, fontWeight: 800, color: 'var(--text)' },
-  savedMsg: { fontSize: 12, fontWeight: 700, color: '#4ade80', background: 'rgba(74,222,128,0.1)', padding: '4px 10px', borderRadius: 12 },
-  
-  activeModelCard: { background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', borderRadius: 'var(--r-xl)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24, boxShadow: '0 8px 24px rgba(99,102,241,0.25)' },
-  spinner: { width: 20, height: 20, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
-  spinnerDark: { width: 20, height: 20, border: '2px solid var(--border)', borderTopColor: 'var(--purple)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
-  
-  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 24 },
-  sectionLabel: { fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text3)', marginBottom: 10, marginTop: 24, paddingLeft: 2, textTransform: 'uppercase' },
-  iconBtn: { background: 'transparent', border: 'none', color: 'var(--purple)', fontSize: 11, fontWeight: 700, cursor: 'pointer' },
-  
-  card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', overflow: 'hidden', boxShadow: 'var(--sh-inset)' },
-  
-  searchInput: { width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)', borderRadius: 12, padding: '10px 14px', color: 'var(--text)', fontSize: 13, marginBottom: 12, outline: 'none' },
-  
-  filterRow: { display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 12 },
-  filterChip: { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 },
-  filterChipActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
-  
-  modelItem: { width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', transition: 'all 0.15s' },
-  modelItemActive: { background: 'linear-gradient(to right, rgba(99,102,241,0.2), rgba(139,92,246,0.1))', borderColor: '#6366f1' },
-  
-  showMoreBtn: { width: '100%', padding: '10px', background: 'var(--surface2)', border: '1px dashed var(--border)', color: 'var(--text2)', borderRadius: 12, fontSize: 12, fontWeight: 600, cursor: 'pointer', marginTop: 4 },
-  
-  emptyState: { padding: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', color: 'var(--text3)', fontSize: 13 },
-  
-  sliderGroup: { marginBottom: 20 },
-  sliderHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, fontWeight: 600, color: 'var(--text)' },
-  sliderValue: { color: '#a5b4fc', fontFamily: "'JetBrains Mono', monospace" },
-  slider: { width: '100%', height: 4, borderRadius: 2, background: 'var(--surface3)', outline: 'none', appearance: 'none' },
-  sliderLabels: { display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text4)', marginTop: 6 },
-  
-  primaryBtn: { width: '100%', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', color: '#fff', padding: '12px', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' },
-  actionBtn: { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '12px', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer' },
-  dangerBtn: { width: '100%', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)', color: '#fca5a5', padding: '14px', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer' },
-  
-  navRow: { display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'transparent' },
-  navIcon: { width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 },
-  
-  toggle: { width: 44, height: 24, borderRadius: 12, position: 'relative', cursor: 'pointer', transition: 'background 0.2s' },
-  toggleKnob: { position: 'absolute', top: 2, left: 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'transform 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' },
-  
-  langBtn: { flex: 1, padding: '10px', borderRadius: 12, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center' },
-  langBtnActive: { background: 'rgba(99,102,241,0.15)', borderColor: '#6366f1', color: '#a5b4fc' },
 }

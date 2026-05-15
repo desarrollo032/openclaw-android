@@ -1,258 +1,150 @@
-/**
- * src/screens/Logs.tsx — v3
- * Wrapper de página para LogsViewer con la nueva capa HTTP tipada.
- * Combina logs del gateway (HTTP /api/logs) + logs locales del bridge.
- */
-
-import { useState, useCallback, useRef, useEffect } from 'react'
-import { useRoute } from '../lib/router'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { bridge } from '../lib/bridge'
-import { LogsViewer } from '../components/LogsViewer'
 import { useGatewayStatus } from '../hooks/useGatewayStatus'
-import { getNativeGatewayState } from '../utils/androidBridge'
+import { Activity, Wifi, WifiOff, X } from 'lucide-react'
+import { LogsViewer } from '../components/LogsViewer'
+import { SearchInput } from '../components/SearchInput'
+import { CopyButton } from '../components/CopyButton'
+import { EmptyState } from '../components/EmptyState'
 
-type Tab = 'gateway' | 'native'
-
-function formatUptime(secs: number): string {
-  if (!secs) return '—'
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  const s = secs % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
-}
-
-export function Logs() {
-  const { navigate } = useRoute()
-  const { health, reachability } = useGatewayStatus()
-  const nativeState = getNativeGatewayState()
-
-  const [tab,    setTab]    = useState<Tab>('native')
-  const [copied, setCopied] = useState(false)
-  const [nativeLogs, setNativeLogs] = useState<NativeLog[]>([])
-  const [nativeLoading, setNativeLoading] = useState(false)
-  const [uptimeSecs] = useState(() => {
-    try {
-      const up = bridge.callJson<{ seconds: number }>('getGatewayUptime')
-      return up?.seconds ?? 0
-    } catch { return 0 }
-  })
-
-  const refreshNative = useCallback(() => {
-    setNativeLoading(true)
-    try {
-      const data = bridge.callJson<{ logs?: NativeLog[] }>('getGatewayLogs')
-      setNativeLogs(data?.logs ?? [])
-    } finally {
-      setNativeLoading(false)
-    }
-  }, [])
-
-  const clearNative = useCallback(async () => {
-    bridge.call('clearGatewayLogs')
-    setNativeLogs([])
-  }, [])
-
-  useEffect(() => {
-    refreshNative()
-    const interval = window.setInterval(refreshNative, 4000)
-    return () => window.clearInterval(interval)
-  }, [refreshNative])
-
-  const copyNative = useCallback(() => {
-    const text = nativeLogs.map(l => l.message).join('\n')
-    try {
-      const write = navigator.clipboard?.writeText(text)
-      if (write && typeof write.catch === 'function') {
-        write.catch(() => bridge.call('copyToClipboard', text))
-      } else {
-        bridge.call('copyToClipboard', text)
-      }
-    } catch { bridge.call('copyToClipboard', text) }
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }, [nativeLogs])
-
-  const clearNativeLogs = useCallback(async () => {
-    if (!confirm('¿Limpiar los logs nativos?')) return
-    await clearNative()
-  }, [clearNative])
-
-  const uptime = health?.uptime ?? uptimeSecs
-  const online = reachability === 'online'
-  const nativeLabel = nativeState === 'READY' ? 'Activo' : nativeState === 'STARTING' || nativeState === 'RESTARTING' ? 'Iniciando' : nativeState === 'FAILED' ? 'Falló' : 'Desconocido'
-  const httpLabel = health
-    ? health.status === 'ok' ? 'Disponible' : `Error HTTP (${health.status})`
-    : online ? 'No responde aún' : 'No disponible'
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
-      {/* ── Header ── */}
-      <div style={S.header}>
-        <button style={S.backBtn} onClick={() => navigate('/dashboard')}>←</button>
-        <div style={{ flex: 1 }}>
-          <div style={S.title}>Logs del sistema</div>
-          <div style={S.sub}>
-            {online
-              ? <><span style={{ color: '#4ade80' }}>●</span> Activo · Uptime {formatUptime(uptime)}</>
-              : <><span style={{ color: '#f87171' }}>●</span> Gateway inactivo</>}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Tab selector ── */}
-      <div style={S.tabs}>
-        <button
-          style={{ ...S.tab, borderBottom: tab === 'native' ? '2px solid var(--purple)' : '2px solid transparent', color: tab === 'native' ? 'var(--purple)' : 'var(--text3)' }}
-          onClick={() => setTab('native')}>
-          🤖 Native / Bridge
-        </button>
-        <button
-          style={{ ...S.tab, borderBottom: tab === 'gateway' ? '2px solid var(--cyan)' : '2px solid transparent', color: tab === 'gateway' ? 'var(--cyan)' : 'var(--text3)' }}
-          onClick={() => setTab('gateway')}>
-          🌐 Gateway HTTP
-        </button>
-      </div>
-
-      <div style={S.statusBar}>
-        <div style={S.statusItem}>
-          <span style={{ ...S.statusDot, background: nativeState === 'READY' ? '#4ade80' : nativeState === 'FAILED' ? '#f87171' : '#facc15' }} />
-          <div>
-            <div style={S.statusLabel}>Bridge nativo</div>
-            <div style={S.statusValue}>{nativeLabel}</div>
-          </div>
-        </div>
-        <div style={S.statusItem}>
-          <span style={{ ...S.statusDot, background: health ? '#4ade80' : online ? '#facc15' : '#f87171' }} />
-          <div>
-            <div style={S.statusLabel}>Gateway HTTP</div>
-            <div style={S.statusValue}>{httpLabel}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Content ── */}
-      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        {/* Native logs tab — usa bridge.getGatewayLogs */}
-        {tab === 'native' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <NativeLogsPane
-              logs={nativeLogs}
-              loading={nativeLoading}
-              onRefresh={refreshNative}
-              onCopy={copyNative}
-              onClear={clearNativeLogs}
-              copied={copied}
-            />
-          </div>
-        )}
-
-        {/* Gateway HTTP logs — usa LogsViewer component */}
-        {tab === 'gateway' && (
-          online
-            ? <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                {!health && (
-                  <div style={S.warnBox}>
-                    <strong>Nota:</strong> El gateway nativo está activo, pero el HTTP aún no responde.
-                    Asegúrate de que `openclaw gateway run` esté corriendo y que el endpoint 127.0.0.1:18789 sea accesible.
-                  </div>
-                )}
-                <LogsViewer lines={150} />
-              </div>
-            : (
-              <div style={S.offline}>
-                <span style={{ fontSize: 32 }}>🔌</span>
-                <div style={{ color: 'var(--text3)', textAlign: 'center' }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Gateway HTTP sin respuesta</div>
-                  <div style={{ fontSize: 12 }}>
-                    La pestaña HTTP solo muestra logs cuando el gateway API responde.
-                    Si el gateway corre con `openclaw gateway run`, revisa la conexión local y prueba de nuevo.
-                  </div>
-                </div>
-              </div>
-            )
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Native logs pane ──────────────────────────────────────────────────────────
-
-interface NativeLog { level?: string; message: string; timestamp: number | string }
-
-function NativeLogsPane({ logs, loading, onRefresh, onCopy, onClear, copied }: {
-  logs: NativeLog[]
-  loading: boolean
-  onRefresh: () => void
-  onCopy: () => void
-  onClear: () => void
-  copied: boolean
-}) {
-  const bottomRef = useRef<HTMLDivElement>(null)
+function NativeLogsPane() {
+  const [lines, setLines] = useState<{ text: string; level: string }[]>([])
   const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [uptime, setUptime] = useState('')
+  const outputRef = useRef<HTMLDivElement>(null)
+
+  const loadLogs = useCallback(() => {
+    if (!bridge.isAvailable()) return
+    try {
+      // getGatewayLogs() retorna { logs: [{ level, message, timestamp }] }
+      const raw = bridge.callJson<{ logs: Array<{ level: string; message: string; timestamp: number }> }>('getGatewayLogs')
+      const parsed = raw?.logs?.map(log => ({
+        text: log.message,
+        level: log.level,
+      })) ?? []
+      setLines(parsed)
+      // getGatewayUptime() retorna { seconds, uptimeSeconds }
+      const u = bridge.callJson<{ seconds: number; uptimeSeconds: number }>('getGatewayUptime')
+      setUptime(u ? `${u.uptimeSeconds}s` : '')
+    } catch { /* */ }
+    setLoading(false)
+  }, [])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+    loadLogs()
+    const id = setInterval(loadLogs, 4000)
+    return () => clearInterval(id)
+  }, [loadLogs])
 
-  const filtered = search
-    ? logs.filter(l => l.message.toLowerCase().includes(search.toLowerCase()))
-    : logs
+  useEffect(() => {
+    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' })
+  }, [lines])
 
-  const levelColor = (lv: string) => {
-    switch (lv) { case 'error': return '#f87171'; case 'warn': return '#facc15'; case 'debug': return '#6b7280'; default: return '#a5b4fc' }
+  const filtered = search ? lines.filter(l => l.text.toLowerCase().includes(search.toLowerCase())) : lines
+  const copyText = filtered.map(l => l.text).join('\n')
+
+  const clearLogs = () => {
+    if (!bridge.isAvailable()) return
+    bridge.call('clearGatewayLogs')
+    setLines([])
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Toolbar */}
-      <div style={S.toolbar}>
-        <input style={S.search} placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
-        <button style={S.toolBtn} onClick={onCopy}>{copied ? '✓' : '📋'}</button>
-        <button style={S.toolBtn} onClick={onClear}>🗑</button>
-        <button style={{ ...S.toolBtn, animation: loading ? 'spin 0.7s linear infinite' : 'none' }} onClick={onRefresh}>↻</button>
+    <div className="flex flex-col gap-2">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center gap-2">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Filtrar logs..."
+          className="flex-1"
+        />
+        <CopyButton text={copyText} label="Copiar" />
+        <button onClick={loadLogs}
+          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-all"
+          aria-label="Actualizar">
+          <Activity size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
+        <button onClick={clearLogs}
+          className="p-1.5 rounded-lg text-text-muted hover:text-red hover:bg-red-soft transition-all"
+          aria-label="Limpiar logs">
+          <X size={13} />
+        </button>
       </div>
-      {/* Lines */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5 }}>
+
+      {/* ── Logs output ── */}
+      <div ref={outputRef}
+        className="rounded-xl bg-bg-code border border-glass-border h-[60vh] overflow-y-auto font-mono text-xs leading-relaxed p-4 space-y-0.5">
         {filtered.length === 0 && !loading && (
-          <div style={{ color: 'var(--text4)', padding: '30px', textAlign: 'center' }}>Sin logs disponibles</div>
+          <EmptyState title="Sin logs" subtitle={search ? 'Ningún log coincide con la búsqueda' : undefined} />
         )}
-        {filtered.map((l, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: levelColor(l.level ?? 'info'), flexShrink: 0, paddingTop: 2 }}>
-              {l.level?.toUpperCase().slice(0, 1) ?? 'I'}
-            </span>
-            <span style={{ color: '#c0c0d8', flex: 1, wordBreak: 'break-all' }}>{l.message}</span>
-          </div>
+        {filtered.map((line, i) => (
+          <div key={i} className={`whitespace-pre-wrap break-all ${
+            line.level === 'error' ? 'text-red' :
+            line.level === 'warn' ? 'text-yellow' :
+            line.level === 'ok' ? 'text-green' :
+            'text-text-muted'
+          }`}>{line.text}</div>
         ))}
-        <div ref={bottomRef} />
       </div>
-      {/* Footer */}
-      <div style={{ padding: '4px 10px', borderTop: '1px solid var(--border)', color: 'var(--text4)', fontSize: 10 }}>
-        {filtered.length}/{logs.length} líneas · Bridge c/4s
+
+      {/* ── Footer ── */}
+      <div className="flex items-center justify-between text-[10px] text-text-dim px-1">
+        <span>{filtered.length} líneas {search ? `(filtradas de ${lines.length})` : ''}</span>
+        {uptime && <span className="font-mono">Uptime: {uptime}</span>}
       </div>
     </div>
   )
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-const S: Record<string, React.CSSProperties> = {
-  header: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'rgba(8,8,16,0.9)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--border)', flexShrink: 0 },
-  backBtn: { width: 34, height: 34, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--glass)', color: 'var(--text)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  title: { fontSize: 16, fontWeight: 800, color: 'var(--text)' },
-  sub:   { fontSize: 11, color: 'var(--text3)', marginTop: 1 },
-  tabs:  { display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 },
-  tab:   { flex: 1, padding: '10px', background: 'transparent', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'color 0.2s', letterSpacing: '0.2px' },
-  statusBar: { display: 'flex', gap: 12, padding: '12px 14px', background: 'rgba(8,8,16,0.9)', borderBottom: '1px solid var(--border)', flexShrink: 0, alignItems: 'center' },
-  statusItem: { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(31,41,55,0.9)', border: '1px solid rgba(148,163,184,0.12)', borderRadius: 12, flex: 1 },
-  statusDot: { width: 10, height: 10, borderRadius: '50%', flexShrink: 0 },
-  statusLabel: { fontSize: 11, color: 'var(--text3)', marginBottom: 2 },
-  statusValue: { fontSize: 13, fontWeight: 700, color: 'var(--text)' },
-  warnBox: { margin: '10px 14px', padding: '12px 14px', background: '#312e41', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 12, color: '#e5e7eb', fontSize: 12, lineHeight: 1.5 },
-  toolbar: { display: 'flex', gap: 5, padding: '6px 8px', background: 'rgba(8,8,20,0.95)', borderBottom: '1px solid rgba(99,102,241,0.1)', flexShrink: 0, alignItems: 'center' },
-  search:  { flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '5px 9px', color: 'var(--text)', fontSize: 12, outline: 'none' },
-  toolBtn: { width: 28, height: 28, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--glass)', color: 'var(--text2)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  offline: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16 },
+export function Logs() {
+  const [tab, setTab] = useState<'native' | 'http'>('native')
+  const { reachability } = useGatewayStatus()
+  const online = reachability === 'online'
+
+  return (
+    <div className="page-container flex flex-col gap-4 pt-6 pb-4 animate-fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-text-primary tracking-tight">Logs</h1>
+          <p className="text-[13px] text-text-muted mt-0.5">Registros del sistema</p>
+        </div>
+        <div className={`badge ${online ? 'badge-success' : 'badge-error'} gap-1`}>
+          {online ? <Wifi size={10} /> : <WifiOff size={10} />}
+          {online ? 'Online' : 'Offline'}
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
+      <div className="flex gap-1 card p-1">
+        <button onClick={() => setTab('native')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+            tab === 'native' ? 'bg-accent text-white shadow-sm' : 'text-text-muted hover:text-text-secondary'
+          }`}>
+          <Activity size={13} /> Native
+        </button>
+        <button onClick={() => setTab('http')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+            tab === 'http' ? 'bg-accent text-white shadow-sm' : 'text-text-muted hover:text-text-secondary'
+          }`}>
+          <Wifi size={13} /> HTTP
+        </button>
+      </div>
+
+      {tab === 'native' ? (
+        <NativeLogsPane />
+      ) : online ? (
+        <LogsViewer />
+      ) : (
+        <div className="card p-8 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-red-soft flex items-center justify-center mx-auto mb-3">
+            <WifiOff size={24} className="text-red" />
+          </div>
+          <p className="text-sm font-semibold text-text-primary mb-1">Gateway no disponible</p>
+          <p className="text-xs text-text-muted">Inicia el gateway desde el Dashboard para ver los logs HTTP</p>
+        </div>
+      )}
+    </div>
+  )
 }

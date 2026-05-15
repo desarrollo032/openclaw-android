@@ -1,713 +1,245 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { bridge } from "../lib/bridge";
-import { t } from "../i18n";
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { bridge } from '../lib/bridge'
+import { Terminal as TerminalIcon, RefreshCw, Play, Activity, Star, Zap } from 'lucide-react'
 
-interface HistoryEntry {
-  type: "cmd" | "out" | "err";
-  text: string;
-}
-interface KeyDef {
-  label: string;
-  flex?: number;
-  bg: string;
-  fg: string;
-  onPress: () => void;
-}
+interface HistoryLine { type: 'input' | 'output' | 'error'; text: string }
 
 const OC_COMMANDS = [
-  "openclaw gateway",
-  "openclaw status",
-  "openclaw health",
-  "openclaw logs",
-  "openclaw onboard",
-  "openclaw setup",
-  "openclaw configure",
-  "openclaw config",
-  "openclaw doctor",
-  "openclaw update",
-  "openclaw backup",
-  "openclaw reset",
-  "openclaw uninstall",
-  "openclaw models",
-  "openclaw infer",
-  "openclaw capability",
-  "openclaw message",
-  "openclaw agent",
-  "openclaw agents",
-  "openclaw sessions",
-  "openclaw memory",
-  "openclaw commitments",
-  "openclaw wiki",
-  "openclaw approvals",
-  "openclaw sandbox",
-  "openclaw chat",
-  "openclaw browser",
-  "openclaw cron",
-  "openclaw tasks",
-  "openclaw hooks",
-  "openclaw webhooks",
-  "openclaw security",
-  "openclaw secrets",
-  "openclaw skills",
-  "openclaw plugins",
-  "openclaw proxy",
-  "openclaw dns",
-  "openclaw docs",
-  "openclaw pairing",
-  "openclaw qr",
-  "openclaw channels",
-  "openclaw system",
-  "openclaw --version",
-  "openclaw --help",
-  "node -v",
-  "node --version",
-];
+  'openclaw status', 'openclaw logs --follow', 'openclaw doctor',
+  'openclaw update', 'openclaw help', 'openclaw gateway',
+  'openclaw onboard', 'openclaw skills', 'openclaw configure',
+  'openclaw configure --edit', 'openclaw configure --section channels',
+  'openclaw configure --section platform', 'openclaw configure --section tools',
+  'openclaw configure --section system.keepalive',
+]
 
-const INTERACTIVE_CMDS = [
-  "gateway",
-  "onboard",
-  "configure",
-  "config",
-  "logs",
-  "chat",
-  "tui",
-  "browser",
-  "sandbox",
-];
+const QUICK = [
+  { label: 'Status', cmd: 'openclaw status', icon: Activity },
+  { label: 'Logs', cmd: 'openclaw logs --follow', icon: TerminalIcon },
+  { label: 'Doctor', cmd: 'openclaw doctor', icon: Zap },
+  { label: 'Update', cmd: 'openclaw update', icon: RefreshCw },
+  { label: 'Help', cmd: 'openclaw help', icon: Star },
+]
+
+const MAX_HISTORY = 50
 
 export function Terminal() {
-  const [history, setHistory] = useState<HistoryEntry[]>([
-    { type: "out", text: "╔══════════════════════════════╗" },
-    { type: "out", text: "║   OpenClaw Terminal v2       ║" },
-    { type: "out", text: "╚══════════════════════════════╝" },
-    { type: "out", text: "↑↓ historial · TAB autocompletar · ^L limpiar" },
-    { type: "out", text: "" },
-  ]);
-  const [input, setInput] = useState("");
-  const [ctrlOn, setCtrlOn] = useState(false);
-  const [altOn, setAltOn] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
-  const [, setHistIdx] = useState(-1);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [history, setHistory] = useState<HistoryLine[]>([])
+  const [input, setInput] = useState('')
+  const [cmdHistory, setCmdHistory] = useState<string[]>([])
+  const [cmdIdx, setCmdIdx] = useState(-1)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [selSugg, setSelSugg] = useState(0)
+  const [showSugg, setShowSugg] = useState(false)
+  const outputRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const addLine = useCallback((line: HistoryLine) => {
+    setHistory(prev => [...prev.slice(-200), line])
+  }, [])
 
   useEffect(() => {
-    if (scrollRef.current) {
-      const scrollElement = scrollRef.current;
-      // Use requestAnimationFrame for smoother scrolling
-      const scroll = () => {
-        scrollElement.scrollTop = scrollElement.scrollHeight;
-        scrollElement.scrollLeft = 0;
-        // Force a repaint
-        void scrollElement.offsetHeight;
-      };
-      requestAnimationFrame(scroll);
+    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' })
+  }, [history])
+
+  useEffect(() => {
+    // Listen for terminal:run events
+    const handler = (e: Event) => {
+      const cmd = (e as CustomEvent).detail
+      if (typeof cmd === 'string') executeCommand(cmd)
     }
-  }, [history]);
-
-  useEffect(() => {
-    if (input.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    const q = input.toLowerCase();
-    setSuggestions(
-      OC_COMMANDS.filter((c) => c.startsWith(q) && c !== input).slice(0, 5),
-    );
-  }, [input]);
-
-  const append = (e: HistoryEntry) => setHistory((prev) => [...prev, e]);
-
-  const histUp = useCallback(() => {
-    setHistIdx((prev) => {
-      const next = Math.min(prev + 1, cmdHistory.length - 1);
-      if (cmdHistory[next] !== undefined) setInput(cmdHistory[next]);
-      return next;
-    });
-  }, [cmdHistory]);
-
-  const histDown = useCallback(() => {
-    setHistIdx((prev) => {
-      const next = Math.max(prev - 1, -1);
-      setInput(next === -1 ? "" : cmdHistory[next]);
-      return next;
-    });
-  }, [cmdHistory]);
-
-  const runCmd = useCallback(
-    (cmd: string) => {
-      if (!cmd.trim()) return;
-
-      // Immediate visual feedback
-      append({ type: "cmd", text: cmd });
-      setSuggestions([]);
-      setInput("");
-      setHistIdx(-1);
-      setCmdHistory((prev) => [cmd, ...prev.slice(0, 49)]);
-
-      // Scroll to bottom immediately
-      setTimeout(() => {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-      }, 10);
-
-      const parts = cmd.trim().split(/\s+/);
-      const isOC = parts[0] === "openclaw" || parts[0] === "oa";
-      const sub = isOC ? (parts[1] ?? "") : parts[0];
-
-      if (INTERACTIVE_CMDS.includes(sub)) {
-        append({
-          type: "out",
-          text: `↗ Abriendo terminal interactivo: ${cmd}`,
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        bridge.call("launchInteractiveCommand" as any, cmd);
-        return;
-      }
-
-      // Execute command with immediate feedback
-      const result = bridge.callJson<{ stdout?: string; stderr?: string }>(
-        "runCommand",
-        cmd,
-      );
-
-      // Process results immediately
-      if (result?.stdout) {
-        append({ type: "out", text: result.stdout });
-        // Auto-scroll to show new output
-        setTimeout(() => {
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-          }
-        }, 50);
-      }
-      if (result?.stderr) {
-        append({ type: "err", text: result.stderr });
-        setTimeout(() => {
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-          }
-        }, 50);
-      }
-      if (!result) {
-        append({ type: "err", text: "Bridge no disponible." });
-        setTimeout(() => {
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-          }
-        }, 50);
-      }
-    },
-    [],
-  ); // eslint-disable-line
-
-  useEffect(() => {
-    const h = (e: Event) => {
-      const cmd = (e as CustomEvent<string>).detail;
-      if (cmd) runCmd(cmd);
-    };
-    window.addEventListener("terminal:run", h);
-    return () => window.removeEventListener("terminal:run", h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
+    window.addEventListener('terminal:run', handler)
+    // Check for pending command
     try {
-      const queued = sessionStorage.getItem("openclaw.pendingTerminalCommand");
-      if (queued) {
-        sessionStorage.removeItem("openclaw.pendingTerminalCommand");
-        runCmd(queued);
+      const pending = sessionStorage.getItem('openclaw.pendingTerminalCommand')
+      if (pending) {
+        sessionStorage.removeItem('openclaw.pendingTerminalCommand')
+        executeCommand(pending)
       }
-    } catch {
-      // ignore storage issues
+    } catch { /* */ }
+    return () => window.removeEventListener('terminal:run', handler)
+  }, [])
+
+  const sanitize = (s: string) => s.replace(/[<>|;&$`\\]/g, '').trim()
+
+  const executeCommand = useCallback((raw: string) => {
+    const cmd = sanitize(raw)
+    if (!cmd) return
+    addLine({ type: 'input', text: `$ ${cmd}` })
+    setCmdHistory(prev => [cmd, ...prev].slice(0, MAX_HISTORY))
+    setCmdIdx(-1)
+
+    if (!bridge.isAvailable()) {
+      addLine({ type: 'error', text: 'Bridge no disponible — función solo en Android' })
+      return
     }
-  }, [runCmd]);
 
-  // ── Keyboard ─────────────────────────────────────────────────────────────
-  const toggleCtrl = () => {
-    setCtrlOn((v) => !v);
-    setAltOn(false);
-  };
-  const toggleAlt = () => {
-    setAltOn((v) => !v);
-    setCtrlOn(false);
-  };
-  const typeChar = (ch: string) => {
-    setInput((p) => p + ch);
-    setCtrlOn(false);
-    setAltOn(false);
-    inputRef.current?.focus();
-  };
-  const k = (
-    label: string,
-    bg: string,
-    fg: string,
-    flex: number,
-    onPress: () => void,
-  ): KeyDef => ({ label, bg, fg, flex, onPress });
+    try {
+      if (cmd === 'openclaw gateway' || cmd === 'openclaw gateway start') {
+        bridge.call('startGateway')
+        addLine({ type: 'output', text: '▶ Iniciando gateway...' })
+      } else if (cmd.startsWith('openclaw')) {
+        const result = bridge.callJson<string>('runOpenClawCommand', cmd) ?? bridge.call('launchInteractiveCommand', cmd)
+        if (typeof result === 'string') addLine({ type: 'output', text: result })
+        else addLine({ type: 'output', text: `✔ Comando ejecutado: ${cmd}` })
+      } else {
+        bridge.call('runOpenClawCommand', cmd)
+        addLine({ type: 'output', text: `✔ ${cmd}` })
+      }
+    } catch (e) {
+      addLine({ type: 'error', text: `✖ Error: ${e instanceof Error ? e.message : String(e)}` })
+    }
+  }, [addLine])
 
-  const row1: KeyDef[] = [
-    k("ESC", "rgba(248,113,113,0.15)", "#fca5a5", 1, () => {
-      setInput("");
-      setCtrlOn(false);
-      setAltOn(false);
-    }),
-    k("TAB", "rgba(74,222,128,0.15)", "#86efac", 1, () => {
-      if (suggestions[0]) {
-        setInput(suggestions[0]);
-        setSuggestions([]);
-      } else typeChar("\t");
-    }),
-    k(
-      ctrlOn ? "CTRL●" : "CTRL",
-      ctrlOn ? "rgba(251,191,36,0.3)" : "rgba(251,191,36,0.1)",
-      "#fbbf24",
-      1.4,
-      toggleCtrl,
-    ),
-    k(
-      altOn ? "ALT●" : "ALT",
-      altOn ? "rgba(251,191,36,0.3)" : "rgba(251,191,36,0.1)",
-      "#fbbf24",
-      1.2,
-      toggleAlt,
-    ),
-    k("HOME", "var(--surface2)", "#c4b5fd", 1, () => setInput("")),
-    k("END", "var(--surface2)", "#c4b5fd", 1, () => inputRef.current?.focus()),
-    k("PGUP", "var(--surface2)", "#c4b5fd", 1, () =>
-      scrollRef.current?.scrollBy(0, -200),
-    ),
-    k("PGDN", "var(--surface2)", "#c4b5fd", 1, () =>
-      scrollRef.current?.scrollBy(0, 200),
-    ),
-  ];
-  const row2: KeyDef[] = [
-    k("←", "var(--surface2)", "#93c5fd", 1, () =>
-      setInput((p) => p.slice(0, -1)),
-    ),
-    k("↑", "var(--surface2)", "#93c5fd", 1, histUp),
-    k("↓", "var(--surface2)", "#93c5fd", 1, histDown),
-    k("→", "var(--surface2)", "#93c5fd", 1, () => inputRef.current?.focus()),
-    k("SPACE", "var(--surface2)", "#93c5fd", 1.5, () => typeChar(" ")),
-    k("BKSP", "rgba(248,113,113,0.15)", "#fca5a5", 1, () =>
-      setInput((p) => p.slice(0, -1)),
-    ),
-    k("DEL", "rgba(248,113,113,0.15)", "#fca5a5", 1, () => setInput("")),
-  ];
-  const row3: KeyDef[] = [
-    k("↵ ENTER", "rgba(74,222,128,0.15)", "#86efac", 2, () => runCmd(input)),
-    k("^C", "rgba(248,113,113,0.15)", "#fca5a5", 1, () => {
-      setInput("");
-      append({ type: "err", text: "^C" });
-    }),
-    k("^D", "rgba(248,113,113,0.05)", "#fca5a5", 1, () =>
-      append({ type: "out", text: "^D" }),
-    ),
-    k("^Z", "rgba(251,191,36,0.15)", "#fbbf24", 1, () =>
-      append({ type: "out", text: "^Z" }),
-    ),
-    k("^L", "var(--surface2)", "#c4b5fd", 1, () => setHistory([])),
-    k("^U", "var(--surface2)", "#c4b5fd", 1, () => setInput("")),
-    k("^K", "var(--surface2)", "#c4b5fd", 1, () =>
-      setInput((p) => p.slice(0, p.lastIndexOf(" ") + 1)),
-    ),
-    k("^W", "var(--surface2)", "#c4b5fd", 1, () =>
-      setInput((p) => p.replace(/\S+\s*$/, "")),
-    ),
-  ];
+  const handleSubmit = () => {
+    const cmd = input.trim()
+    if (!cmd) return
+    setInput('')
+    setShowSugg(false)
+    executeCommand(cmd)
+  }
 
-  const renderRow = (keys: KeyDef[]) => (
-    <div style={S.kbRow}>
-      {keys.map((k, i) => (
-        <button
-          key={i}
-          style={{
-            ...S.kbKey,
-            flex: k.flex ?? 1,
-            background: k.bg,
-            color: k.fg,
-          }}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            k.onPress();
-          }}
-          onTouchStart={(e) => {
-            e.currentTarget.style.transform = "scale(0.95)";
-            e.currentTarget.style.opacity = "0.8";
-          }}
-          onTouchEnd={(e) => {
-            e.currentTarget.style.transform = "scale(1)";
-            e.currentTarget.style.opacity = "1";
-          }}
-          aria-label={`Tecla ${k.label}`}
-        >
-          {k.label}
-        </button>
-      ))}
-    </div>
-  );
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); return }
+    if (e.key === 'Tab' && showSugg && suggestions.length > 0) {
+      e.preventDefault()
+      setInput(suggestions[selSugg])
+      setShowSugg(false)
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (showSugg && suggestions.length > 0) {
+        setSelSugg(prev => Math.max(0, prev - 1))
+        return
+      }
+      if (cmdHistory.length > 0) {
+        const next = cmdIdx < cmdHistory.length - 1 ? cmdIdx + 1 : cmdIdx
+        setCmdIdx(next)
+        setInput(cmdHistory[next] ?? '')
+      }
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (showSugg && suggestions.length > 0) {
+        setSelSugg(prev => Math.min(suggestions.length - 1, prev + 1))
+        return
+      }
+      if (cmdIdx > 0) {
+        setCmdIdx(cmdIdx - 1)
+        setInput(cmdHistory[cmdIdx - 1] ?? '')
+      } else {
+        setCmdIdx(-1)
+        setInput('')
+      }
+      return
+    }
+    if (e.key === 'Escape') { setShowSugg(false); return }
+    // Re-filter suggestions on input change
+    setTimeout(() => {
+      const val = inputRef.current?.value ?? ''
+      if (val.length > 0) {
+        const matches = OC_COMMANDS.filter(c => c.toLowerCase().includes(val.toLowerCase())).slice(0, 6)
+        setSuggestions(matches)
+        setShowSugg(matches.length > 0)
+        setSelSugg(0)
+      } else {
+        setShowSugg(false)
+      }
+    }, 0)
+  }
+
+  const clearHistory = () => setHistory([])
 
   return (
-    <div className="terminal-container" style={S.root}>
-      {/* Output */}
-      <div
-        ref={scrollRef}
-        className="terminal-output no-scrollbar"
-        style={S.output}
-      >
-        {history.map((h, i) => (
-          <div
-            key={i}
-            style={{
-              ...S.line,
-              color:
-                h.type === "cmd"
-                  ? "#4ade80"
-                  : h.type === "err"
-                    ? "#f87171"
-                    : "#e2e8f0",
-              fontWeight: h.type === "cmd" ? 600 : 400,
-            }}
-          >
-            {h.type === "cmd" && <span style={{ color: "#6366f1" }}>$ </span>}
-            {h.text}
+    <div className="flex flex-col h-full bg-bg">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-accent-soft flex items-center justify-center">
+            <TerminalIcon size={18} className="text-accent" />
           </div>
-        ))}
+          <div>
+            <h2 className="text-sm font-bold text-text-primary">Terminal</h2>
+            <span className="text-[10px] text-text-muted">openclaw CLI</span>
+          </div>
+        </div>
+        <button onClick={clearHistory}	className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-glass-bg transition-all">
+          <RefreshCw size={14} />
+        </button>
       </div>
 
-      {/* Autocomplete suggestions */}
-      {suggestions.length > 0 && (
-        <div className="terminal-suggestions">
+      {/* ── Quick commands ── */}
+      <div className="px-4 pb-3">
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+          {QUICK.map(q => (
+            <button key={q.cmd} onClick={() => executeCommand(q.cmd)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg glass text-[10px] text-text-secondary hover:text-text-primary hover:bg-glass-bg transition-all whitespace-nowrap shrink-0">
+              <q.icon size={10} /> {q.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Output area ── */}
+      <div ref={outputRef}
+        className="flex-1 overflow-y-auto mx-3 mb-2 rounded-xl bg-bg-code border border-glass-border font-mono text-[12px] leading-relaxed">
+        <div className="p-4 space-y-0.5 min-h-[120px]">
+          {history.length === 0 && (
+            <div className="text-text-dim text-center py-8">
+              <TerminalIcon size={24} className="mx-auto mb-2 opacity-30" />
+              <p className="text-xs">Escribe un comando para empezar</p>
+              <p className="text-[10px] mt-1">Usa Tab para autocompletar · ↑↓ para historial</p>
+            </div>
+          )}
+          {history.map((line, i) => (
+            <div key={i} className={`${
+              line.type === 'input' ? 'text-accent-light' :
+              line.type === 'error' ? 'text-red' : 'text-text-secondary'
+            } whitespace-pre-wrap break-all`}>
+              {line.text}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Autocomplete ── */}
+      {showSugg && (
+        <div className="mx-3 mb-1 glass-strong rounded-xl border-glass-strong-border overflow-hidden shadow-lg">
           {suggestions.map((s, i) => (
-            <button
-              key={i}
-              className="terminal-suggestion"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                setInput(s);
-                setSuggestions([]);
-              }}
-              onTouchStart={(e) => {
-                e.currentTarget.style.transform = "scale(0.95)";
-                e.currentTarget.style.opacity = "0.8";
-              }}
-              onTouchEnd={(e) => {
-                e.currentTarget.style.transform = "scale(1)";
-                e.currentTarget.style.opacity = "1";
-              }}
-              aria-label={`Autocompletar con ${s}`}
-            >
+            <button key={s}
+              onClick={() => { setInput(s); setShowSugg(false); inputRef.current?.focus() }}
+              className={`w-full text-left px-3 py-2 text-xs font-mono transition-colors ${
+                i === selSugg ? 'bg-accent-soft text-accent' : 'text-text-secondary hover:bg-glass-bg'
+              }`}>
               {s}
             </button>
           ))}
         </div>
       )}
 
-      {/* Input area & Keyboard */}
-      <div className="terminal-keyboard-area" style={S.keyboardArea}>
-        {/* Quick Commands (hidden scrollbar) */}
-        <div className="terminal-quick-cmds no-scrollbar" style={S.quickCmds}>
-          {[
-            { label: "gateway", cmd: "openclaw gateway", color: "#60a5fa" },
-            { label: "status", cmd: "openclaw status", color: "#4ade80" },
-            { label: "health", cmd: "openclaw health", color: "#4ade80" },
-            { label: "models", cmd: "openclaw models", color: "#c4b5fd" },
-            { label: "doctor", cmd: "openclaw doctor", color: "#fb923c" },
-            { label: "update", cmd: "openclaw update", color: "#4ade80" },
-            { label: "skills", cmd: "openclaw skills", color: "#facc15" },
-            { label: "version", cmd: "openclaw --version", color: "#94a3b8" },
-            { label: "tasks", cmd: "openclaw tasks", color: "#22d3ee" },
-            { label: "logs", cmd: "openclaw logs", color: "#94a3b8" },
-            { label: "node -v", cmd: "node -v", color: "#86efac" },
-          ].map((q) => (
-            <button
-              key={q.cmd}
-              style={{
-                ...S.quickCmdBtn,
-                color: q.color,
-                borderColor: q.color + "30",
-                background: q.color + "10",
-              }}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                runCmd(q.cmd);
-              }}
-              onTouchStart={(e) => {
-                e.currentTarget.style.transform = "scale(0.92)";
-              }}
-              onTouchEnd={(e) => {
-                e.currentTarget.style.transform = "scale(1)";
-              }}
-              aria-label={`Ejecutar comando ${q.label}`}
-            >
-              {q.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Input prompt */}
-        <div className="terminal-input-row" style={S.inputRow}>
-          <span className="terminal-prompt" style={S.prompt}>
-            $
-          </span>
-          <input
-            ref={inputRef}
-            className="terminal-input"
-            style={S.input}
+      {/* ── Input ── */}
+      <div className="mx-3 mb-3">
+        <div className="flex items-center gap-2 glass-strong rounded-xl px-3 py-2.5 border-glass-strong-border focus-within:border-accent/20 transition-all">
+          <span className="text-accent font-mono text-xs shrink-0">$</span>
+          <input ref={inputRef}
+            className="flex-1 bg-transparent border-none outline-none text-sm text-text-primary font-mono placeholder-text-dim"
+            placeholder="Escribe un comando..."
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                runCmd(input);
-              }
-              if (e.key === "Tab") {
-                e.preventDefault();
-                if (suggestions[0]) {
-                  setInput(suggestions[0]);
-                  setSuggestions([]);
-                }
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                histUp();
-              }
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                histDown();
-              }
-            }}
-            placeholder={t("chat_placeholder")}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKey}
+            autoFocus
           />
-          <button
-            className="terminal-send-btn"
-            style={S.sendBtn}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              runCmd(input);
-            }}
-            onTouchStart={(e) => {
-              e.currentTarget.style.transform = "scale(0.92)";
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-            aria-label="Ejecutar comando"
+          <button onClick={handleSubmit}
             disabled={!input.trim()}
-          >
-            ▶
+            className={`p-1.5 rounded-lg transition-all ${
+              input.trim() ? 'text-accent hover:bg-accent-soft' : 'text-text-dim'
+            }`}>
+            <Play size={14} />
           </button>
-        </div>
-
-        {/* Action Row */}
-        <div className="terminal-action-row" style={S.actionRow}>
-          <button
-            className="terminal-action-btn"
-            style={S.actionBtn}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              try {
-                navigator.clipboard?.readText?.().then((txt) => {
-                  if (txt) setInput((p) => p + txt);
-                });
-              } catch {
-                /**/
-              }
-            }}
-            onTouchStart={(e) => {
-              e.currentTarget.style.opacity = "0.6";
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.opacity = "1";
-            }}
-            aria-label="Pegar desde portapapeles"
-          >
-            📋 Pegar
-          </button>
-          <button
-            className="terminal-action-btn"
-            style={{ ...S.actionBtn, color: "#f87171" }}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              setInput("");
-            }}
-            onTouchStart={(e) => {
-              e.currentTarget.style.opacity = "0.6";
-            }}
-            onTouchEnd={(e) => {
-              e.currentTarget.style.opacity = "1";
-            }}
-            aria-label="Limpiar entrada"
-          >
-            ✕ Limpiar
-          </button>
-        </div>
-
-        {/* Keyboard layout */}
-        <div className="terminal-keyboard" style={S.keyboard}>
-          {renderRow(row1)}
-          {renderRow(row2)}
-          {renderRow(row3)}
         </div>
       </div>
-
-      {/* Hide scrollbars globally for classes that use them */}
-      <style>{`
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      `}</style>
     </div>
-  );
+  )
 }
-
-const S: Record<string, React.CSSProperties> = {
-  root: {
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    background: "var(--bg)",
-    overflow: "hidden",
-    fontSize: "32px",
-  },
-  output: {
-    flex: 1,
-    overflowY: "auto",
-    padding: "12px 14px",
-    fontFamily: "'JetBrains Mono','Courier New',monospace",
-    fontSize: "32px",
-    lineHeight: 1.7,
-    WebkitOverflowScrolling: "touch",
-    // Performance optimizations
-    willChange: "auto",
-    contain: "layout" as const,
-    // Better scrolling performance
-    scrollBehavior: "smooth",
-    scrollPadding: "10px",
-  },
-  line: { marginBottom: 4, whiteSpace: "pre-wrap", wordBreak: "break-all" },
-
-  suggestions: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-    padding: "8px 12px",
-    background: "var(--surface)",
-    borderTop: "1px solid var(--border)",
-  },
-  suggestion: {
-    background: "rgba(99,102,241,0.15)",
-    border: "1px solid rgba(99,102,241,0.3)",
-    borderRadius: 8,
-    color: "#a5b4fc",
-    padding: "6px 10px",
-    cursor: "pointer",
-    fontWeight: 600,
-  },
-
-  keyboardArea: {
-    background: "rgba(8,8,16,0.95)",
-    borderTop: "1px solid var(--border)",
-    backdropFilter: "blur(16px)",
-    flexShrink: 0,
-    display: "flex",
-    flexDirection: "column",
-  },
-
-  quickCmds: {
-    display: "flex",
-    gap: 6,
-    overflowX: "auto",
-    padding: "10px 12px 6px",
-    WebkitOverflowScrolling: "touch",
-  },
-  quickCmdBtn: {
-    flexShrink: 0,
-    padding: "6px 12px",
-    borderRadius: "var(--r-full)",
-    border: "1px solid",
-    fontWeight: 700,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-    letterSpacing: "0.3px",
-    transition: "transform 0.1s",
-  },
-
-  inputRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    background: "var(--surface)",
-    borderRadius: 12,
-    border: "1px solid var(--border2)",
-    padding: "6px 12px",
-    margin: "6px 12px",
-    boxShadow: "var(--sh-inset)",
-  },
-  prompt: {
-    color: "#6366f1",
-    fontWeight: 800,
-    fontFamily: "'JetBrains Mono',monospace",
-    flexShrink: 0,
-  },
-  input: {
-    flex: 1,
-    background: "transparent",
-    border: "none",
-    outline: "none",
-    color: "var(--text)",
-    fontFamily: "'JetBrains Mono',monospace",
-    fontSize: "32px",
-    padding: "4px 0",
-    caretColor: "#6366f1",
-    // Performance optimizations
-    willChange: "auto",
-    contain: "layout" as const,
-  },
-  sendBtn: {
-    background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-    border: "none",
-    borderRadius: "var(--r-full)",
-    color: "#fff",
-    width: 34,
-    height: 34,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    boxShadow: "0 4px 12px rgba(99,102,241,0.4)",
-  },
-
-  actionRow: { display: "flex", gap: 12, padding: "0 16px 8px" },
-  actionBtn: {
-    background: "transparent",
-    border: "none",
-    color: "var(--text3)",
-    fontWeight: 700,
-    cursor: "pointer",
-    padding: "4px",
-  },
-
-  keyboard: { padding: "0 6px 10px" },
-  kbRow: { display: "flex", gap: 4, marginBottom: 4 },
-  kbKey: {
-    minHeight: 38,
-    borderRadius: 8,
-    border: "1px solid rgba(255,255,255,0.05)",
-    fontWeight: 700,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    userSelect: "none",
-    WebkitUserSelect: "none",
-    padding: "0 10px",
-    letterSpacing: "0.2px",
-  },
-};
