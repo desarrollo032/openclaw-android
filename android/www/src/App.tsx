@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Route, useRoute } from './lib/router'
-import { bridge } from './lib/bridge'
+import { bridge, onTokenRefresh, off } from './lib/bridge'
 import { api } from './lib/api'
 
 import { Setup }            from './screens/Setup'
@@ -97,6 +97,16 @@ export function App() {
     bridge.call('showTerminal')
     navigate('/dashboard')
   }, [path, navigate])
+
+  // Refresh de token: cuando Kotlin reinicia el gateway, emite un nuevo token
+  // por android:onTokenRefresh. Sin esta suscripción, las siguientes llamadas
+  // HTTP/WS fallarían 401 hasta que el usuario recargara la WebView.
+  useEffect(() => {
+    const handler = onTokenRefresh((newToken) => {
+      console.info('[token] refreshed (length=%d)', newToken.length)
+    })
+    return () => off('onTokenRefresh', handler)
+  }, [])
 
   useEffect(() => {
     if (!setupState) return

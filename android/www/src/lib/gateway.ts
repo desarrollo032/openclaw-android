@@ -4,7 +4,9 @@
  * Falls back gracefully when the gateway is offline.
  */
 
-import { GATEWAY_HTTP, GATEWAY_WS, DEFAULT_WS_TIMEOUT_MS } from '../config'
+import { GATEWAY_WS, DEFAULT_WS_TIMEOUT_MS } from '../config'
+import { apiGet, apiPost } from '../api/client'
+import { getToken } from '../utils/androidBridge'
 
 const REQUEST_TIMEOUT = DEFAULT_WS_TIMEOUT_MS
 
@@ -91,22 +93,18 @@ export function getProviderMeta(providerId: string) {
     return PROVIDER_META[providerId] ?? { label: providerId, icon: '🤖', color: '#6b7280' }
 }
 
-/* ── HTTP fallback for config ──────────────────────────── */
+/* ── HTTP fallback delgado sobre el cliente compartido ─────────────────────
+ *
+ * Antes este módulo tenía sus propios httpGet/httpPost duplicando auth, token
+ * y timeout. Ahora delegamos en apiGet/apiPost (src/api/client.ts), que
+ * gestionan Authorization automáticamente, errores tipados y AbortController.
+ * Para preservar la API previa (devolver null en lugar de lanzar), envolvemos
+ * la llamada en try/catch.
+ */
 
 async function httpGet<T>(path: string): Promise<T | null> {
     try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        const token = (window as unknown as { __OPENCLAW_TOKEN?: string }).__OPENCLAW_TOKEN
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`
-        }
-        
-        const r = await fetch(`${GATEWAY_HTTP}${path}`, { 
-            headers,
-            signal: AbortSignal.timeout(5000) 
-        })
-        if (!r.ok) return null
-        return await r.json() as T
+        return await apiGet<T>(path, { timeoutMs: 5_000 })
     } catch {
         return null
     }
@@ -114,45 +112,16 @@ async function httpGet<T>(path: string): Promise<T | null> {
 
 async function httpPost<T>(path: string, body: unknown): Promise<T | null> {
     try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        const token = (window as unknown as { __OPENCLAW_TOKEN?: string }).__OPENCLAW_TOKEN
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`
-        }
-        
-        const r = await fetch(`${GATEWAY_HTTP}${path}`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(5000),
-        })
-        if (!r.ok) return null
-        return await r.json() as T
+        return await apiPost<T>(path, body, { timeoutMs: 5_000 })
     } catch {
         return null
     }
 }
 
-/* ── Android bridge token helper ──────────────────────── */
+/* ── Token helper (reusa getToken del bridge centralizado) ─────────────── */
 
 function getAndroidToken(): string {
-    try {
-        // Primero intentar la variable global (más nueva)
-        const globalToken = (window as unknown as { __OPENCLAW_TOKEN?: string }).__OPENCLAW_TOKEN
-        if (globalToken) {
-            return globalToken
-        }
-        
-        // Fallback al bridge Android
-        const bridge = (window as unknown as { OpenClaw?: { getGatewayToken?: () => string, getAuthToken?: () => string } }).OpenClaw
-        if (bridge?.getAuthToken) {
-            return bridge.getAuthToken() ?? ''
-        }
-        if (bridge?.getGatewayToken) {
-            return bridge.getGatewayToken() ?? ''
-        }
-    } catch { /* not in Android WebView */ }
-    return ''
+    return getToken()
 }
 
 /* ── WebSocket RPC client ──────────────────────────────── */
