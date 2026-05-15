@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { bridge } from '../lib/bridge'
-import { CheckSquare, Package, Wrench, Rocket, AlertCircle, RefreshCw } from 'lucide-react'
+import { CheckSquare, Package, Wrench, Rocket, AlertCircle, RefreshCw, Play } from 'lucide-react'
 
 interface AssetStatus {
   bootstrap: boolean
@@ -12,6 +12,7 @@ interface AssetStatus {
 export function InstallationCard() {
   const [assetStatus, setAssetStatus] = useState<AssetStatus | null>(null)
   const [checking, setChecking] = useState(false)
+  const [installing, setInstalling] = useState(false)
 
   const check = useCallback(() => {
     if (!bridge.isAvailable()) return
@@ -23,8 +24,26 @@ export function InstallationCard() {
     setChecking(false)
   }, [])
 
-  // Check on first render
-  useState(() => { check() })
+  useEffect(() => { check() }, [])
+
+  const startInstall = useCallback(() => {
+    if (!bridge.isAvailable()) return
+    setInstalling(true)
+    bridge.call('startSetup')
+    // Poll para detectar cuando termina
+    const id = setInterval(() => {
+      const raw = bridge.callJson<AssetStatus>('getAssetStatus')
+      if (raw) {
+        setAssetStatus(raw)
+        if (raw.bootstrap && raw.payload && raw.platform && raw.tools) {
+          setInstalling(false)
+          clearInterval(id)
+        }
+      }
+    }, 2000)
+    // Timeout de seguridad (5 min)
+    setTimeout(() => { clearInterval(id); setInstalling(false) }, 300_000)
+  }, [])
 
   if (!bridge.isAvailable()) return null
 
@@ -36,6 +55,7 @@ export function InstallationCard() {
   ]
 
   const allDone = steps.every(s => s.done)
+  const somePending = !allDone
 
   return (
     <div className="card p-4">
@@ -47,7 +67,13 @@ export function InstallationCard() {
           <div>
             <div className="text-sm font-semibold text-text-primary">Instalación</div>
             <div className="text-[10px] text-text-muted mt-0.5">
-              {allDone ? 'Completada' : assetStatus ? `${steps.filter(s => s.done).length}/${steps.length}` : 'Verificando...'}
+              {installing
+                ? 'Instalando...'
+                : allDone
+                  ? 'Completada'
+                  : assetStatus
+                    ? `${steps.filter(s => s.done).length}/${steps.length}`
+                    : 'Verificando...'}
             </div>
           </div>
         </div>
@@ -80,6 +106,29 @@ export function InstallationCard() {
             <RefreshCw size={12} className="animate-spin" />
             Verificando estado...
           </div>
+        </div>
+      )}
+
+      {/* Botón Iniciar instalación */}
+      {somePending && !installing && (
+        <button
+          onClick={startInstall}
+          className="btn btn-primary text-xs w-full mt-3 px-4 py-2"
+        >
+          <Play size={13} />
+          Iniciar instalación
+        </button>
+      )}
+      {installing && (
+        <div className="flex items-center justify-center gap-2 mt-3 text-xs text-accent">
+          <RefreshCw size={12} className="animate-spin" />
+          Instalando componentes...
+        </div>
+      )}
+      {allDone && assetStatus && (
+        <div className="flex items-center justify-center gap-1.5 mt-3 text-xs text-green">
+          <CheckSquare size={12} />
+          Todos los componentes instalados
         </div>
       )}
     </div>

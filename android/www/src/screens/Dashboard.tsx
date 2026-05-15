@@ -3,7 +3,7 @@ import { bridge } from "../lib/bridge"
 import { GatewayStatus } from "../components/GatewayStatus"
 import { InstallationCard } from "../components/InstallationCard"
 import { navigate } from "../lib/router"
-import { Play, Box, Terminal as TerminalIcon, Zap, Cpu, Activity, Star, RefreshCw } from "lucide-react"
+import { Play, Box, Terminal as TerminalIcon, Zap, Cpu, Activity, Star, RefreshCw, AlertTriangle, ArrowRight } from "lucide-react"
 
 interface AppInfo {
   versionName: string
@@ -121,6 +121,8 @@ export function Dashboard() {
     { label: "openclaw", value: ocVer,            color: "#ffa502" },
   ]
 
+  const needsInstall = !appInfo || !ocVer || ocVer === 'instalando...' || ocVer === 'desconocido' || ocVer === 'reintentando...'
+
   const runCommand = (cmd: string, path?: string) => {
     if (cmd === "openclaw gateway") { bridge.call("startGateway"); return }
     if (path) { navigate(path); return }
@@ -140,6 +142,40 @@ export function Dashboard() {
           <span className="badge badge-accent text-[10px] truncate max-w-[120px]">{lastFile}</span>
         )}
       </div>
+
+      {/* ── Banner de instalación pendiente ── */}
+      {needsInstall && (
+        <div className="card p-4 border-l-2 border-l-accent/30">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-accent-soft flex items-center justify-center shrink-0">
+              <AlertTriangle size={17} className="text-accent" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-text-primary">Instalación pendiente</div>
+              <div className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                Los componentes del sistema aún no están instalados. Los archivos necesarios ya están incluidos
+                en la aplicación — solo necesitas iniciar la instalación.
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => { bridge.call('startSetup'); setOcVer('instalando...') }}
+                  className="btn btn-primary text-xs px-3 py-1.5"
+                >
+                  <Play size={11} />
+                  Iniciar instalación
+                </button>
+                <button
+                  onClick={() => navigate('/settings/updates')}
+                  className="btn btn-ghost text-xs px-3 py-1.5"
+                >
+                  <ArrowRight size={11} />
+                  Ir a Updates
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Environment badges ── */}
       <div className="flex flex-wrap gap-2">
