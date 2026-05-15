@@ -39,6 +39,7 @@ jobs:
         with:
           name: www-zip
           path: android/www/www.zip
+          if-no-files-found: error
 
   build-apk:
     name: Build APK
@@ -94,10 +95,27 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
+      - name: Locate APK and copy to known location
+        run: |
+          echo "=== Looking for APK files ==="
+          find . -name '*.apk' -type f 2>/dev/null || echo "No APK found with find"
+          ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "debug/ dir not found"
+          ls -la app/build/outputs/apk/ 2>/dev/null || echo "apk/ dir not found"
+          # Try to find and copy to a flat location
+          APK=$(find . -name '*.apk' -type f 2>/dev/null | head -1)
+          if [ -n "$APK" ]; then
+            mkdir -p ../apk-out
+            cp "$APK" ../apk-out/app-debug.apk
+            echo "Copied $APK to ../apk-out/app-debug.apk"
+          else
+            echo "WARNING: No APK found!"
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: apk-out/app-debug.apk
+          if-no-files-found: error
 
   release:
     name: Create Release
@@ -123,6 +141,9 @@ jobs:
           name: www-zip
           path: release-artifacts
 
+      - name: List release artifacts
+        run: find release-artifacts -type f -ls
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -131,6 +152,4 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          files: |
-            release-artifacts/app-debug.apk
-            release-artifacts/www.zip
+          files: release-artifacts/*

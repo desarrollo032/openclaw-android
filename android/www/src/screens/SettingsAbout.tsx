@@ -1,6 +1,27 @@
+import { useState, useEffect } from 'react'
 import { PageHeader } from '../components/PageHeader'
+import { callJson } from '../lib/bridge'
+
+interface AppInfo {
+  versionName?: string
+  versionCode?: number
+  packageName?: string
+}
 
 export function SettingsAbout() {
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+
+  useEffect(() => {
+    try {
+      const info = callJson<AppInfo>('getAppInfo')
+      if (info) setAppInfo(info)
+    } catch { /* bridge not available */ }
+  }, [])
+
+  const versionDisplay = appInfo?.versionName
+    ? `${appInfo.versionName} (código ${appInfo.versionCode ?? '?'})`
+    : '—'
+
   return (
     <div className="page-container flex flex-col gap-5 pb-4 animate-fade-in">
       <PageHeader
@@ -31,10 +52,13 @@ export function SettingsAbout() {
         <div className="gradient-divider my-4" />
         <div className="space-y-2 text-left">
           {[
-            { label: 'Versión', value: '1.0.0' },
+            { label: 'Versión', value: versionDisplay },
             { label: 'Framework', value: 'React + Vite' },
             { label: 'Estilos', value: 'TailwindCSS v4 + Lucide' },
             { label: 'Plataforma', value: 'Android' },
+            ...(appInfo?.packageName
+              ? [{ label: 'Paquete', value: appInfo.packageName }]
+              : []),
           ].map(item => (
             <div key={item.label} className="flex items-center justify-between px-3 py-2 rounded-xl bg-glass-bg">
               <span className="text-xs text-text-muted">{item.label}</span>
