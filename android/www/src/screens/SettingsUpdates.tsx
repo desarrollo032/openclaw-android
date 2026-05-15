@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRoute } from '../lib/router'
-import { Package, RefreshCw, Download, Upload, ExternalLink, AlertCircle, FileDown, ChevronDown } from 'lucide-react'
+import { Package, RefreshCw, Download, Upload, ExternalLink, AlertCircle, FileDown, ChevronDown, CheckCircle2, XCircle, Play, Loader } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
-import { bridge, callJson } from '../lib/bridge'
+import { bridge, on, off } from '../lib/bridge'
+
+/* ── Types ── */
 
 interface AppInfo {
   versionName?: string
@@ -23,22 +25,109 @@ interface GitHubRelease {
   }>
 }
 
+interface InstallProgress {
+  step: number
+  totalSteps: number
+  extractedMB: number
+  totalMB: number
+  percent: number
+  currentFile: string
+  stepName: string
+}
+
+/* ── States ── */
+
+type InstallState =
+  | { phase: 'idle' }
+  | { phase: 'selecting' }
+  | { phase: 'ready'; fileUri: string; fileName: string }
+  | { phase: 'installing'; progress: InstallProgress }
+  | { phase: 'done' }
+  | { phase: 'error'; message: string }
+
 export function SettingsUpdates() {
   const { navigate } = useRoute()
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [latestRelease, setLatestRelease] = useState<GitHubRelease | null>(null)
   const [checking, setChecking] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
-  const [installing, setInstalling] = useState(false)
   const [showReleaseNotes, setShowReleaseNotes] = useState(false)
+  const [install, setInstall] = useState<InstallState>({ phase: 'idle' })
+  const [quickInstalling, setQuickInstalling] = useState(false)
 
+  /* ── App info on mount ── */
   useEffect(() => {
     try {
-      const info = callJson<AppInfo>('getAppInfo')
+      const info = bridge.callJson<AppInfo>('getAppInfo')
       if (info) setAppInfo(info)
     } catch { /* bridge not available */ }
   }, [])
 
+  /* ── Escuchar eventos nativos de instalación ── */
+  useEffect(() => {
+    if (!bridge.isAvailable()) return
+
+    const handleFilePicked = (data: unknown) => {
+      // Datos pueden ser objeto { uri, filename, name } o string directo (la URI)
+      const d = data as Record<string, unknown> | string | null
+      if (!d) return
+      if (typeof d === 'string') {
+        // Caso: data es directamente la URI
+        const name = d.split('/').pop() || d
+        setInstall({ phase: 'ready', fileUri: d, fileName: name })
+      } else {
+        const uri = (d.uri as string) || (d.path as string) || ''
+        const name = (d.filename as string) || (d.name as string) || uri.split('/').pop() || uri
+        if (uri) {
+          setInstall({ phase: 'ready', fileUri: uri, fileName: name })
+        } else if (d.filename) {
+          // No hay URI pero tenemos nombre — puede que el archivo ya esté cargado
+          setInstall({ phase: 'ready', fileUri: d.filename as string, fileName: d.filename as string })
+        }
+      }
+    }
+
+    const hProgress = (data: unknown) => {
+      const p = data as InstallProgress
+      if (p && p.percent !== undefined) {
+        if (p.percent >= 100) {
+          setInstall({ phase: 'done' })
+        } else {
+          setInstall({ phase: 'installing', progress: p })
+        }
+      }
+    }
+
+    const hComplete = () => {
+      setInstall({ phase: 'done' })
+      setQuickInstalling(false)
+    }
+
+    const hError = (data: unknown) => {
+      const d = data as { error?: string; message?: string }
+      const msg = d?.error ?? d?.message ?? 'Error desconocido'
+      setInstall({ phase: 'error', message: msg })
+      setQuickInstalling(false)
+    }
+
+    const remove1 = on('onLocalAssetPicked', handleFilePicked)
+    const remove2 = on('onMigrationFilePicked', handleFilePicked)
+    const remove3 = on('install_callback', handleFilePicked)
+    const remove4 = on('onInstallProgress', hProgress)
+    const remove5 = on('onInstallComplete', hComplete)
+    const remove6 = on('onInstallError', hError)
+
+    return () => {
+      off('onLocalAssetPicked', remove1)
+      off('onMigrationFilePicked', remove2)
+      off('install_callback', remove3)
+      off('onInstallProgress', remove4)
+      off('onInstallComplete', remove5)
+      off('onInstallError', remove6)
+    }
+  }, [])
+
+  /* ── Check GitHub releases ── */
   const checkForUpdates = useCallback(async () => {
     setChecking(true)
     setFetchError(null)
@@ -61,25 +150,224 @@ export function SettingsUpdates() {
     }
   }, [])
 
-  const handleManualInstall = useCallback(() => {
+  /* ── Select file via native picker ── */
+  const handleSelectFile = useCallback(() => {
     if (!bridge.isAvailable()) return
+    setInstall({ phase: 'selecting' })
     bridge.call('pickFile', 'install_callback')
-    setInstalling(true)
+    // Timeout seguro: si el usuario cancela, volver a idle
+    setTimeout(() => {
+      setInstall(prev => prev.phase === 'selecting' ? { phase: 'idle' } : prev)
+    }, 60_000)
   }, [])
 
+  /* ── Install from selected file URI ── */
+  const handleInstallFromUri = useCallback(() => {
+    if (install.phase !== 'ready') return
+    const progress: InstallProgress = {
+      step: 1, totalSteps: 1, percent: 0,
+      extractedMB: 0, totalMB: 0,
+      currentFile: install.fileName, stepName: 'Instalando...'
+    }
+    setInstall({ phase: 'installing', progress })
+    bridge.call('installFromUri', install.fileUri, '')
+  }, [install])
+
+  /* ── Quick install (full system reinstall) ── */
+  const handleQuickInstall = useCallback(() => {
+    if (!bridge.isAvailable()) return
+    setQuickInstalling(true)
+    setInstall({ phase: 'idle' })
+    bridge.call('startSetup')
+  }, [])
+
+  /* ── Derived ── */
   const currentVersion = appInfo?.versionName ?? ''
   const latestTag = latestRelease?.tag_name.replace(/^v/, '') ?? ''
   const hasUpdate = !!currentVersion && !!latestTag && currentVersion !== '-' && latestTag !== currentVersion
+  const bridgeAvailable = bridge.isAvailable()
+
+  /* ── Render helpers ── */
+
+  const renderInstallStatus = () => {
+    switch (install.phase) {
+      case 'selecting':
+        return (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent-soft text-accent text-[11px]">
+            <Loader size={12} className="animate-spin" />
+            Seleccionando archivo...
+          </div>
+        )
+      case 'ready':
+        return (
+          <div className="mt-3 space-y-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-soft text-green text-[11px]">
+              <CheckCircle2 size={12} />
+              {install.fileName}
+            </div>
+            <button
+              onClick={handleInstallFromUri}
+              className="btn btn-primary text-xs px-4 py-2.5 w-full"
+            >
+              <Download size={14} />
+              Instalar ahora
+            </button>
+          </div>
+        )
+      case 'installing': {
+        const p = install.progress
+        return (
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent-soft text-accent text-[11px]">
+              <Loader size={12} className="animate-spin" />
+              Instalando... {p.step}/{p.totalSteps}
+            </div>
+            {/* Barra de progreso */}
+            <div className="w-full h-1.5 rounded-full bg-glass-bg overflow-hidden">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-300"
+                style={{ width: `${Math.min(p.percent, 100)}%` }}
+              />
+            </div>
+            <div className="text-[9px] text-text-muted text-center">
+              {Math.round(p.percent)}% — {p.currentFile || p.stepName}
+            </div>
+          </div>
+        )
+      }
+      case 'done':
+        return (
+          <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-green-soft text-green text-[11px]">
+            <CheckCircle2 size={12} />
+            ¡Instalación completada!
+          </div>
+        )
+      case 'error':
+        return (
+          <div className="mt-3 space-y-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-soft text-red text-[11px]">
+              <XCircle size={12} />
+              {install.message}
+            </div>
+            <button
+              onClick={() => setInstall({ phase: 'idle' })}
+              className="btn btn-ghost text-xs px-3 py-1.5 w-full"
+            >
+              Reintentar
+            </button>
+          </div>
+        )
+      default:
+        return null
+    }
+  }
 
   return (
     <div className="page-container flex flex-col gap-5 pb-4 animate-fade-in">
       <PageHeader
         title="Actualizaciones"
-        subtitle="Buscar y aplicar actualizaciones"
+        subtitle="Instalar componentes y buscar nuevas versiones"
         icon={Package}
       />
 
-      {/* Versión actual + Buscar actualizaciones */}
+      {/* ── Barra de progreso global ── */}
+      {install.phase === 'installing' && (
+        <div className="card p-4">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-accent-soft flex items-center justify-center">
+              <Loader size={17} className="text-accent animate-spin" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-text-primary">Instalando...</div>
+              <div className="text-[10px] text-text-muted mt-0.5">
+                Paso {install.progress.step} de {install.progress.totalSteps}
+              </div>
+            </div>
+          </div>
+          <div className="w-full h-2 rounded-full bg-glass-bg overflow-hidden">
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-300"
+              style={{ width: `${Math.min(install.progress.percent, 100)}%` }}
+            />
+          </div>
+          <div className="text-[10px] text-text-muted text-center mt-2">
+            {Math.round(install.progress.percent)}% — {install.progress.currentFile || install.progress.stepName}
+          </div>
+        </div>
+      )}
+      {install.phase === 'done' && (
+        <div className="card p-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-green-soft flex items-center justify-center">
+              <CheckCircle2 size={17} className="text-green" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-text-primary">¡Instalación completada!</div>
+              <div className="text-[10px] text-text-muted mt-0.5">
+                {quickInstalling ? 'Todos los componentes se instalaron correctamente.' : 'El archivo se instaló correctamente.'}
+              </div>
+            </div>
+            <button
+              onClick={() => { setInstall({ phase: 'idle' }); setQuickInstalling(false) }}
+              className="ml-auto btn btn-ghost text-[10px] px-2 py-1"
+            >
+              Ok
+            </button>
+          </div>
+        </div>
+      )}
+      {install.phase === 'error' && (
+        <div className="card p-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-red-soft flex items-center justify-center">
+              <XCircle size={17} className="text-red" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-text-primary">Error de instalación</div>
+              <div className="text-[10px] text-text-muted mt-0.5 truncate">{install.message}</div>
+            </div>
+            <button
+              onClick={() => { setInstall({ phase: 'idle' }); setQuickInstalling(false) }}
+              className="btn btn-ghost text-[10px] px-2 py-1"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 1. Quick Install (botón principal) ── */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="w-9 h-9 rounded-xl bg-accent-soft flex items-center justify-center">
+            <Download size={17} className="text-accent" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-text-primary">Instalar componentes</div>
+            <div className="text-[10px] text-text-muted mt-0.5">
+              Instalar o reinstalar todos los componentes del sistema
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={handleQuickInstall}
+          disabled={quickInstalling || !bridgeAvailable}
+          className="btn btn-primary text-xs px-4 py-2.5 w-full"
+        >
+          {quickInstalling ? (
+            <><Loader size={14} className="animate-spin" /> Instalando...</>
+          ) : (
+            <><Play size={14} /> Iniciar instalación completa</>
+          )}
+        </button>
+        {!bridgeAvailable && (
+          <p className="text-[10px] text-text-dim text-center mt-2">
+            Solo disponible en la app Android
+          </p>
+        )}
+      </div>
+
+      {/* ── 2. Versión actual + Buscar actualizaciones ── */}
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
@@ -174,23 +462,9 @@ export function SettingsUpdates() {
                 )}
               </>
             )}
-
-            {/* Botón de actualización */}
-            {hasUpdate && (
-              <div className="px-4 pb-3 pt-1">
-                <button
-                  onClick={() => navigate('/terminal')}
-                  className="btn btn-primary text-xs px-4 py-2 w-full"
-                >
-                  <Download size={13} />
-                  Ir a terminal para actualizar
-                </button>
-              </div>
-            )}
           </div>
         )}
 
-        {/* Sugerencia si no se ha buscado aún */}
         {!latestRelease && !fetchError && !checking && (
           <div className="text-[11px] text-text-muted text-center py-2">
             Presiona "Buscar" para verificar si hay una nueva versión disponible
@@ -198,7 +472,7 @@ export function SettingsUpdates() {
         )}
       </div>
 
-      {/* Instalación manual */}
+      {/* ── 3. Instalación manual (seleccionar archivo) ── */}
       <div className="card p-5">
         <div className="flex items-center gap-2.5 mb-3">
           <div className="w-9 h-9 rounded-xl bg-accent-soft flex items-center justify-center">
@@ -212,25 +486,29 @@ export function SettingsUpdates() {
           </div>
         </div>
         <p className="text-[11px] text-text-muted mb-3 leading-relaxed">
-          Selecciona un archivo APK o payload desde el almacenamiento del dispositivo
+          Selecciona un archivo .zip o .apk desde el almacenamiento del dispositivo
           para instalar una versión específica manualmente.
         </p>
         <button
-          onClick={handleManualInstall}
-          disabled={installing || !bridge.isAvailable()}
-          className="btn btn-ghost text-xs px-4 py-2 w-full"
+          onClick={handleSelectFile}
+          disabled={!bridgeAvailable || install.phase === 'selecting'}
+          className="btn btn-ghost text-xs px-4 py-2.5 w-full"
         >
           <FileDown size={13} />
-          {installing ? 'Seleccionando archivo...' : 'Seleccionar archivo'}
+          {install.phase === 'selecting' ? 'Seleccionando...' : 'Seleccionar archivo'}
         </button>
-        {!bridge.isAvailable() && (
+
+        {/* Estado de la instalación */}
+        {renderInstallStatus()}
+
+        {!bridgeAvailable && (
           <p className="text-[10px] text-text-dim text-center mt-2">
             Solo disponible en la app Android
           </p>
         )}
       </div>
 
-      {/* Terminal */}
+      {/* ── 4. Desde la terminal ── */}
       <div className="card p-5">
         <div className="flex items-center gap-2.5 mb-3">
           <div className="w-9 h-9 rounded-xl bg-glass-bg flex items-center justify-center">

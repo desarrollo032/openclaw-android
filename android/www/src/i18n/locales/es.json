@@ -124,6 +124,7 @@
   "updates_hint": "Presiona \"Buscar\" para verificar si hay una nueva versión disponible",
   "updates_version_code": "código {code}",
 
+
   "platforms_title": "Plataformas",
   "platforms_installing": "Instalando {name}...",
   "platforms_active": "Activo",
