@@ -1,66 +1,90 @@
-# Guía de Versionado Profesional para OpenClaw Android
+# Guía de versionado
 
-## 📋 Formato: Semantic Versioning (SemVer)
-
-`MAJOR.MINOR.PATCH`
-
-- **MAJOR**: Cambios incompatibles (breaking changes)
-- **MINOR**: Nuevas funcionalidades compatibles
-- **PATCH**: Correcciones de errores
-
-Ejemplos:
-- `1.0.0` - Primera versión estable
-- `1.1.0` - Nueva funcionalidad
-- `1.1.1` - Corrección de error
+Cómo gestionar versiones y tags en **OpenClaw Android**, alineado con [Semantic Versioning](https://semver.org/).
 
 ---
 
-## 🚀 Flujo de Trabajo
+## Índice
 
-### Paso 1: Crear un Git Tag
+- [Formato SemVer](#formato-semver)
+- [Flujo de versionado](#flujo-de-versionado)
+- [Archivos relevantes](#archivos-relevantes)
+- [Comandos rápidos](#comandos-rápidos)
+- [Verificar la versión en la app](#verificar-la-versión-en-la-app)
+
+---
+
+## Formato SemVer
+
+```
+MAJOR.MINOR.PATCH
+```
+
+| Componente | Cuándo aumentarlo |
+| --- | --- |
+| **MAJOR** | Cambios incompatibles (breaking changes). |
+| **MINOR** | Nuevas funcionalidades compatibles. |
+| **PATCH** | Correcciones de errores. |
+
+**Ejemplos:**
+
+- `1.0.0` — primera versión estable.
+- `1.1.0` — nueva funcionalidad.
+- `1.1.1` — corrección de error.
+
+---
+
+## Flujo de versionado
+
+### Paso 1 — Crear un Git tag
 
 ```bash
 # Tag anotado (recomendado)
 git tag -a v1.0.0 -m "Versión 1.0.0 - Primera versión estable"
 
-# Push del tag al repositorio
+# Subir el tag al repositorio
 git push origin v1.0.0
 ```
 
-### Paso 2: Actualizar `version.properties`
+> El workflow de releases automáticos se dispara con cualquier tag `v*`.
+
+### Paso 2 — Actualizar `version.properties`
 
 ```bash
 cd android
-./gradlew.bat updateVersionFromGit
+./gradlew updateVersionFromGit
 ```
 
 Esto:
-- Obtiene el número de commits como `VERSION_CODE`
-- Obtiene el último tag como `VERSION_NAME`
-- Guarda en `version.properties`
 
-### Paso 3: Compilar la Versión
+- Toma el número de commits como `VERSION_CODE`.
+- Toma el último tag como `VERSION_NAME`.
+- Escribe el resultado en `version.properties`.
+
+> En Windows usa `gradlew.bat`.
+
+### Paso 3 — Compilar
 
 ```bash
-# Build debug (pruebas)
-./gradlew.bat assembleDebug
+# Debug
+./gradlew assembleDebug
 
-# Build release (publicación)
-./gradlew.bat assembleRelease
+# Release
+./gradlew assembleRelease
 ```
 
 ---
 
-## 📁 Archivos Importantes
+## Archivos relevantes
 
 | Archivo | Propósito |
-|---------|-----------|
-| `version.properties` | Almacena VERSION_CODE y VERSION_NAME |
-| `android/app/build.gradle.kts` | Configuración del versionado |
+| --- | --- |
+| `version.properties` | Guarda `VERSION_CODE` y `VERSION_NAME`. |
+| `android/app/build.gradle.kts` | Lógica de versionado (lee `version.properties`). |
 
 ---
 
-## ⚡ Comandos Rápidos
+## Comandos rápidos
 
 ```bash
 # Ver tags locales
@@ -78,12 +102,12 @@ git push origin --delete v1.0.0
 
 ---
 
-## 🔍 Verificar la Versión
+## Verificar la versión en la app
 
-En la app se muestra en el Dashboard:
-- `packageName` · `versionName` · build `versionCode`
+El Dashboard muestra (en *Settings → About*):
 
-Ejemplo:
 ```
 com.openclaw.android · v1.0.0 · build 42
 ```
+
+Formato: `packageName · versionName · build versionCode`.

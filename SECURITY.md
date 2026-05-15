@@ -1,68 +1,91 @@
-# Security Policy
+# Política de seguridad
 
-## Supported Versions
+---
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
+## Índice
 
-## Reporting a Vulnerability
+- [Versiones con soporte](#versiones-con-soporte)
+- [Reporte de vulnerabilidades](#reporte-de-vulnerabilidades)
+- [Tiempos de respuesta](#tiempos-de-respuesta)
+- [Arquitectura de seguridad](#arquitectura-de-seguridad)
+- [Qué protege OpenClaw](#qué-protege-openclaw)
+- [Fuera de alcance](#fuera-de-alcance)
 
-**Please do NOT open a public GitHub issue for security vulnerabilities.**
+---
 
-Instead, please report them responsibly:
+## Versiones con soporte
 
-1. **GitHub**: Use [GitHub Security Advisories](https://github.com/AidanPark/openclaw-android/security/advisories/new)
+| Versión | ¿Soportada? |
+| --- | --- |
+| `1.0.x` | ✅ |
 
-### What to Include
+---
 
-- Description of the vulnerability
-- Steps to reproduce
-- Impact assessment
-- Suggested fix (if any)
+## Reporte de vulnerabilidades
 
-### Response Timeline
+> **No abras un issue público en GitHub** para reportar vulnerabilidades de seguridad.
 
-- **Acknowledgment**: Within 48 hours
-- **Assessment**: Within 1 week
-- **Fix**: Within 2 weeks for critical issues
+Reporta de forma responsable a través de **[GitHub Security Advisories](https://github.com/desarrollo032/openclaw-android/security/advisories/new)**.
 
-## Security Architecture
+### Qué incluir
 
-OpenClaw on Android runs standard Linux binaries on Android without proot-distro. The security model is shaped by this unique execution environment.
+- Descripción clara de la vulnerabilidad.
+- Pasos de reproducción.
+- Evaluación de impacto.
+- Sugerencia de corrección (si la tienes).
 
-### Execution Isolation
+---
+
+## Tiempos de respuesta
+
+| Etapa | Plazo |
+| --- | --- |
+| **Acuse de recibo** | 48 horas |
+| **Evaluación** | 1 semana |
+| **Corrección** | 2 semanas (para problemas críticos) |
+
+---
+
+## Arquitectura de seguridad
+
+OpenClaw en Android ejecuta binarios Linux estándar sin `proot-distro`. El modelo de seguridad se basa en este entorno particular:
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Android Kernel (SELinux enforced)            │
+│ Kernel Android (SELinux aplicado)            │
 │ ┌─────────────────────────────────────────┐ │
-│ │ Termux sandbox (/data/data/com.termux)  │ │
+│ │ Sandbox de Termux (/data/data/...)      │ │
 │ │ ┌─────────────────────────────────────┐ │ │
-│ │ │ glibc-runner (ld.so userspace only) │ │ │
+│ │ │ glibc-runner (ld.so en userspace)   │ │ │
 │ │ │ Node.js → OpenClaw                  │ │ │
 │ │ └─────────────────────────────────────┘ │ │
 │ └─────────────────────────────────────────┘ │
 └─────────────────────────────────────────────┘
 ```
 
-### Isolation Layers
+### Capas de aislamiento
 
-1. **Android app sandbox** — Termux runs in its own Linux user namespace; no access to other app data
-2. **SELinux** — Android's mandatory access control applies to all Termux processes
-3. **No root required** — The entire stack runs as a regular unprivileged user
-4. **No proot** — No filesystem translation layer; glibc-runner provides only the dynamic linker
-5. **Path conversion** — Standard Linux paths (`/tmp`, `/bin/sh`) are mapped to Termux equivalents at install time, not at runtime via syscall interception
+1. **Sandbox de la app Android** — Termux corre en su propio namespace Linux; no accede a datos de otras apps.
+2. **SELinux** — el control de acceso obligatorio (MAC) de Android aplica a todos los procesos de Termux.
+3. **Sin root** — todo el stack corre como usuario sin privilegios.
+4. **Sin proot** — sin capa de traducción del filesystem; `glibc-runner` provee solo el linker dinámico.
+5. **Conversión de rutas** — las rutas estándar Linux (`/tmp`, `/bin/sh`) se mapean a equivalentes Termux en tiempo de **instalación**, no de runtime.
 
-### What We Protect Against
+---
 
-- Unauthorized access to Android system or other app data (enforced by Android sandbox)
-- Arbitrary code execution outside Termux (prevented by SELinux + app sandbox)
-- Path traversal from Termux into Android system paths (Termux prefix isolation)
+## Qué protege OpenClaw
 
-### What Is Out of Scope
+- **Acceso no autorizado** al sistema Android o a datos de otras apps (Android sandbox).
+- **Ejecución de código** fuera del sandbox de Termux (SELinux + app sandbox).
+- **Path traversal** desde Termux hacia rutas del sistema (aislamiento por prefijo Termux).
 
-- Vulnerabilities in OpenClaw core (report to [OpenClaw upstream](https://github.com/openclaw/openclaw))
-- Vulnerabilities in Termux (report to [Termux](https://github.com/termux/termux-app))
-- Vulnerabilities in glibc-runner (report to [termux-pacman](https://github.com/AidanPark/openclaw-android))
-- Device-level security (rooted devices, unlocked bootloaders)
+---
+
+## Fuera de alcance
+
+| Componente | Dónde reportar |
+| --- | --- |
+| Vulnerabilidades del core OpenClaw | [OpenClaw upstream](https://github.com/openclaw/openclaw) |
+| Vulnerabilidades de Termux | [termux-app](https://github.com/termux/termux-app) |
+| Vulnerabilidades de `glibc-runner` | [termux-pacman](https://github.com/desarrollo032/openclaw-android) |
+| Seguridad a nivel del dispositivo (dispositivos rooteados, bootloaders desbloqueados) | No aplica |

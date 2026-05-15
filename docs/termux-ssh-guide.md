@@ -1,77 +1,103 @@
-# Termux SSH Setup Guide
+# Guía SSH con Termux
 
-By connecting to Termux via SSH from your computer, you can type all commands using your computer keyboard.
+Al conectar a Termux por SSH desde tu computadora puedes escribir todos los comandos usando el teclado del ordenador.
 
-## Prerequisites
+---
 
-- Both phone and computer must be on the **same Wi-Fi network**
+## Índice
 
-## Step 1: Install openssh
+- [Requisitos previos](#requisitos-previos)
+- [Paso 1 — Instalar openssh](#paso-1--instalar-openssh)
+- [Paso 2 — Establecer contraseña](#paso-2--establecer-contraseña)
+- [Paso 3 — Iniciar el servidor SSH](#paso-3--iniciar-el-servidor-ssh)
+- [Paso 4 — Obtener la IP del teléfono](#paso-4--obtener-la-ip-del-teléfono)
+- [Paso 5 — Conectar desde la computadora](#paso-5--conectar-desde-la-computadora)
+- [Notas](#notas)
 
-Open the Termux app on your phone and type:
+---
+
+## Requisitos previos
+
+- El teléfono y la computadora deben estar en la **misma red Wi-Fi**.
+
+---
+
+## Paso 1 — Instalar openssh
+
+Abre la app **Termux** en el teléfono y ejecuta:
 
 ```bash
 pkg install -y openssh
 ```
 
-Wait for the installation to complete (1-2 minutes).
+Espera a que termine la instalación (1-2 minutos).
 
-## Step 2: Set Password
+---
+
+## Paso 2 — Establecer contraseña
 
 ```bash
 passwd
 ```
 
-Enter a password (e.g., `1234`):
+Introduce una contraseña (ejemplo: `1234`):
 
 ```
-New password: 1234          ← type
-Retype new password: 1234   ← type the same password again
+New password: 1234          ← escribir
+Retype new password: 1234   ← escribir la misma contraseña
 ```
 
-> It's normal that nothing shows on screen while typing the password. Just type it and press Enter.
+> Es normal que no se vea nada en pantalla mientras escribes la contraseña. Solo escríbela y pulsa Enter.
 
-## Step 3: Start SSH Server
+---
 
-> **Important**: Run `sshd` directly in the Termux app on your phone, not via SSH.
+## Paso 3 — Iniciar el servidor SSH
+
+> **Importante:** ejecuta `sshd` directamente en la app Termux del teléfono, no por SSH.
 
 ```bash
 sshd
 ```
 
-If the prompt (`$`) returns with no error message, it's working.
+Si el prompt (`$`) regresa sin error, está funcionando.
 
-<img src="images/termux_tab_2.png" width="300" alt="sshd running in Termux">
+<img src="images/termux_tab_2.png" width="300" alt="sshd corriendo en Termux">
 
-## Step 4: Find the Phone's IP Address
+---
+
+## Paso 4 — Obtener la IP del teléfono
 
 ```bash
 ifconfig
 ```
 
-Look for the `wlan0` section:
+Busca la sección `wlan0`:
 
 ```
 wlan0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
         inet 192.168.45.139  netmask 255.255.255.0
 ```
 
-The number after `inet` is your phone's IP address (in this example, `192.168.45.139`).
+El número después de `inet` es la IP del teléfono (en este ejemplo, `192.168.45.139`).
 
-## Step 5: Connect via SSH from Computer
+---
 
-Open a terminal on your computer (Mac: Terminal, Windows: PowerShell or Command Prompt) and type. Replace the IP address with the one you found in Step 4:
+## Paso 5 — Conectar desde la computadora
+
+Abre una terminal en tu computadora (macOS: Terminal · Windows: PowerShell o Command Prompt) y ejecuta — sustituyendo la IP por la que encontraste en el paso 4:
 
 ```bash
 ssh -p 8022 192.168.45.139
 ```
 
-- `Are you sure you want to continue connecting?` → type `yes`
-- `Password:` → enter the password you set in Step 2 (e.g., `1234`)
+- A la pregunta `Are you sure you want to continue connecting?` → escribe `yes`.
+- En `Password:` → introduce la contraseña que estableciste en el paso 2 (ejemplo: `1234`).
 
-Once connected, you'll see the Termux `$` prompt. From now on, you can type all Termux commands using your computer keyboard.
+Una vez conectado verás el prompt `$` de Termux. Ya puedes usar todos los comandos de Termux con el teclado del ordenador.
 
-## Notes
+---
 
-- Termux uses SSH port **8022** (not the standard Linux port 22)
-- If you close the Termux app, the SSH server stops. To reconnect, open Termux on the phone and run `sshd`
+## Notas
+
+- Termux usa el puerto SSH **8022** (no el puerto estándar 22).
+- Si cierras la app Termux, el servidor SSH se detiene. Para volver a conectar, abre Termux en el teléfono y ejecuta `sshd`.

@@ -1,52 +1,79 @@
-# Arquitectura del Sistema
+# Arquitectura del sistema
 
-OpenClaw Android utiliza una arquitectura híbrida para combinar la flexibilidad de una interfaz web con la potencia de un runtime Node.js nativo en un entorno restringido.
+**OpenClaw Android** combina la flexibilidad de una UI web con la potencia de un runtime **Node.js + glibc** nativo, todo dentro del sandbox de Android.
 
-## 🏗️ Capas del Sistema
+---
 
-1. **Capa Nativa (Kotlin)**: Gestiona los permisos, el sistema de archivos, el servicio en primer plano (Foreground Service) y la ejecución de procesos.
-2. **Bridge (JavascriptInterface)**: Canal de comunicación bidireccional entre la lógica nativa y el WebView.
-3. **Interfaz (React)**: Proporciona el Dashboard, la Terminal y la configuración al usuario.
-4. **Runtime (Node.js)**: El motor que ejecuta OpenClaw, operando como un proceso hijo del sistema Android.
+## Índice
 
-## 🚀 Flujo de Inicio de la App
+- [Capas del sistema](#capas-del-sistema)
+- [Flujo de inicio](#flujo-de-inicio)
+- [Flujo de instalación del payload](#flujo-de-instalación-del-payload)
+- [Política W^X en Android 12+](#política-wx-en-android-12)
+- [Cadena de ejecución obligatoria](#cadena-de-ejecución-obligatoria)
+
+---
+
+## Capas del sistema
+
+| Capa | Tecnología | Función |
+| --- | --- | --- |
+| **Nativa** | Kotlin | Permisos, filesystem, Foreground Service, ejecución de procesos. |
+| **Bridge** | `@JavascriptInterface` + CustomEvents | Comunicación bidireccional Kotlin ↔ WebView. |
+| **Interfaz** | React 19 + Vite + Tailwind | Dashboard, terminal, ajustes. |
+| **Runtime** | Node.js + glibc | Motor que ejecuta `openclaw.mjs`. |
+
+---
+
+## Flujo de inicio
 
 ```text
-Usuario abre App
-       │
-  MainActivity
-       │
-Check Payload? ────── NO ────► Pantalla de Instalación
-       │                         (Extraer .tar.xz)
-      SI
-       │
-Cargar React UI
-       │
-Check Gateway? ────── NO ────► Usuario pulsa "Start"
-       │                         (Start GatewayService)
-      SI
-       │
-Gateway Ready! ──────────────► Conexión a 127.0.0.1:18789
+Usuario abre la app
+         │
+   MainActivity
+         │
+ ¿Payload instalado? ──── NO ────► Pantalla de instalación
+         │                          (extraer .tar.xz)
+        SÍ
+         │
+  Cargar UI React
+         │
+ ¿Gateway activo? ───── NO ────► Usuario pulsa "Start"
+         │                       (lanza GatewayService)
+        SÍ
+         │
+ Gateway Ready! ──────────────► Conexión a 127.0.0.1:18789
 ```
 
-## 📦 Flujo de Instalación del Payload
+---
 
-1. Se verifica la integridad del archivo `payload-v2.tar.xz` en los assets.
-2. Se extrae el contenido en el directorio privado `getDir("payload", ...)`.
+## Flujo de instalación del payload
+
+1. Se verifica la integridad del asset `payload-v2.tar.xz` (o del override local provisto por el usuario).
+2. Se extrae el contenido al directorio privado `getDir("payload", ...)`.
 3. Se copian los scripts de mantenimiento a la carpeta `bin`.
-4. **Punto Crítico**: Los binarios ELF (como `libnode.so`) NO se pueden ejecutar desde el directorio de datos en Android 12+.
+4. **Punto crítico:** los binarios ELF (como `libnode.so`) **NO** se pueden ejecutar desde el directorio de datos en Android 12+.
 
-## 🛡️ Política W^X y Resolución en Android 12+
+---
+
+## Política W^X en Android 12+
 
 Desde Android 10, y reforzado en Android 12, el sistema impide la ejecución de archivos en directorios de datos de la app (`/data/data/...`) por seguridad.
 
-**Solución OpenClaw**: 
-Solo el directorio `nativeLibraryDir` (donde el sistema instala las `.so`) tiene permisos de ejecución nativos. 
+**Solución OpenClaw:**
+
+Solo el directorio `nativeLibraryDir` (donde el sistema instala las `.so`) tiene permisos de ejecución nativos.
+
 1. Los binarios necesarios (`libnode.so`, `libldlinux.so`, `libbusybox.so`) se empaquetan como librerías nativas de Android.
 2. Android los extrae automáticamente al instalar el APK.
-3. Usamos el enlazador dinámico nativo (`libldlinux.so`) para cargar y ejecutar `libnode.so`.
+3. Se usa el enlazador dinámico nativo (`libldlinux.so`) para cargar y ejecutar `libnode.so`.
 
-### Cadena de Ejecución Obligatoria
-`ldlinux.so (Linker)` → `libnode.so (Node.js)` → `openclaw.mjs (Script)`
+---
 
-Este flujo permite que Node.js herede los permisos de ejecución del linker, evitando el bloqueo de seguridad del sistema operativo.
+## Cadena de ejecución obligatoria
+
+```text
+libldlinux.so (Linker) → libnode.so (Node.js) → openclaw.mjs (Script)
+```
+
+Este flujo permite que Node.js **herede** los permisos de ejecución del linker, evitando el bloqueo de seguridad del sistema operativo.

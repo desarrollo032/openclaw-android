@@ -1,68 +1,98 @@
 # Gestión del Gateway
 
-El Gateway es el proceso de Node.js que ejecuta OpenClaw y expone la API en el puerto `18789`.
+El **Gateway** es el proceso Node.js que ejecuta OpenClaw y expone la API en `http://127.0.0.1:18789`.
 
-## 🔋 Foreground Service
+---
 
-Para evitar que Android mate el proceso cuando el usuario sale de la app, el Gateway corre dentro de un `ForegroundService`. Esto garantiza:
-1. Prioridad alta en la gestión de memoria.
-2. Notificación persistente para que el usuario sepa que está activo.
-3. Capacidad de auto-reinicio si el sistema llega a cerrar el servicio.
-4. Acciones directas desde la notificación: "Restart" y "Ver logs".
+## Índice
 
-## 🌍 Variables de Entorno
+- [Foreground Service](#foreground-service)
+- [Variables de entorno](#variables-de-entorno)
+- [Regla sobre `LD_PRELOAD`](#regla-sobre-ld_preload)
+- [Health-check y auto-reinicio](#health-check-y-auto-reinicio)
+- [Logs del gateway](#logs-del-gateway)
+- [Uptime](#uptime)
+- [Token de autenticación](#token-de-autenticación)
+
+---
+
+## Foreground Service
+
+Para evitar que Android mate el proceso cuando el usuario sale de la app, el Gateway corre dentro de un **`ForegroundService`**. Esto garantiza:
+
+1. **Prioridad alta** en la gestión de memoria.
+2. **Notificación persistente** indicando que está activo.
+3. **Auto-reinicio** si el sistema llega a cerrar el servicio.
+4. **Acciones directas** desde la notificación: *Restart* y *Ver logs*.
+
+---
+
+## Variables de entorno
 
 El proceso se inicia con un entorno controlado:
 
 | Variable | Valor / Función |
-| :--- | :--- |
-| `PATH` | Incluye los binarios del payload y `/system/bin`. |
-| `HOME` | Apunta al directorio del payload. |
-| `LD_LIBRARY_PATH` | Rutas a `nativeLibraryDir` y `glibc/lib`. |
-| `TMPDIR` | Carpeta de cache de la app. |
-| `OPENCLAW_HOME` | Donde se guarda la configuración (`.openclaw`). |
-| `OPENCLAW_DASHBOARD_TOKEN` | Token dinámico para seguridad. |
+| --- | --- |
+| `PATH` | Binarios del payload + `/system/bin`. |
+| `HOME` | Directorio del payload. |
+| `LD_LIBRARY_PATH` | `nativeLibraryDir` + `glibc/lib`. |
+| `TMPDIR` | Cache de la app. |
+| `OPENCLAW_HOME` | Configuración del usuario (`.openclaw`). |
+| `OPENCLAW_DASHBOARD_TOKEN` | Token dinámico para autenticar el dashboard. |
 | `SSL_CERT_FILE` | Ruta a certificados SSL. |
 | `NODE_PATH` | Ruta a módulos Node.js. |
 | `NODE_NO_WARNINGS` | Desactiva advertencias de Node.js. |
 | `NODE_DISABLE_COMPILE_CACHE` | Desactiva caché de compilación. |
-| `OA_GLIBC` | Indica que estamos usando entorno glibc. |
+| `OA_GLIBC` | Indica que se está usando entorno glibc. |
 | `CONTAINER` | Indica ejecución en contenedor. |
 
-## 🛡️ Regla de LD_PRELOAD
+---
 
-**REGLA**: SIEMPRE se debe eliminar `LD_PRELOAD` del entorno antes de arrancar.
-**POR QUÉ**: Algunas capas de Android inyectan librerías que entran en conflicto con la `glibc` personalizada del payload, provocando un *Crash* inmediato del proceso.
+## Regla sobre `LD_PRELOAD`
 
-## 💓 Health Check y Auto-reinicio
+**REGLA:** **siempre** eliminar `LD_PRELOAD` del entorno antes de arrancar.
 
-El servicio realiza un monitoreo constante:
-1. **Polling**: Verifica si el proceso de Node.js sigue vivo (`process.isAlive`).
-2. **Backoff**: Si el proceso muere, el servicio espera 3 segundos antes de intentar reiniciarlo.
-3. **Contador**: Si falla 3 veces seguidas en poco tiempo, se marca como `FAILED` y se notifica al usuario.
-4. **Uptime Tracking**: Registra el tiempo de actividad del proceso en segundos.
+**Por qué:** algunas capas de Android inyectan librerías que entran en conflicto con la `glibc` personalizada del payload, provocando un **crash inmediato** del proceso.
 
-## 📊 Logs del Gateway
+---
+
+## Health-check y auto-reinicio
+
+El servicio monitorea constantemente:
+
+1. **Polling**: verifica si el proceso de Node.js sigue vivo (`process.isAlive`).
+2. **Backoff**: si el proceso muere, espera 3 s antes de reintentar.
+3. **Contador**: si falla 3 veces seguidas en poco tiempo, se marca como `FAILED` y se notifica al usuario.
+4. **Uptime tracking**: registra el tiempo de actividad en segundos.
+
+---
+
+## Logs del gateway
 
 El servicio captura y gestiona los logs del gateway:
-- **Redacción de Tokens**: Los tokens sensibles se eliminan automáticamente de los logs.
-- **Almacenamiento**: Los logs se guardan de forma persistente en el almacenamiento interno.
-- **Acceso desde Bridge**: 
-  - `getGatewayLogs()`: Obtiene los últimos 200 líneas con niveles (info, warn, error, debug) y timestamps.
-  - `clearGatewayLogs()`: Limpia todos los logs almacenados.
-- **Niveles de Log**: Se infieren automáticamente del contenido del mensaje.
 
-## ⏱️ Uptime
+- **Redacción de tokens**: los tokens sensibles se eliminan automáticamente.
+- **Persistencia**: se guardan en almacenamiento interno.
+- **Acceso vía bridge**:
+  - `getGatewayLogs()` — últimas 200 líneas con nivel (`info`, `warn`, `error`, `debug`) y timestamp.
+  - `clearGatewayLogs()` — limpia todos los logs.
+- **Niveles**: se infieren del contenido del mensaje.
 
-El servicio calcula y expone el tiempo de actividad:
-- `getGatewayUptime()`: Devuelve el tiempo en segundos desde que el gateway se inició.
-- Si el gateway no está activo, devuelve 0.
-- La notificación muestra el uptime formateado (ej: "1h 30m" o "25m 10s").
+---
 
-## 🔐 Token de Autenticación
+## Uptime
 
-En cada inicio, el servicio genera un `dashboardToken` único (UUID + Timestamp). 
-* Se inyecta al proceso de Node.js vía variable de entorno.
-* Se expone al frontend React vía Bridge.
-* **Nunca** se guarda en disco para evitar robos de sesión.
-* Los logs automáticos redactan este token para que no aparezca en capturas de pantalla.
+- `getGatewayUptime()` devuelve el tiempo en segundos desde el arranque.
+- Si el gateway no está activo, devuelve `0`.
+- La notificación muestra el uptime formateado (`1h 30m`, `25m 10s`).
+
+---
+
+## Token de autenticación
+
+En cada inicio, el servicio genera un `dashboardToken` único (**UUID + timestamp**):
+
+- Se inyecta al proceso Node.js vía variable de entorno.
+- Se expone al frontend React vía bridge.
+- **Nunca** se persiste a disco — evita robos de sesión.
+- Los logs lo **redactan automáticamente** para que no aparezca en capturas.
