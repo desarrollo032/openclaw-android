@@ -85,6 +85,12 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
+      - name: Auto-generate versionCode/versionName from git
+        run: |
+          ./gradlew updateVersionFromGit
+          echo "Versions:"
+          cat version.properties
+
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
