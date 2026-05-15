@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
 import { bridge } from "../lib/bridge"
+import { apiGet, OpenClawNetworkError, OpenClawAuthError, OpenClawGatewayError } from "../api/client"
 import { GatewayStatus } from "../components/GatewayStatus"
 import { InstallationCard } from "../components/InstallationCard"
 import { navigate } from "../lib/router"
@@ -71,18 +72,29 @@ export function Dashboard() {
     if (!bridge.isAvailable()) return
     let info: SystemInfo | null = null
     try {
-      const controller = new AbortController()
-      const timeout = window.setTimeout(() => controller.abort(), 2000)
-      const res = await fetch("http://127.0.0.1:18789/api/status", {
-        headers: { Authorization: `Bearer ${window.__OPENCLAW_TOKEN ?? ""}` },
-        signal: controller.signal,
-      })
-      window.clearTimeout(timeout)
-      if (res.ok) {
-        const data = await res.json()
-        info = { nodeVersion: data.nodeVersion, npmVersion: data.npmVersion, openclawVersion: data.version, gitVersion: "no incluido", payloadReady: true }
+      const data = await apiGet<{ nodeVersion?: string; npmVersion?: string; version?: string }>(
+        "/api/status",
+        { timeoutMs: 2000 }
+      )
+      info = {
+        nodeVersion: data.nodeVersion,
+        npmVersion: data.npmVersion,
+        openclawVersion: data.version,
+        gitVersion: "no incluido",
+        payloadReady: true,
       }
-    } catch { info = null }
+    } catch (err) {
+      // Errores esperados cuando el gateway aún no responde — fallback al bridge nativo.
+      if (
+        err instanceof OpenClawNetworkError ||
+        err instanceof OpenClawAuthError ||
+        err instanceof OpenClawGatewayError
+      ) {
+        info = null
+      } else {
+        info = null
+      }
+    }
     info ??= getBridgeSystemInfo()
     const nodeDisplay = info.nodeVersion && info.nodeVersion !== "unknown" ? info.nodeVersion : info.payloadReady ? "reintentando..." : "instalando..."
     const ocDisplay = info.openclawVersion && info.openclawVersion !== "unknown" ? info.openclawVersion : info.payloadReady ? "desconocido" : "instalando..."
