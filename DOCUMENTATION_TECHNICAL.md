@@ -1,73 +1,39 @@
-# Technical Documentation — OpenClaw Android
+# Documentación técnica (versión espejo) — OpenClaw Android
 
-> Last reviewed: 2026-05-12
+> Última revisión: 2026-05-15
 
-## 1) Purpose
+Este documento existe como **versión espejo** de [`DOCUMENTACION_TECNICA.md`](DOCUMENTACION_TECNICA.md) por razones históricas (antes contenía la versión en inglés). Todo el contenido del proyecto está ahora **unificado en español** en el archivo principal.
 
-This document explains how OpenClaw runs natively on Android: payload installation, Kotlin↔Web bridge, gateway service lifecycle, and build automation.
+---
 
-## 2) Core building blocks
+## Índice
 
-### 2.1 Native runtime
+- [Aviso](#aviso)
+- [Referencia principal](#referencia-principal)
+- [Resumen](#resumen)
 
-- `libnode.so`: Node.js runtime.
-- `libbusybox.so`: baseline shell utilities.
-- `libldlinux.so` + bundled glibc: Linux binary compatibility inside Android app sandbox.
+---
 
-### 2.2 Payload installation
+## Aviso
 
-- Runtime ships as app asset (`payload-v2.tar.xz`).
-- Extracted into app-private storage.
-- Wrappers (`node`, `npm`, `openclaw`) are generated for consistent command execution.
+A partir de la revisión `2026-05-15`, la documentación técnica vive en un único archivo en español. Consulta **[DOCUMENTACION_TECNICA.md](DOCUMENTACION_TECNICA.md)** para la versión completa y actualizada.
 
-### 2.3 `window.OpenClaw` bridge
+---
 
-Interop layer between React and Kotlin for:
+## Referencia principal
 
-- installation status,
-- gateway control,
-- command execution,
-- file picking,
-- system/app diagnostics,
-- platform/tool management.
+→ [**DOCUMENTACION_TECNICA.md**](DOCUMENTACION_TECNICA.md)
 
-## 3) Gateway lifecycle
+---
 
-- Gateway runs as a **Foreground Service**.
-- Process health supervision with auto-restart.
-- Centralized logs with sensitive-token redaction.
-- Uptime tracking exposed to UI/support flows.
+## Resumen
 
-## 4) Frontend and WebView
+Cubre los siguientes temas:
 
-- React/Vite frontend in `android/www`.
-- WebView loads local assets and consumes bridge events.
-- Startup wait/polling on `/health` avoids early load race conditions.
-
-## 5) Security model
-
-- Data/config remain in app-private storage.
-- No mandatory wide external storage permissions for primary flows.
-- Ephemeral tokens and log sanitization reduce leakage risk.
-
-## 6) Build pipeline
-
-During Gradle build:
-
-1. Build web app (`npm run build` in `android/www`).
-2. Sync built assets into app module assets.
-3. Copy runtime helper scripts.
-4. Produce APK containing aligned runtime + UI.
-
-## 7) Recommended engineering practices
-
-- Keep Kotlin bridge and TypeScript bridge contracts synchronized.
-- Record runtime-impacting changes in `CHANGELOG.md`.
-- Run gateway smoke tests after installer/runtime changes.
-
-## 8) Internal references
-
-- Overview: `README.md`
-- Testing guide: `TESTING.md`
-- Contribution guide: `CONTRIBUTING.md`
-- Security policy: `SECURITY.md`
+- Runtime nativo (Node.js + glibc).
+- Instalación del payload y override local.
+- Bridge `window.OpenClaw` (Kotlin ↔ React).
+- Ciclo de vida del gateway (Foreground Service, health-check, uptime).
+- Frontend React + Vite y carga vía `WebViewAssetLoader`.
+- Modelo de seguridad y manejo de tokens.
+- Pipeline de build (Gradle + Vite + sync de assets).

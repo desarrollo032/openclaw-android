@@ -1,59 +1,62 @@
-# Testing Guide - OpenClaw Android
+# Guía de testing
 
-Guía completa para ejecutar tests en el proyecto OpenClaw Android.
-
-## 📋 Índice
-
-- [Resumen](#resumen)
-- [Estructura de Tests](#estructura-de-tests)
-- [Tests Kotlin (Android)](#tests-kotlin-android)
-- [Tests React (Frontend)](#tests-react-frontend)
-- [Tests E2E (Playwright)](#tests-e2e-playwright)
-- [Scripts de Ejecución](#scripts-de-ejecución)
-- [Cobertura](#cobertura)
+Suite de pruebas del proyecto **OpenClaw Android**: tests Kotlin, React y E2E.
 
 ---
 
-## 📝 Resumen
+## Índice
 
-El proyecto tiene una suite de testing completa que cubre:
+- [Resumen](#resumen)
+- [Estructura de tests](#estructura-de-tests)
+- [Tests Kotlin (Android)](#tests-kotlin-android)
+- [Tests React (frontend)](#tests-react-frontend)
+- [Tests E2E (Playwright)](#tests-e2e-playwright)
+- [Scripts de ejecución](#scripts-de-ejecución)
+- [Cobertura](#cobertura)
+- [CI/CD](#cicd)
+- [Buenas prácticas](#buenas-prácticas)
+- [Debugging](#debugging)
+- [Recursos](#recursos)
+
+---
+
+## Resumen
 
 | Capa | Framework | Ubicación |
-|------|-----------|-----------|
+| --- | --- | --- |
 | **Unit Tests Kotlin** | JUnit5 + Kotest + MockK | `android/app/src/test/` |
 | **Integration Tests** | Robolectric | `android/app/src/test/` |
 | **UI Tests Android** | Espresso | `android/app/src/androidTest/` |
-| **Unit Tests React** | Vitest + RTL | `android/www/src/test/` |
+| **Unit Tests React** | Vitest + React Testing Library | `android/www/src/test/` |
 | **E2E Tests** | Playwright | `android/www/e2e/` |
 
 ---
 
-## 🏗️ Estructura de Tests
+## Estructura de tests
 
-```
+```text
 openclaw-android/
 ├── android/
 │   └── app/
-│       ├── src/
-│       │   ├── test/                    # Tests unitarios Kotlin
-│       │   │   └── java/com/openclaw/
-│       │   │       ├── OpenClawInstallerTest.kt
-│       │   │       ├── AssetDetectorTest.kt
-│       │   │       └── OpenClawExtensionsTest.kt
-│       │   └── androidTest/               # Tests instrumentados
-│       │       └── java/com/openclaw/
-│       │           ├── MainActivityInstrumentedTest.kt
-│       │           ├── AndroidBridgeInstrumentedTest.kt
-│       │           └── GatewayServiceInstrumentedTest.kt
-│       └── build.gradle.kts             # Configuración testing
+│       └── src/
+│           ├── test/                # Tests unitarios Kotlin
+│           │   └── java/com/openclaw/
+│           │       ├── OpenClawInstallerTest.kt
+│           │       ├── AssetDetectorTest.kt
+│           │       └── OpenClawExtensionsTest.kt
+│           └── androidTest/         # Tests instrumentados
+│               └── java/com/openclaw/
+│                   ├── MainActivityInstrumentedTest.kt
+│                   ├── AndroidBridgeInstrumentedTest.kt
+│                   └── GatewayServiceInstrumentedTest.kt
 └── android/www/
-    ├── src/test/                        # Tests React
-    │   ├── setup.ts                     # Setup de Vitest
+    ├── src/test/                    # Tests React
+    │   ├── setup.ts
     │   ├── bridge.test.ts
     │   ├── router.test.tsx
     │   ├── useGatewayStatus.test.tsx
     │   └── App.test.tsx
-    ├── e2e/                             # Tests E2E Playwright
+    ├── e2e/                         # Tests E2E
     │   └── app.spec.ts
     ├── vitest.config.ts
     └── playwright.config.ts
@@ -61,20 +64,20 @@ openclaw-android/
 
 ---
 
-## 🧪 Tests Kotlin (Android)
+## Tests Kotlin (Android)
 
-### Dependencias
+### Stack
 
-- **JUnit5**: Framework base de testing
-- **Kotest**: Estilo BDD para tests descriptivos
-- **MockK**: Mocking para Kotlin
-- **Robolectric**: Tests unitarios con Android framework
-- **Coroutines Test**: Testing de coroutines
+- **JUnit5** — framework base.
+- **Kotest** — DSL BDD para tests descriptivos.
+- **MockK** — mocking para Kotlin.
+- **Robolectric** — tests unitarios con el framework de Android.
+- **kotlinx-coroutines-test** — testing de corrutinas.
 
-### Ejecutar Tests
+### Ejecutar
 
 ```bash
-# Todos los tests unitarios
+# Tests unitarios
 ./gradlew :app:test
 
 # Con reporte detallado
@@ -84,64 +87,62 @@ openclaw-android/
 ./gradlew :app:connectedAndroidTest
 ```
 
-### Tests Incluidos
+### Tests incluidos
 
 | Test | Descripción |
-|------|-------------|
-| `OpenClawInstallerTest` | Tests de instalación, verificación de payload, directorios |
-| `AssetDetectorTest` | Tests de detección de assets, espacio libre |
-| `OpenClawExtensionsTest` | Tests de extensiones de archivos, extracción tar |
+| --- | --- |
+| `OpenClawInstallerTest` | Instalación, verificación de payload, directorios. |
+| `AssetDetectorTest` | Detección de assets y espacio libre. |
+| `OpenClawExtensionsTest` | Extensiones de archivos y extracción de tar. |
 
 ---
 
-## ⚛️ Tests React (Frontend)
+## Tests React (frontend)
 
-### Dependencias
+### Stack
 
-- **Vitest**: Framework de testing rápido
-- **React Testing Library**: Testing de componentes React
-- **MSW** (Mock Service Worker): Mock de API calls
-- **jsdom**: Entorno DOM para tests
+- **Vitest** — framework de testing rápido.
+- **React Testing Library** — testing de componentes.
+- **MSW (Mock Service Worker)** — mock de llamadas a API.
+- **jsdom** — entorno DOM.
 
-### Ejecutar Tests
+### Ejecutar
 
 ```bash
 cd android/www
 
 # Instalar dependencias
-npm install
+pnpm install     # o: npm install
 
-# Ejecutar tests en modo watch
-npm test
+# Modo watch
+pnpm test
 
-# Ejecutar tests una sola vez
-npm test -- --run
+# Ejecutar una vez
+pnpm test -- --run
 
-# Con UI interactiva
-npm run test:ui
+# UI interactiva
+pnpm test:ui
 
-# Generar cobertura
-npm run test:coverage
+# Cobertura
+pnpm test:coverage
 ```
 
-### Tests Incluidos
+### Tests incluidos
 
 | Test | Descripción |
-|------|-------------|
-| `bridge.test.ts` | Tests del puente Android-React |
-| `router.test.tsx` | Tests del router hash-based |
-| `useGatewayStatus.test.tsx` | Tests del hook de estado del gateway |
-| `App.test.tsx` | Tests de componente principal |
+| --- | --- |
+| `bridge.test.ts` | Puente Android ↔ React. |
+| `router.test.tsx` | Router hash-based. |
+| `useGatewayStatus.test.tsx` | Hook de estado del gateway. |
+| `App.test.tsx` | Componente principal. |
 
 ---
 
-## 🎭 Tests E2E (Playwright)
+## Tests E2E (Playwright)
 
-### Configuración
+Los E2E ejercitan la UI en navegadores reales.
 
-Los tests E2E usan Playwright para probar la aplicación en navegadores reales.
-
-### Ejecutar Tests E2E
+### Ejecutar
 
 ```bash
 cd android/www
@@ -149,33 +150,33 @@ cd android/www
 # Instalar Playwright y navegadores
 npx playwright install
 
-# Ejecutar tests E2E
-npm run test:e2e
+# Ejecutar
+pnpm test:e2e
 
-# Ejecutar en modo debug
+# Modo debug
 npx playwright test --debug
 
-# Ejecutar solo en Chromium
+# Solo Chromium
 npx playwright test --project=chromium
 
-# Generar reporte HTML
+# Reporte HTML
 npx playwright show-report
 ```
 
-### Tests E2E Incluidos
+### Tests incluidos
 
 | Test | Descripción |
-|------|-------------|
-| `app.spec.ts` | Tests de carga, navegación, responsive |
+| --- | --- |
+| `app.spec.ts` | Carga, navegación, responsive. |
 
-### Configuración de Navegadores
+### Configuración de navegadores
 
 ```typescript
 // playwright.config.ts
 projects: [
-  { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-  { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-  { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+  { name: 'chromium',      use: { ...devices['Desktop Chrome'] } },
+  { name: 'firefox',       use: { ...devices['Desktop Firefox'] } },
+  { name: 'webkit',        use: { ...devices['Desktop Safari'] } },
   { name: 'Mobile Chrome', use: { ...devices['Pixel 5'] } },
   { name: 'Mobile Safari', use: { ...devices['iPhone 12'] } },
 ]
@@ -183,55 +184,39 @@ projects: [
 
 ---
 
-## 🚀 Scripts de Ejecución
+## Scripts de ejecución
 
-### Unix/Linux/macOS
+### Unix / Linux / macOS
 
 ```bash
-# Todos los tests
-./scripts/run-tests.sh
-
-# Solo Kotlin
-./scripts/run-tests.sh -k
-
-# Solo React
-./scripts/run-tests.sh -r
-
-# Solo E2E
-./scripts/run-tests.sh -e
-
-# Cobertura
-./scripts/run-tests.sh -c
+./scripts/run-tests.sh        # todos
+./scripts/run-tests.sh -k     # solo Kotlin
+./scripts/run-tests.sh -r     # solo React
+./scripts/run-tests.sh -e     # solo E2E
+./scripts/run-tests.sh -c     # cobertura
 ```
 
 ### Windows
 
 ```powershell
-# Todos los tests
-.\scripts\run-tests.bat
-
-# Solo Kotlin
-.\scripts\run-tests.bat -k
-
-# Solo React
-.\scripts\run-tests.bat -r
-
-# Solo E2E
-.\scripts\run-tests.bat -e
+.\scripts\run-tests.bat       # todos
+.\scripts\run-tests.bat -k    # solo Kotlin
+.\scripts\run-tests.bat -r    # solo React
+.\scripts\run-tests.bat -e    # solo E2E
 ```
 
 ---
 
-## 📊 Cobertura
+## Cobertura
 
-### React/Vitest
+### React / Vitest
 
 ```bash
 cd android/www
-npm run test:coverage
+pnpm test:coverage
 ```
 
-Reporte generado en: `android/www/coverage/`
+Reporte en: `android/www/coverage/`
 
 ### Kotlin
 
@@ -240,13 +225,13 @@ cd android
 ./gradlew :app:jacocoTestReport
 ```
 
-Reporte generado en: `android/app/build/reports/jacoco/`
+Reporte en: `android/app/build/reports/jacoco/`
 
 ---
 
-## 🔧 Configuración CI/CD
+## CI/CD
 
-### GitHub Actions (Ejemplo)
+Ejemplo de workflow para **GitHub Actions**:
 
 ```yaml
 name: Tests
@@ -257,9 +242,9 @@ jobs:
   kotlin-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -269,8 +254,8 @@ jobs:
   react-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - name: Install dependencies
@@ -283,49 +268,45 @@ jobs:
 
 ---
 
-## 💡 Mejores Prácticas
+## Buenas prácticas
 
-1. **Tests Unitarios**: Cubrir lógica de negocio, validaciones, edge cases
-2. **Tests de Integración**: Verificar interacción entre componentes
-3. **Tests E2E**: Flujos críticos de usuario
-4. **Mocking**: Usar MockK (Kotlin) y MSW (React) para aislar tests
-5. **Cobertura**: Mantener cobertura > 70% para código crítico
+1. **Tests unitarios** — cubren lógica de negocio, validaciones y edge cases.
+2. **Tests de integración** — verifican la interacción entre componentes.
+3. **Tests E2E** — flujos críticos de usuario.
+4. **Mocking** — `MockK` (Kotlin) y `MSW` (React) para aislar tests.
+5. **Cobertura** — mantener `> 70 %` para código crítico.
 
 ---
 
-## 🐛 Debugging
+## Debugging
 
 ### Kotlin
+
 ```bash
-# Debug con logs detallados
 ./gradlew :app:test --info --debug
 ```
 
 ### React
-```bash
-# Debug en modo UI
-npm run test:ui
 
-# Debug con console
-npm test -- --reporter=verbose
+```bash
+pnpm test:ui                        # modo UI
+pnpm test -- --reporter=verbose     # verbose
 ```
 
 ### Playwright
-```bash
-# Modo debug
-npx playwright test --debug
 
-# Solo un test con navegador visible
-npx playwright test --headed
+```bash
+npx playwright test --debug         # modo debug
+npx playwright test --headed        # navegador visible
 ```
 
 ---
 
-## 📚 Recursos
+## Recursos
 
-- [JUnit5 Documentation](https://junit.org/junit5/docs/current/user-guide/)
-- [Kotest Documentation](https://kotest.io/docs/)
-- [MockK Guide](https://mockk.io/)
-- [Vitest Documentation](https://vitest.dev/)
-- [Playwright Documentation](https://playwright.dev/)
+- [JUnit5](https://junit.org/junit5/docs/current/user-guide/)
+- [Kotest](https://kotest.io/docs/)
+- [MockK](https://mockk.io/)
+- [Vitest](https://vitest.dev/)
+- [Playwright](https://playwright.dev/)
 - [React Testing Library](https://testing-library.com/docs/react-testing-library/intro/)

@@ -1,22 +1,41 @@
-# Proceso de Instalación
+# Proceso de instalación
 
-La instalación de OpenClaw en Android no es solo copiar archivos, sino preparar un entorno de ejecución compatible con Linux (glibc).
+Instalar OpenClaw en Android no es solo copiar archivos: hay que preparar un entorno de ejecución compatible con Linux (**glibc**) dentro del sandbox de Android.
 
-## 📦 Contenido de los Paquetes
+---
+
+## Índice
+
+- [Contenido de los paquetes](#contenido-de-los-paquetes)
+- [Configuración de Gradle](#configuración-de-gradle)
+- [Fuentes del payload](#fuentes-del-payload)
+- [Etapas de instalación](#etapas-de-instalación)
+- [Override local de archivos](#override-local-de-archivos)
+- [Verificación post-instalación](#verificación-post-instalación)
+- [Errores comunes](#errores-comunes)
+
+---
+
+## Contenido de los paquetes
 
 ### 1. `payload-v2.tar.xz`
-Este es el corazón del sistema. Contiene:
-* `/bin`: Wrappers para `node`, `npm` y `openclaw`.
-* `/lib/node_modules`: El código fuente de OpenClaw y sus dependencias.
-* `/glibc`: Librerías base necesarias para que Node.js funcione en Android.
-* `/etc`: Configuración básica y certificados SSL.
+
+**Corazón del sistema.** Contiene:
+
+- `/bin` — wrappers para `node`, `npm` y `openclaw`.
+- `/lib/node_modules` — código fuente de OpenClaw y dependencias.
+- `/glibc` — librerías glibc necesarias para Node.js en Android.
+- `/etc` — configuración básica y certificados SSL.
 
 ### 2. `openclaw-apk-migration.tar.gz`
-Contiene la configuración de migraciones opcionales del usuario (.openclaw) si se detecta una instalación previa de otra versión.
 
-## 🛠️ Configuración de Gradle (Importante)
+Configuración opcional del usuario (carpeta `.openclaw`) si se detecta una instalación previa de otra versión.
 
-Para que Android no intente comprimir los archivos `.xz` o `.gz` (lo que impediría su lectura aleatoria o los dañaría), es obligatorio configurar `noCompress` en `app/build.gradle.kts`:
+---
+
+## Configuración de Gradle
+
+Para que Android **no** intente comprimir los archivos `.xz` ni `.gz` (lo que impediría su lectura aleatoria o los dañaría), es obligatorio configurar `noCompress` en `app/build.gradle.kts`:
 
 ```kotlin
 androidResources {
@@ -24,23 +43,65 @@ androidResources {
 }
 ```
 
-## ⚙️ Proceso de Extracción Paso a Paso
+---
 
-1. **Borrado de Seguridad**: Se elimina cualquier instalación previa en el directorio de la app para evitar conflictos.
-2. **Extracción**: Se usa `commons-compress` y `xz-java` para descomprimir el payload directamente en el almacenamiento interno privado.
-3. **Despliegue de Scripts**: Se generan wrappers dinámicos que inyectan las rutas correctas (especialmente `nativeLibraryDir`) en las variables de entorno.
-4. **Fix de Permisos**: Se aplican permisos de lectura y ejecución a los directorios y scripts shell.
+## Fuentes del payload
 
-## ✅ Verificación de Éxito
+El instalador acepta tres fuentes (en orden de prioridad):
 
-Para confirmar que la instalación es correcta, la app verifica:
-1. Existencia de `lib/node_modules/openclaw/openclaw.mjs`.
-2. Existencia de `libnode.so` en el directorio de librerías nativas.
+| Fuente | Origen | Cuándo se usa |
+| --- | --- | --- |
+| **Local (override)** | Archivo seleccionado por el usuario | Cuando existe un override en `cacheDir`. |
+| **APK** | Asset incluido en `assets/payload-v2.tar.xz` | Cuando hay assets empaquetados. |
+| **Remoto** | Descarga desde GitHub Releases | Cuando no hay assets ni override y hay red. |
 
-## 🆘 Errores Comunes
+> El campo `payloadSource` de `getSetupStatus()` devuelve `local`, `apk`, `remote` o `missing`.
+
+---
+
+## Etapas de instalación
+
+1. **Selección de fuente** — el instalador decide qué archivo usar.
+2. **Limpieza** — se borra cualquier instalación previa para evitar conflictos.
+3. **Extracción** — se usa `commons-compress` y `xz-java` para descomprimir el payload a `getDir("payload", MODE_PRIVATE)`.
+4. **Bootstrap de `npm`** — si falta, se descarga el paquete oficial desde el registry.
+5. **Deploy de librerías nativas** — copia `libnode.so`, `libldlinux.so`, `libbusybox.so` desde el payload a `nativeLibraryDir`.
+6. **Generación de wrappers** — crea `bin/node`, `bin/openclaw`, `bin/npm`, `bin/pnpm` con rutas absolutas.
+7. **Permisos** — aplica `chmod` recursivo según reglas estrictas.
+8. **Migración** — si está disponible, extrae `openclaw-apk-migration.tar.gz` a `home/.openclaw`.
+9. **Layout final** — crea symlinks `usr/lib`, `usr/glibc`, `usr/etc`, `usr/tmp`.
+10. **BusyBox symlinks** — para que comandos como `ls` funcionen sin prefijo.
+
+---
+
+## Override local de archivos
+
+El usuario puede **reemplazar** los archivos integrados desde la UI:
+
+- `pickPayloadFile()` → guarda en `cacheDir/openclaw_payload_override.tar.xz`.
+- `pickMigrationFile()` → guarda en `cacheDir/openclaw_migration_override.tar.gz`.
+
+En la siguiente ejecución de `startSetup()` el instalador detecta los overrides y los usa en lugar de los assets del APK.
+
+---
+
+## Verificación post-instalación
+
+`isPayloadReady(context)` verifica:
+
+- `payload/lib/node_modules/openclaw/` (directorio con contenido).
+- `nativeLibraryDir/libnode.so` (archivo regular).
+- `payload/lib/node_modules/npm/bin/npm-cli.js`.
+
+Si todo está en orden, se actualiza la flag `KEY_PAYLOAD_INSTALLED` en `SharedPreferences`.
+
+---
+
+## Errores comunes
 
 | Error | Causa | Solución |
-| :--- | :--- | :--- |
-| "No hay espacio suficiente" | El dispositivo tiene menos de 500MB libres. | Liberar espacio y reintentar. |
-| "Permission denied" | Intento de ejecución en `/sdcard`. | La instalación debe ser en el almacenamiento interno privado. |
-| "File not found: libnode.so" | La arquitectura del APK (arm64/v7) no coincide. | Asegúrate de usar el APK correcto para el procesador. |
+| --- | --- | --- |
+| `No hay espacio suficiente` | Menos de 500 MB libres. | Liberar espacio y reintentar. |
+| `Permission denied` | Intento de ejecución en `/sdcard`. | La instalación debe vivir en el almacenamiento interno privado. |
+| `File not found: libnode.so` | La arquitectura del APK no coincide (`arm64-v8a` requerido). | Usar el APK correcto para el procesador del dispositivo. |
+| `Bootstrap atorado en "Verificando…"` | No hay payload ni override, y no hay red. | Pulsar **"Cargar"** y proporcionar el archivo localmente. |

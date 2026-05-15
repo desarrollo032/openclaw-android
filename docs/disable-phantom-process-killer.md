@@ -1,163 +1,189 @@
-# Keeping Processes Alive on Android
+# Mantener procesos vivos en Android
 
-OpenClaw runs as a server, so Android's power management and process killing can interfere with stable operation. This guide covers all the settings needed to keep your processes running reliably.
+OpenClaw corre como servidor, así que la gestión de energía y los mecanismos de kill de procesos de Android pueden interferir con su operación estable. Esta guía cubre todas las opciones necesarias para que los procesos sigan corriendo.
 
-## Enable Developer Options
+---
 
-1. Go to **Settings** > **About phone** (or **Device information**)
-2. Tap **Build number** 7 times
-3. You'll see "Developer mode has been enabled"
-4. Enter your lock screen password if prompted
+## Índice
 
-> On some devices, Build number is under **Settings** > **About phone** > **Software information**.
+- [Activar opciones de desarrollador](#activar-opciones-de-desarrollador)
+- [Mantener encendido al cargar](#mantener-encendido-al-cargar)
+- [Limitar carga máxima](#limitar-carga-máxima)
+- [Desactivar optimización de batería para Termux](#desactivar-optimización-de-batería-para-termux)
+- [Desactivar Phantom Process Killer (Android 12+)](#desactivar-phantom-process-killer-android-12)
+- [Notas](#notas)
+- [Lecturas recomendadas](#lecturas-recomendadas)
 
-## Stay Awake While Charging
+---
 
-1. Go to **Settings** > **Developer options** (the menu you just enabled)
-2. Turn on **Stay awake**
-3. The screen will now stay on whenever the device is charging (USB or wireless)
+## Activar opciones de desarrollador
 
-> The screen will still turn off normally when unplugged. Keep the charger connected when running the server for extended periods.
+1. Ve a **Ajustes → Acerca del teléfono** (o **Información del dispositivo**).
+2. Toca **Número de compilación** **7 veces**.
+3. Aparecerá "Modo desarrollador activado".
+4. Introduce el patrón/PIN si se solicita.
 
-## Set Charge Limit (Required)
+> En algunos dispositivos, **Número de compilación** está en **Ajustes → Acerca del teléfono → Información de software**.
 
-Keeping a phone plugged in 24/7 at 100% can cause battery swelling. Limiting the maximum charge to 80% greatly improves battery lifespan and safety.
+---
 
-- **Samsung**: **Settings** > **Battery** > **Battery Protection** → Select **Maximum 80%**
-- **Google Pixel**: **Settings** > **Battery** > **Battery Protection** → ON
+## Mantener encendido al cargar
 
-> Menu names vary by manufacturer. Search for "battery protection" or "charge limit" in your settings. If your device doesn't have this feature, consider managing the charger manually or using a smart plug.
+1. Ve a **Ajustes → Opciones de desarrollador** (el menú que acabas de activar).
+2. Activa **No apagar pantalla**.
+3. La pantalla quedará encendida mientras el teléfono esté cargando (USB o inalámbrico).
 
-## Disable Battery Optimization for Termux
+> La pantalla se apagará normalmente cuando lo desconectes. Mantén el cargador conectado al correr el servidor por períodos largos.
 
-1. Go to Android **Settings** > **Battery** (or **Battery and device care**)
-2. Open **Battery optimization** (or **App power management**)
-3. Find **Termux** and set it to **Not optimized** (or **Unrestricted**)
+---
 
-> The exact menu path varies by manufacturer (Samsung, LG, etc.) and Android version. Search your settings for "battery optimization" to find it.
+## Limitar carga máxima
 
-## Disable Phantom Process Killer (Android 12+)
+Mantener un teléfono conectado 24/7 al 100 % puede hinchar la batería. Limitar la carga al **80 %** mejora notablemente la vida útil y la seguridad.
 
-Android 12 and above includes a feature called **Phantom Process Killer** that automatically terminates background processes. This can cause Termux processes like `openclaw gateway`, `sshd`, and `ttyd` to be killed without warning.
+- **Samsung**: **Ajustes → Batería → Protección de batería** → seleccionar **Máximo 80 %**.
+- **Google Pixel**: **Ajustes → Batería → Protección de batería** → ON.
 
-## Symptoms
+> Los nombres del menú varían por fabricante. Busca "protección de batería" o "límite de carga" en los ajustes. Si tu dispositivo no tiene esta opción, gestiona el cargador manualmente o usa un enchufe inteligente.
 
-If you see this message in Termux, Android has forcibly killed the process:
+---
+
+## Desactivar optimización de batería para Termux
+
+1. **Ajustes → Batería** (o **Batería y cuidado del dispositivo**).
+2. Abre **Optimización de batería** (o **Gestión de energía de apps**).
+3. Encuentra **Termux** y ponlo en **No optimizado** (o **Sin restricciones**).
+
+> La ruta exacta varía por fabricante (Samsung, LG, Xiaomi, etc.) y versión de Android. Busca "optimización de batería" en los ajustes.
+
+---
+
+## Desactivar Phantom Process Killer (Android 12+)
+
+Android 12+ incluye **Phantom Process Killer**, una función que mata automáticamente procesos en segundo plano. Puede terminar procesos de Termux como `openclaw gateway`, `sshd` o `ttyd` sin aviso.
+
+### Síntomas
+
+Si ves este mensaje en Termux, Android forzó el cierre del proceso:
 
 ```
 [Process completed (signal 9) - press Enter]
 ```
 
-<img src="images/signal9/01-signal9-killed.png" width="300" alt="Process completed signal 9">
+<img src="images/signal9/01-signal9-killed.png" width="300" alt="Proceso terminado con signal 9">
 
-Signal 9 (SIGKILL) cannot be caught or blocked by any process — Android terminated it at the OS level.
+`Signal 9` (SIGKILL) no puede ser capturado ni bloqueado por ningún proceso — Android lo mató a nivel del kernel.
 
-## Requirements
+### Requisitos
 
-- **Android 12 or higher** (Android 11 and below are not affected)
-- **Termux** with `android-tools` installed (included in OpenClaw on Android)
+- **Android 12 o superior** (Android 11 e inferiores no se ven afectados).
+- **Termux** con `android-tools` instalado (incluido en OpenClaw on Android).
 
-## Step 1: Acquire Wake Lock
+### Paso 1 — Adquirir wake lock
 
-Pull down the notification bar and find the Termux notification. Tap **Acquire wakelock** to prevent Android from suspending Termux.
+Desliza la barra de notificaciones y encuentra la notificación de Termux. Toca **Acquire wakelock** para evitar que Android suspenda Termux.
 
 <p>
   <img src="images/signal9/02-termux-acquire-wakelock.png" width="300" alt="Tap Acquire wakelock">
   <img src="images/signal9/03-termux-wakelock-held.png" width="300" alt="Wake lock held">
 </p>
 
-Once activated, the notification will show **"wake lock held"** and the button changes to **Release wakelock**.
+Una vez activado, la notificación mostrará **"wake lock held"** y el botón cambia a **Release wakelock**.
 
-> Wake lock alone is not enough to prevent Phantom Process Killer. Continue with the steps below.
+> El wake lock por sí solo **no es suficiente** para evitar Phantom Process Killer. Continúa con los pasos.
 
-## Step 2: Enable Wireless Debugging
+### Paso 2 — Activar Wireless debugging
 
-1. Go to **Settings** > **Developer options**
-2. Find and enable **Wireless debugging**
-3. A confirmation dialog will appear — check **"Always allow on this network"** and tap **Allow**
+1. **Ajustes → Opciones de desarrollador**.
+2. Activa **Depuración inalámbrica** (Wireless debugging).
+3. En el diálogo de confirmación marca **"Permitir siempre en esta red"** y toca **Permitir**.
 
-<img src="images/signal9/04-wireless-debugging-allow.png" width="300" alt="Allow wireless debugging">
+<img src="images/signal9/04-wireless-debugging-allow.png" width="300" alt="Permitir wireless debugging">
 
-## Step 3: Install ADB (if not already installed)
+### Paso 3 — Instalar ADB (si no está)
 
-In Termux, install `android-tools`:
+En Termux:
 
 ```bash
 pkg install -y android-tools
 ```
 
-> If you installed OpenClaw on Android, `android-tools` is already included.
+> Si instalaste OpenClaw on Android, `android-tools` ya viene incluido.
 
-## Step 4: Pair with ADB
+### Paso 4 — Emparejar con ADB
 
-1. In **Wireless debugging** settings, tap **Pair device with pairing code**
-2. A dialog will show the **Wi-Fi pairing code** and **IP address & Port**
+1. En **Depuración inalámbrica**, toca **Emparejar dispositivo con código de emparejamiento**.
+2. Aparecerá un diálogo con el **código Wi-Fi de emparejamiento** y la **IP y puerto**.
 
-   <img src="images/signal9/05-pairing-code-dialog.png" width="300" alt="Pairing code dialog">
+   <img src="images/signal9/05-pairing-code-dialog.png" width="300" alt="Diálogo de código de emparejamiento">
 
-3. In Termux, run the pairing command using the port and code shown on screen:
+3. En Termux, ejecuta el comando de emparejamiento usando el puerto y código mostrados:
 
-```bash
-adb pair localhost:<PAIRING_PORT> <PAIRING_CODE>
-```
+   ```bash
+   adb pair localhost:<PUERTO_EMPAREJAMIENTO> <CODIGO_EMPAREJAMIENTO>
+   ```
 
-Example:
+   Ejemplo:
 
-```bash
-adb pair localhost:39555 269556
-```
+   ```bash
+   adb pair localhost:39555 269556
+   ```
 
 <img src="images/signal9/06-adb-pair-success.png" width="600" alt="adb pair success">
 
-You should see `Successfully paired`.
+Deberías ver `Successfully paired`.
 
-## Step 5: Connect with ADB
+### Paso 5 — Conectar con ADB
 
-After pairing, go back to the **Wireless debugging** main screen. Note the **IP address & Port** shown at the top — this is different from the pairing port.
+Tras emparejar, vuelve a la pantalla principal de **Depuración inalámbrica**. Anota la **IP y puerto** mostrados arriba — son distintos al puerto de emparejamiento.
 
-<img src="images/signal9/07-wireless-debugging-paired.png" width="300" alt="Wireless debugging paired">
+<img src="images/signal9/07-wireless-debugging-paired.png" width="300" alt="Wireless debugging emparejado">
 
-In Termux, connect using the port shown on the main screen:
+En Termux, conecta usando el puerto mostrado en la pantalla principal:
 
 ```bash
-adb connect localhost:<CONNECTION_PORT>
+adb connect localhost:<PUERTO_CONEXION>
 ```
 
-Example:
+Ejemplo:
 
 ```bash
 adb connect localhost:35541
 ```
 
-You should see `connected to localhost:35541`.
+Deberías ver `connected to localhost:35541`.
 
-> The pairing port and connection port are different. Use the port shown on the Wireless debugging main screen for `adb connect`.
+> El puerto de emparejamiento y el de conexión son distintos. Usa el de la pantalla principal de Depuración inalámbrica para `adb connect`.
 
-## Step 6: Disable Phantom Process Killer
+### Paso 6 — Desactivar Phantom Process Killer
 
-Now run the following command to disable Phantom Process Killer:
+Ahora ejecuta:
 
 ```bash
 adb shell "settings put global settings_enable_monitor_phantom_procs false"
 ```
 
-Verify the setting:
+Verifica:
 
 ```bash
 adb shell "settings get global settings_enable_monitor_phantom_procs"
 ```
 
-If the output is `false`, Phantom Process Killer has been successfully disabled.
+Si la salida es `false`, Phantom Process Killer está desactivado.
 
-<img src="images/signal9/08-adb-disable-ppk-done.png" width="600" alt="Phantom Process Killer disabled">
+<img src="images/signal9/08-adb-disable-ppk-done.png" width="600" alt="Phantom Process Killer desactivado">
 
-## Notes
+---
 
-- This setting **persists across reboots** — you only need to do this once
-- You do **not** need to keep Wireless debugging enabled after completing these steps. You can turn it off
-- This does not affect normal app behavior — it only prevents Android from killing background processes in Termux
-- If you factory reset your phone, you will need to repeat this process
+## Notas
 
-## Further Reading
+- Este ajuste **persiste tras reinicios** — solo lo necesitas hacer una vez.
+- **No** necesitas mantener la depuración inalámbrica activada después. Puedes desactivarla.
+- No afecta el comportamiento normal de las apps — solo evita que Android mate procesos de Termux en segundo plano.
+- Si haces un factory reset, deberás repetir el procedimiento.
 
-Some manufacturers (Samsung, Xiaomi, Huawei, etc.) apply additional aggressive battery optimization that can kill background apps. If you still experience process termination after disabling Phantom Process Killer, check [dontkillmyapp.com](https://dontkillmyapp.com) for device-specific guides.
+---
+
+## Lecturas recomendadas
+
+Algunos fabricantes (Samsung, Xiaomi, Huawei, etc.) aplican optimizaciones de batería agresivas adicionales que pueden matar apps en segundo plano. Si sigues experimentando terminaciones de proceso tras desactivar Phantom Process Killer, consulta [dontkillmyapp.com](https://dontkillmyapp.com) para guías específicas por dispositivo.

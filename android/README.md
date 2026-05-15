@@ -1,67 +1,119 @@
-# OpenClaw Android
+# Módulo Android
 
-OpenClaw Android es una aplicación que permite ejecutar el entorno de OpenClaw (Node.js AI Gateway) de forma nativa en dispositivos Android, superando las restricciones de ejecución de binarios de las versiones modernas del sistema operativo (W^X).
+App nativa Kotlin que ejecuta el **gateway Node.js de OpenClaw** dentro del sandbox de Android, sin depender de Termux ni Proot.
 
-## 🧩 Arquitectura General
+---
+
+## Índice
+
+- [Arquitectura general](#arquitectura-general)
+- [Requisitos](#requisitos)
+- [Build](#build)
+- [Instalación en dispositivo](#instalación-en-dispositivo)
+- [Estructura de carpetas](#estructura-de-carpetas)
+- [Documentación detallada](#documentación-detallada)
+
+---
+
+## Arquitectura general
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │                   UI (React + Vite)                      │
 │      Ejecutándose en WebView con WebViewAssetLoader      │
 └──────────────┬─────────────────────────────▲─────────────┘
-               │ (Bridge: window.Android)     │ (CustomEvents)
+               │ window.OpenClaw              │ CustomEvents
 ┌──────────────▼─────────────────────────────┴─────────────┐
-│                 Android App (Kotlin)                     │
-│    Maneja el Ciclo de Vida, Bridge y GatewayService      │
+│                  App Android (Kotlin)                    │
+│       Ciclo de vida · Bridge · GatewayService            │
 └──────────────┬─────────────────────────────▲─────────────┘
-               │ (ProcessBuilder + PTY)       │ (Stdout/Stderr)
+               │ ProcessBuilder + PTY         │ stdout/stderr
 ┌──────────────▼─────────────────────────────┴─────────────┐
-│                 Runtime (Native Binaries)                │
-│   ldlinux.so → libnode.so → openclaw.mjs (Gateway)       │
+│              Runtime (binarios nativos)                  │
+│   libldlinux.so → libnode.so → openclaw.mjs (Gateway)    │
 └──────────────────────────────────────────────────────────┘
 ```
 
-## 🛠️ Requisitos para Compilar
+---
 
-* **Android Studio**: Ladybug (o superior).
-* **JDK**: Versión 17.
-* **Node.js**: v18+ (para compilar el frontend React).
-* **Git**: Para el versionado dinámico en Gradle.
+## Requisitos
 
-## 🚀 Instrucciones de Build
+- **Android Studio**: Ladybug o superior.
+- **JDK**: versión **17**.
+- **Node.js**: v20+ (para compilar el frontend React).
+- **Git**: necesario para el versionado dinámico que usa Gradle.
 
-1. **Clonar el repositorio** y sus submódulos si aplica.
-2. **Compilar el Frontend**:
+Configuración del módulo Android (definida en `app/build.gradle.kts`):
+
+| Clave | Valor |
+| --- | --- |
+| `compileSdk` | `35` |
+| `minSdk` | `31` (Android 12) |
+| `targetSdk` | `35` (Android 14) |
+| `jvmTarget` | `17` |
+| ABI | `arm64-v8a` |
+
+---
+
+## Build
+
+1. **Clonar** el repositorio.
+2. **Compilar el frontend** (opcional — Gradle lo hace automáticamente):
+
    ```bash
    cd www
    npm install
    npm run build
    ```
-   *Nota: Gradle ejecutará esto automáticamente al compilar el APK.*
-3. **Compilar el APK**:
-   En Android Studio, pulsa `Build > Assemble Debug` o ejecuta:
+
+3. **Compilar el APK** desde Android Studio (`Build > Assemble Debug`) o desde terminal:
+
    ```bash
    ./gradlew assembleDebug
    ```
 
-## 📲 Instalación en Dispositivo
+   Para una build de release:
 
-* El APK generado se encuentra en: `app/build/outputs/apk/debug/app-debug.apk`.
-* Puedes instalarlo mediante `adb install app-debug.apk`.
+   ```bash
+   ./gradlew assembleRelease
+   ```
 
-## 📂 Estructura de Carpetas
+---
 
-* `/app`: Código fuente de la aplicación Android (Kotlin).
-* `/www`: Código fuente de la interfaz web (React + TypeScript).
-* `/libs`: Librerías AAR nativas (Terminal Emulator).
-* `/docs`: Documentación técnica detallada.
+## Instalación en dispositivo
 
-## 📚 Documentación Detallada
+El APK generado queda en:
 
-* [Arquitectura](docs/ARQUITECTURA.md)
-* [Bridge Android-React](docs/BRIDGE.md)
-* [Proceso de Instalación](docs/INSTALACION.md)
-* [Gestión del Gateway](docs/GATEWAY.md)
-* [Terminal PTY](docs/TERMINAL.md)
-* [Frontend React](docs/REACT_FRONTEND.md)
-* [Reglas Críticas de Desarrollo](docs/REGLAS_CRITICAS.md)
+```
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+Instálalo con:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+---
+
+## Estructura de carpetas
+
+| Ruta | Contenido |
+| --- | --- |
+| `app/` | Código fuente Kotlin: Activities, servicios, Bridge, instalador. |
+| `app/src/main/assets/` | Payload, migración y bundle web. |
+| `www/` | Frontend React 19 + Vite + TypeScript + Tailwind. |
+| `libs/` | AARs nativos (`terminal-emulator.aar`, `terminal-view.aar`). |
+| `docs/` | Documentación técnica del módulo. |
+
+---
+
+## Documentación detallada
+
+- [Arquitectura](docs/ARQUITECTURA.md)
+- [Bridge Android ↔ React](docs/BRIDGE.md)
+- [Proceso de instalación](docs/INSTALACION.md)
+- [Gestión del Gateway](docs/GATEWAY.md)
+- [Terminal PTY](docs/TERMINAL.md)
+- [Frontend React](docs/REACT_FRONTEND.md)
+- [Reglas críticas de desarrollo](docs/REGLAS_CRITICAS.md)

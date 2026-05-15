@@ -1,172 +1,199 @@
-# Troubleshooting
+# Solución de problemas
 
-Common issues and solutions when using OpenClaw on Termux.
+Problemas comunes al usar **OpenClaw** sobre Termux y sus soluciones.
 
-## Gateway won't start: "gateway already running" or "Port is already in use"
+---
+
+## Índice
+
+- [El gateway no arranca: "gateway already running"](#el-gateway-no-arranca-gateway-already-running)
+- [Gateway desconectado: "gateway not connected"](#gateway-desconectado-gateway-not-connected)
+- [SSH fallido: "Connection refused"](#ssh-fallido-connection-refused)
+- [`openclaw --version` falla](#openclaw---version-falla)
+- ["Cannot find module glibc-compat.js"](#cannot-find-module-glibc-compatjs)
+- [`systemctl --user unavailable` durante el update](#systemctl---user-unavailable-durante-el-update)
+- [`sharp` falla durante `openclaw update`](#sharp-falla-durante-openclaw-update)
+- [`clawdhub` falla con "Cannot find package 'undici'"](#clawdhub-falla-con-cannot-find-package-undici)
+- ["not supported on android"](#not-supported-on-android)
+- [`openclaw update` con error de `node-llama-cpp`](#openclaw-update-con-error-de-node-llama-cpp)
+- [OpenCode con errores `EACCES`](#opencode-con-errores-eacces)
+- [`libldlinux.so` rechaza `--disable-warning=ExperimentalWarning`](#libldlinuxso-rechaza---disable-warningexperimentalwarning)
+
+---
+
+## El gateway no arranca: "gateway already running"
 
 ```
 Gateway failed to start: gateway already running (pid XXXXX); lock timeout after 5000ms
 Port 18789 is already in use.
 ```
 
-### Cause
+### Causa
 
-A previous gateway process was terminated abnormally, leaving behind a lock file or a zombie process. This typically happens when:
+Un proceso gateway previo terminó de forma anormal y dejó un lock file o un proceso zombi. Suele ocurrir cuando:
 
-- SSH connection drops, leaving the gateway process orphaned
-- `Ctrl+Z` (suspend) was used instead of `Ctrl+C` (terminate), leaving the process alive in the background
-- Termux was force-killed by Android
+- La conexión SSH cae y el proceso gateway queda huérfano.
+- Se usó **`Ctrl+Z`** (suspender) en lugar de **`Ctrl+C`** (terminar), dejando el proceso vivo en segundo plano.
+- Termux fue forzado a cerrar por Android.
 
-> **Note**: Always use `Ctrl+C` to stop the gateway. `Ctrl+Z` only suspends the process — it does not terminate it.
+> **Nota:** usa siempre `Ctrl+C` para detener el gateway. `Ctrl+Z` solo lo suspende.
 
-### Solution
+### Solución
 
-#### Step 1: Find and kill remaining processes
+**Paso 1 — Buscar y matar procesos restantes:**
 
 ```bash
 ps aux | grep -E "node|openclaw" | grep -v grep
 ```
 
-If processes are listed, note the PID and kill them:
+Si hay procesos listados, anota el PID y mátalos:
 
 ```bash
 kill -9 <PID>
 ```
 
-#### Step 2: Remove lock files
+**Paso 2 — Eliminar lock files:**
 
 ```bash
 rm -rf $PREFIX/tmp/openclaw-*
 ```
 
-#### Step 3: Restart the gateway
+**Paso 3 — Reiniciar el gateway:**
 
 ```bash
 openclaw gateway
 ```
 
-### If it still doesn't work
+### Si sigue sin funcionar
 
-If the above steps don't help, fully close and reopen the Termux app, then run `openclaw gateway`. Rebooting the phone will reliably clear all state.
+Cierra completamente la app Termux y ábrela de nuevo, después ejecuta `openclaw gateway`. Reiniciar el teléfono limpia todo el estado de forma confiable.
 
-## Gateway disconnected: "gateway not connected"
+---
+
+## Gateway desconectado: "gateway not connected"
 
 ```
 send failed: Error: gateway not connected
 disconnected | error
 ```
 
-### Cause
+### Causa
 
-The gateway process has stopped or the SSH session was disconnected.
+El proceso gateway se detuvo o la sesión SSH se desconectó.
 
-### Solution
+### Solución
 
-Check the SSH session where the gateway was running. If the session was disconnected, reconnect via SSH and start the gateway:
+Revisa la sesión SSH donde corría el gateway. Si se desconectó, reconecta y arranca de nuevo:
 
 ```bash
 openclaw gateway
 ```
 
-If you get a "gateway already running" error, see the [Gateway won't start](#gateway-wont-start-gateway-already-running-or-port-is-already-in-use) section above.
+Si aparece el error "gateway already running", consulta la sección anterior.
 
-## SSH connection failed: "Connection refused"
+---
+
+## SSH fallido: "Connection refused"
 
 ```
 ssh: connect to host 192.168.45.139 port 8022: Connection refused
 ```
 
-### Cause
+### Causa
 
-The Termux SSH server (`sshd`) is not running. Closing the Termux app or rebooting the phone stops sshd.
+El servidor SSH de Termux (`sshd`) no está corriendo. Cerrar la app Termux o reiniciar el teléfono detienen `sshd`.
 
-### Solution
+### Solución
 
-Open the Termux app on the phone and run `sshd`. Either type directly on the phone or send via adb:
+Abre la app Termux en el teléfono y ejecuta `sshd`. Puedes escribirlo directamente o enviarlo vía adb:
 
 ```bash
 adb shell input text 'sshd'
-```
-```bash
 adb shell input keyevent 66
 ```
 
-The IP address may have changed, so verify:
+La IP puede haber cambiado — verifícala:
 
 ```bash
 adb shell input text 'ifconfig'
-```
-```bash
 adb shell input keyevent 66
 ```
 
-> To start sshd automatically, add `sshd 2>/dev/null` to the end of your `~/.bashrc` file so the SSH server starts whenever Termux opens.
+> Para arrancar `sshd` automáticamente, añade `sshd 2>/dev/null` al final de tu `~/.bashrc` para que se inicie cada vez que abres Termux.
 
-## `openclaw --version` fails
+---
 
-### Cause
+## `openclaw --version` falla
 
-Environment variables are not loaded.
+### Causa
 
-### Solution
+Las variables de entorno no están cargadas.
+
+### Solución
 
 ```bash
 source ~/.bashrc
 ```
 
-Or fully close and reopen the Termux app.
+O cierra y abre Termux por completo.
 
-## "Cannot find module glibc-compat.js" error
+---
+
+## "Cannot find module glibc-compat.js"
 
 ```
 Error: Cannot find module '/data/data/com.termux/files/home/.openclaw-lite/patches/glibc-compat.js'
 ```
 
-> **Note**: This issue only affects pre-1.0.0 (Bionic) installations. In v1.0.0+ (glibc), `glibc-compat.js` is loaded by the node wrapper script, not `NODE_OPTIONS`.
+> Este problema solo afecta a instalaciones pre-`1.0.0` (Bionic). En `v1.0.0+` (glibc), `glibc-compat.js` se carga desde el wrapper de node, no desde `NODE_OPTIONS`.
 
-### Cause
+### Causa
 
-The `NODE_OPTIONS` environment variable in `~/.bashrc` still references the old installation path (`.openclaw-lite`). This happens when updating from an older version where the project was named "OpenClaw Lite".
+La variable `NODE_OPTIONS` en `~/.bashrc` aún referencia la ruta antigua (`.openclaw-lite`). Ocurre al actualizar desde una versión donde el proyecto se llamaba "OpenClaw Lite".
 
-### Solution
+### Solución
 
-Run the updater to refresh the environment variable block:
+Ejecuta el updater para refrescar el bloque de env:
 
 ```bash
 oa --update && source ~/.bashrc
 ```
 
-Or manually fix it:
+O arréglalo manualmente:
 
 ```bash
 sed -i 's/\.openclaw-lite/\.openclaw-android/g' ~/.bashrc && source ~/.bashrc
 ```
 
-## "systemctl --user unavailable: spawn systemctl ENOENT" during update
+---
+
+## `systemctl --user unavailable` durante el update
 
 ```
 Gateway service check failed: Error: systemctl --user unavailable: spawn systemctl ENOENT
 ```
 
-### Cause
+### Causa
 
-After running `openclaw update`, OpenClaw tries to restart the gateway service using `systemctl`. Since Termux doesn't have systemd, the `systemctl` binary doesn't exist and the command fails with `ENOENT`.
+Tras `openclaw update`, OpenClaw intenta reiniciar el servicio gateway con `systemctl`. Como Termux no tiene systemd, el binario `systemctl` no existe y el comando falla con `ENOENT`.
 
-### Impact
+### Impacto
 
-**This error is harmless.** The update itself has already completed successfully — only the automatic service restart failed. Your OpenClaw installation is up to date.
+**El error es inofensivo.** El update se completó correctamente — solo falló el reinicio automático del servicio.
 
-### Solution
+### Solución
 
-Simply start the gateway manually:
+Inicia el gateway manualmente:
 
 ```bash
 openclaw gateway
 ```
 
-If the gateway was already running before the update, you may need to stop the old process first. See the [Gateway won't start](#gateway-wont-start-gateway-already-running-or-port-is-already-in-use) section above.
+Si ya estaba corriendo antes del update, quizá necesites matar el proceso antiguo primero (ver sección "gateway already running").
 
-## sharp build fails during `openclaw update`
+---
+
+## `sharp` falla durante `openclaw update`
 
 ```
 npm error gyp ERR! not ok
@@ -174,87 +201,92 @@ Update Result: ERROR
 Reason: global update
 ```
 
-### Cause
+### Causa
 
-**v1.0.0+ (glibc)**: The `sharp` module uses prebuilt binaries (`@img/sharp-linux-arm64`) that load natively under the glibc environment. This error is rare — it typically means the prebuilt binary is missing or corrupted.
+- **v1.0.0+ (glibc):** `sharp` usa binarios prebuilt (`@img/sharp-linux-arm64`). El error es raro — generalmente significa que el binario prebuilt falta o está corrupto.
+- **Pre-1.0.0 (Bionic):** cuando `openclaw update` ejecuta npm como subproceso, las env vars de build específicas de Termux (`CXXFLAGS`, `GYP_DEFINES`) no están disponibles en el contexto del subproceso, provocando fallos al compilar el módulo nativo.
 
-**Pre-1.0.0 (Bionic)**: When `openclaw update` ran npm as a subprocess, the Termux-specific build environment variables (`CXXFLAGS`, `GYP_DEFINES`) were not available in the subprocess context, causing the native module compilation to fail.
+### Impacto
 
-### Impact
+**El error es no crítico.** OpenClaw se actualizó correctamente — solo el módulo `sharp` (usado para procesamiento de imágenes) falló al rebuild. OpenClaw funciona normalmente sin él.
 
-**This error is non-critical.** OpenClaw itself has been updated successfully — only the `sharp` module (used for image processing) failed to rebuild. OpenClaw works normally without it.
+### Solución
 
-### Solution
-
-After the update, manually rebuild `sharp` using the provided script:
+Recompila `sharp` manualmente con el script provisto:
 
 ```bash
 bash ~/.openclaw-android/scripts/build-sharp.sh
 ```
 
-Alternatively, use `oa --update` instead of `openclaw update` — it handles sharp automatically:
+Alternativamente, usa `oa --update` en lugar de `openclaw update` — maneja `sharp` automáticamente:
 
 ```bash
 oa --update && source ~/.bashrc
 ```
 
-## `clawdhub` fails with "Cannot find package 'undici'"
+---
+
+## `clawdhub` falla con "Cannot find package 'undici'"
 
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'undici' imported from /data/data/com.termux/files/usr/lib/node_modules/clawdhub/dist/http.js
 ```
 
-### Cause
+### Causa
 
-Node.js v24+ on Termux doesn't bundle the `undici` package, which `clawdhub` depends on for HTTP requests.
+Node.js v24+ en Termux no incluye el paquete `undici`, del que depende `clawdhub` para sus peticiones HTTP.
 
-### Solution
+### Solución
 
-Run the updater to automatically install `clawdhub` and its `undici` dependency:
+Ejecuta el updater para que instale automáticamente `clawdhub` y su dependencia `undici`:
 
 ```bash
 oa --update && source ~/.bashrc
 ```
 
-Or fix it manually:
+O arréglalo manualmente:
 
 ```bash
 cd $(npm root -g)/clawdhub && npm install undici
 ```
 
-## "not supported on android" error
+---
+
+## "not supported on android"
 
 ```
 Gateway status failed: Error: Gateway service install not supported on android
 ```
 
-> **Note**: This issue only affects pre-1.0.0 (Bionic) installations. In v1.0.0+ (glibc), Node.js natively reports `process.platform` as `'linux'`, so this error does not occur.
+> Este problema solo afecta a instalaciones pre-`1.0.0` (Bionic). En `v1.0.0+` (glibc), Node.js reporta nativamente `process.platform` como `'linux'`.
 
-### Cause
+### Causa
 
-**Pre-1.0.0 (Bionic)**: The `process.platform` override in `glibc-compat.js` is not being applied because `NODE_OPTIONS` is not set.
+**Pre-1.0.0 (Bionic):** el override de `process.platform` en `glibc-compat.js` no se está aplicando porque `NODE_OPTIONS` no está seteado.
 
-### Solution
+### Solución
 
-Check which Node.js is being used:
+Verifica qué Node.js se está usando:
 
 ```bash
 node -e "console.log(process.platform)"
 ```
 
-If it prints `android`, the glibc node wrapper is not being used. Load the environment:
+Si imprime `android`, el wrapper glibc de node no está siendo usado. Carga el entorno:
 
 ```bash
 source ~/.bashrc
 ```
 
-If it still prints `android`, update to the latest version (v1.0.0+ uses glibc and resolves this permanently):
+Si sigue imprimiendo `android`, actualiza a la última versión (v1.0.0+ usa glibc y lo resuelve permanentemente):
 
 ```bash
 oa --update && source ~/.bashrc
 ```
 
-## `openclaw update` fails with node-llama-cpp build error
+---
+
+## `openclaw update` con error de `node-llama-cpp`
 
 ```
 [node-llama-cpp] Cloning ggml-org/llama.cpp (local bundle)
@@ -262,66 +294,70 @@ npm error 48%
 Update Result: ERROR
 ```
 
-### Cause
+### Causa
 
-When OpenClaw updates via npm, `node-llama-cpp`'s postinstall script attempts to clone and compile `llama.cpp` from source. This fails on Termux because the build toolchain (`cmake`, `clang`) is linked against Bionic, while Node.js runs under glibc — the two are incompatible for native compilation.
+Al actualizar OpenClaw vía npm, el `postinstall` de `node-llama-cpp` intenta clonar y compilar `llama.cpp` desde fuente. Esto falla en Termux porque el toolchain (`cmake`, `clang`) está linkado contra Bionic mientras Node.js corre bajo glibc — los dos son incompatibles para compilación nativa.
 
-### Impact
+### Impacto
 
-**This error is harmless.** The prebuilt `node-llama-cpp` binaries (`@node-llama-cpp/linux-arm64`) are already installed and work correctly under the glibc environment. The failed source build does not overwrite them.
+**El error es inofensivo.** Los binarios prebuilt de `node-llama-cpp` (`@node-llama-cpp/linux-arm64`) ya están instalados y funcionan correctamente bajo glibc. El build fallido **no los sobrescribe**.
 
-Node-llama-cpp is used for optional local embeddings. If the prebuilt binaries don't load, OpenClaw automatically falls back to remote embedding providers (OpenAI, Gemini, etc.).
+`node-llama-cpp` se usa para embeddings locales opcionales. Si los binarios prebuilt no cargan, OpenClaw cae a proveedores remotos de embedding (OpenAI, Gemini, etc.).
 
-### Solution
+### Solución
 
-No action needed. The error can be safely ignored. To verify that the prebuilt binaries are working:
+No requiere acción. El error puede ignorarse. Para verificar que los binarios prebuilt funcionan:
 
 ```bash
 node -e "require('$(npm root -g)/openclaw/node_modules/@node-llama-cpp/linux-arm64/bins/linux-arm64/llama-addon.node'); console.log('OK')"
 ```
 
-## OpenCode install shows EACCES permission errors
+---
+
+## OpenCode con errores `EACCES`
 
 ```
 EACCES: Permission denied while installing opencode-ai
 Failed to install 118 packages
 ```
 
-### Cause
+### Causa
 
-Bun attempts to create hardlinks and symlinks when installing packages. Android's filesystem restricts these operations, causing `EACCES` errors for dependency packages.
+Bun intenta crear hardlinks y symlinks al instalar paquetes. El filesystem de Android restringe estas operaciones, provocando errores `EACCES` para las dependencias.
 
-### Impact
+### Impacto
 
-**These errors are harmless.** The main binary (`opencode`) is installed correctly despite the dependency link failures. The ld.so concatenation and proot wrapper handle execution.
+**Los errores son inofensivos.** El binario principal (`opencode`) se instala correctamente a pesar de los fallos de links de dependencias. La concatenación `ld.so` y el wrapper proot manejan la ejecución.
 
-### Solution
+### Solución
 
-No action needed. Verify that OpenCode works:
+No requiere acción. Verifica que OpenCode funciona:
 
 ```bash
 opencode --version
 ```
 
-## `libldlinux.so` rejects `--disable-warning=ExperimentalWarning`
+---
+
+## `libldlinux.so` rechaza `--disable-warning=ExperimentalWarning`
 
 ```
 .../libldlinux.so: unrecognized option '--disable-warning=ExperimentalWarning'
 ```
 
-### Cause
+### Causa
 
-A stale or inherited `NODE_OPTIONS` value is being injected into runtime startup. Some packaged Node builds on Android do not support that warning flag path, and it can break command startup.
+Un `NODE_OPTIONS` heredado o stale se inyecta en el arranque del runtime. Algunos builds de Node empaquetados en Android no soportan esta opción de warning y rompen el arranque.
 
-### Solution
+### Solución
 
-OpenClaw now sanitizes runtime wrappers (`openclaw`, `node`, `npm`) to:
+OpenClaw sanea ahora los wrappers de runtime (`openclaw`, `node`, `npm`) para:
 
 - `unset NODE_OPTIONS`
-- set `NODE_NO_WARNINGS=1`
-- invoke `libldlinux.so` only with supported loader args
+- `set NODE_NO_WARNINGS=1`
+- Invocar `libldlinux.so` solo con argumentos soportados por el loader.
 
-If your payload was installed before this fix, rerun onboarding to regenerate wrappers:
+Si tu payload se instaló antes de este fix, regenera los wrappers reejecutando el onboarding:
 
 ```bash
 openclaw onboard
