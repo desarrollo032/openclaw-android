@@ -43,6 +43,20 @@ class AndroidBridge(
     private val migrationOverrideFile: File
         get() = File(activity.cacheDir, "openclaw_migration_override.tar.gz")
 
+    /**
+     * Registra una llamada de la WebView para diagnóstico. Sólo se usa en los
+     * métodos costosos (instalación, comandos shell, control del gateway) —
+     * añadirlo a getters de status genera demasiado ruido en el log.
+     * Si la UI parece "colgada", el archivo de logs muestra qué método nativo
+     * fue invocado y con qué argumento (truncado a 80 caracteres por seguridad).
+     */
+    private fun logBridgeCall(method: String, arg: String? = null) {
+        OpenClawLogger.init(activity)
+        val safeArg = arg?.let { if (it.length > 80) it.take(80) + "…" else it }
+        val msg = if (safeArg != null) "bridge.$method($safeArg)" else "bridge.$method()"
+        OpenClawLogger.log(OpenClawConstants.LOG_TAG_BRIDGE, msg)
+    }
+
     @JavascriptInterface
     fun getSetupStatus(): String {
         val payloadReady = OpenClawInstaller.isPayloadReady(activity)
@@ -227,6 +241,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun startGateway() {
+        logBridgeCall("startGateway")
         activity.runOnUiThread {
             if (activity is OpenClawDashboardActivity) {
                 activity.startGatewayWithPermissionCheck()
@@ -238,6 +253,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun stopGateway() {
+        logBridgeCall("stopGateway")
         activity.runOnUiThread {
             OpenClawGatewayService.stop(activity)
         }
@@ -245,6 +261,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun restartGateway() {
+        logBridgeCall("restartGateway")
         activity.runOnUiThread {
             val intent = Intent(activity, OpenClawGatewayService::class.java).apply {
                 action = OpenClawConstants.ACTION_RESTART_GATEWAY
@@ -346,6 +363,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun launchInteractiveCommand(command: String) {
+        logBridgeCall("launchInteractiveCommand", command)
         activity.runOnUiThread {
             OpenClawTerminalActivity.launchWithCommand(activity, command)
         }
@@ -353,6 +371,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun runCommand(command: String): String {
+        logBridgeCall("runCommand", command)
         return try {
             val termMgr = OpenClawTerminalManager(activity)
             OpenClawInstaller.ensureRuntimeWrappers(activity)
@@ -746,6 +765,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun installPlatform(id: String) {
+        logBridgeCall("installPlatform", id)
         notifyReact("install_progress", JSONObject().apply {
             put("target", id)
             put("progress", 1)
@@ -755,6 +775,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun uninstallPlatform(id: String) {
+        logBridgeCall("uninstallPlatform", id)
         notifyReact("install_progress", JSONObject().apply {
             put("target", id)
             put("progress", 1)
@@ -764,6 +785,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun switchPlatform(id: String) {
+        logBridgeCall("switchPlatform", id)
         notifyReact("install_progress", JSONObject().apply {
             put("target", id)
             put("progress", 1)
@@ -778,6 +800,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun applyUpdate(component: String) {
+        logBridgeCall("applyUpdate", component)
         notifyReact("install_progress", JSONObject().apply {
             put("target", component)
             put("progress", 1)
@@ -787,11 +810,13 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun installTool(id: String) {
+        logBridgeCall("installTool", id)
         notifyReact("install_progress", "{\"target\":\"$id\", \"progress\":1, \"message\": \"Instalación completada\"}")
     }
 
     @JavascriptInterface
     fun uninstallTool(id: String) {
+        logBridgeCall("uninstallTool", id)
         notifyReact("install_progress", "{\"target\":\"$id\", \"progress\":1, \"message\": \"Desinstalación completada\"}")
     }
 

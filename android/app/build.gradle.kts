@@ -103,12 +103,32 @@ tasks.register<Exec>("buildWebUI") {
     inputs.file(file("${wwwSrcDir}/vite.config.ts"))
     outputs.dir(wwwDistDir)
 
+    // Verifica que el build produjo un index.html. Si no, el APK terminaría
+    // empaquetando un assets/www/ inconsistente, así que falla rápido.
+    doLast {
+        val indexHtml = file("${wwwDistDir}/index.html")
+        if (!indexHtml.exists()) {
+            throw GradleException(
+                "buildWebUI: ${indexHtml} no existe tras `npm run build`. " +
+                "Revisa los logs de Vite/TSC."
+            )
+        }
+    }
+
     // Post-build copy task (registered separately to avoid serialization issues)
     finalizedBy("copyWebUIAssets")
 }
 
 tasks.register<Copy>("copyWebUIAssets") {
     description = "Copy built web UI to Android assets"
+    // Limpia los assets/www anteriores antes de copiar el nuevo dist —
+    // evita chunks JS huérfanos (hashes antiguos) acumulándose en el APK.
+    doFirst {
+        if (wwwAssetsDir.exists()) {
+            wwwAssetsDir.deleteRecursively()
+        }
+        wwwAssetsDir.mkdirs()
+    }
     from(wwwDistDir)
     into(wwwAssetsDir)
     doLast { println("✓ Web UI copied to assets/www") }
