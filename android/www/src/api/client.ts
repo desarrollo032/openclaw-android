@@ -5,9 +5,10 @@
  */
 
 import { getToken } from '../utils/androidBridge'
+import { GATEWAY_HTTP, DEFAULT_HTTP_TIMEOUT_MS } from '../config'
 
-export const BASE_URL = 'http://127.0.0.1:18789'
-const DEFAULT_TIMEOUT = 5000
+export const BASE_URL = GATEWAY_HTTP
+const DEFAULT_TIMEOUT = DEFAULT_HTTP_TIMEOUT_MS
 
 // ── Custom errors ─────────────────────────────────────────────────────────────
 

@@ -4,9 +4,9 @@
  * Falls back gracefully when the gateway is offline.
  */
 
-const GATEWAY_WS = 'ws://127.0.0.1:18789'
-const GATEWAY_HTTP = 'http://127.0.0.1:18789'
-const REQUEST_TIMEOUT = 15_000
+import { GATEWAY_HTTP, GATEWAY_WS, DEFAULT_WS_TIMEOUT_MS } from '../config'
+
+const REQUEST_TIMEOUT = DEFAULT_WS_TIMEOUT_MS
 
 /* ── Types ─────────────────────────────────────────────── */
 

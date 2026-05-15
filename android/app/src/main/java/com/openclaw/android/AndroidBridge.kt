@@ -244,6 +244,20 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun restartGateway() {
+        activity.runOnUiThread {
+            val intent = Intent(activity, OpenClawGatewayService::class.java).apply {
+                action = OpenClawConstants.ACTION_RESTART_GATEWAY
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                activity.startForegroundService(intent)
+            } else {
+                activity.startService(intent)
+            }
+        }
+    }
+
+    @JavascriptInterface
     fun getAuthToken(): String {
         return OpenClawGatewayService.currentToken
     }
@@ -286,6 +300,18 @@ class AndroidBridge(
     @JavascriptInterface
     fun showTerminal() {
         openTerminal()
+    }
+
+    @JavascriptInterface
+    fun showWebView() {
+        // Vuelve a poner el dashboard (WebView) en primer plano cuando el usuario
+        // está en otra Activity (por ejemplo OpenClawTerminalActivity).
+        activity.runOnUiThread {
+            val intent = Intent(activity, OpenClawDashboardActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            activity.startActivity(intent)
+        }
     }
 
     @JavascriptInterface
@@ -776,7 +802,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun getGatewayUrl(): String {
-        return "http://127.0.0.1:18789"
+        return "http://${OpenClawConstants.GATEWAY_HOST}:${OpenClawConstants.GATEWAY_PORT}"
     }
 
     @JavascriptInterface
