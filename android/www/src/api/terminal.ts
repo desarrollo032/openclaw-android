@@ -7,6 +7,7 @@
 
 import { getBaseUrl } from './client'
 import { getToken } from '../utils/androidBridge'
+import { TERMINAL_WS_PATH } from '../config'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,9 +21,14 @@ interface PTYInputMessage  { type: 'input';  data: string }
 interface PTYResizeMessage { type: 'resize'; cols: number; rows: number }
 
 
-const WS_PATH       = '/terminal'
-const MAX_RETRIES   = 3
-const BACKOFF_MS    = [1000, 2000, 4000] as const
+const WS_PATH         = TERMINAL_WS_PATH
+/**
+ * Backoff exponencial con cap. Antes era [1s, 2s, 4s] con MAX_RETRIES = 3
+ * (~7 s) — en Android con doze mode era insuficiente. Ahora reintenta de forma
+ * indefinida hasta tope de 30 s, y se cancela limpiamente con disconnect().
+ */
+const BACKOFF_BASE_MS = 1_000
+const BACKOFF_CAP_MS  = 30_000
 
 // ── TerminalSocket ────────────────────────────────────────────────────────────
 
@@ -38,8 +44,31 @@ export class TerminalSocket {
   private errorCallbacks: Set<ErrorCallback> = new Set()
   private stateCallbacks: Set<StateCallback> = new Set()
 
+  private visibilityHandler: (() => void) | null = null
+
   constructor() {
+    this.installVisibilityListener()
     this.connect()
+  }
+
+  /**
+   * Cuando la WebView vuelve al foreground en Android, forzamos una
+   * reconexión inmediata si el socket está caído. Doze mode pausa los
+   * sockets sin notificar, así que el simple "abrir la app" debe revivir
+   * el terminal sin que el usuario tenga que pulsar nada.
+   */
+  private installVisibilityListener(): void {
+    if (typeof document === 'undefined') return
+    this.visibilityHandler = () => {
+      if (document.visibilityState !== 'visible') return
+      if (this.destroyed) return
+      if (this.ws?.readyState === WebSocket.OPEN) return
+      // Reset del backoff y reconexión inmediata
+      this.retries = 0
+      if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null }
+      this.connect()
+    }
+    document.addEventListener('visibilitychange', this.visibilityHandler)
   }
 
   // ── Connection ──────────────────────────────────────────────────────────────
@@ -90,8 +119,9 @@ export class TerminalSocket {
   }
 
   private scheduleReconnect(): void {
-    if (this.destroyed || this.retries >= MAX_RETRIES) return
-    const delay = BACKOFF_MS[this.retries] ?? 4000
+    if (this.destroyed) return
+    // Backoff exponencial: 1s, 2s, 4s, 8s, 16s, 30s, 30s… sin tope de reintentos.
+    const delay = Math.min(BACKOFF_BASE_MS * Math.pow(2, this.retries), BACKOFF_CAP_MS)
     this.retries++
     this.retryTimer = setTimeout(() => this.connect(), delay)
   }
@@ -150,6 +180,10 @@ export class TerminalSocket {
   disconnect(): void {
     this.destroyed = true
     if (this.retryTimer) clearTimeout(this.retryTimer)
+    if (this.visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler)
+      this.visibilityHandler = null
+    }
     this.ws?.close()
     this.ws = null
     this.setState('disconnected')
