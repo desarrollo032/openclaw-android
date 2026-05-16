@@ -12,15 +12,17 @@ import java.io.FileInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * OpenClawProot — núcleo de la integración proot + Alpine Linux.
  *
- * Reemplaza la antigua cadena `libldlinux.so → libnode.so → openclaw.mjs` por
- * un binario `proot` estático que ejecuta un rootfs Alpine ARM64 con Node.js
- * instalado via `apk`.
+ * Ejecuta un rootfs Alpine ARM64 completo usando el binario `proot` estático,
+ * con Node.js instalado via `apk` dentro del contenedor.
  *
  * Layout en disco (host Android):
  *
@@ -29,8 +31,11 @@ import kotlinx.coroutines.withContext
  *     │   ├── bin/ etc/ usr/    ← sistema Alpine
  *     │   └── etc/resolv.conf   ← DNS escrito por nosotros
  *     ├── home/.openclaw/       OPENCLAW_HOME (visto como /data/home/.openclaw)
- *     │   └── tmp/              TMPDIR (fix EACCES link())
- *     └── proot-tmp/            PROOT_TMP_DIR (Android no tiene /tmp en el host)
+ *     │   └── tmp/              TMPDIR (fix EACCES link())     *     └── cacheDir/proot-tmp/   PROOT_TMP_DIR (Android no tiene /tmp en el host)
+     *
+     * Importante: PROOT_TMP_DIR usa cacheDir y NO filesDir porque algunos
+     * dispositivos Android imponen restricciones de chmod y enlaces simbólicos
+     * en filesDir, lo que provoca "Function not implemented" al ejecutar proot.
  *
  *   nativeLibraryDir/libproot.so   ← binario proot ARM64 (estático ~500 KB)
  *
@@ -74,8 +79,8 @@ class OpenClawProot(private val context: Context) {
 
     val filesDir: File        get() = context.filesDir
     val nativeDir: String     get() = context.applicationInfo.nativeLibraryDir
-    val rootfs: File          get() = File(filesDir, "alpine-rootfs")
-    val prootTmpDir: File     get() = File(filesDir, "proot-tmp").apply { mkdirs() }
+    val rootfs: File          get() = File(filesDir, "alpine-rootfs").apply { mkdirs() }
+    val prootTmpDir: File     get() = File(context.cacheDir, "proot-tmp").apply { mkdirs() }
     val homeDir: File         get() = File(filesDir, "home").apply { mkdirs() }
     val openclawHome: File    get() = File(homeDir, ".openclaw").apply { mkdirs() }
     val openclawTmp: File     get() = File(openclawHome, "tmp").apply { mkdirs() }
@@ -85,8 +90,11 @@ class OpenClawProot(private val context: Context) {
 
     // ── Estado ───────────────────────────────────────────────────────────────
 
-    /** El rootfs Alpine está extraído y tiene `bin/sh`. */
-    fun isAlpineInstalled(): Boolean = File(rootfs, "bin/sh").exists()
+    /** El rootfs Alpine está extraído y tiene un `bin/sh` ejecutable. */
+    fun isAlpineInstalled(): Boolean =
+        File(rootfs, "bin/sh").exists() &&
+        File(rootfs, "etc").exists() &&
+        File(rootfs, "root").exists()
 
     /** OpenClaw está instalado como módulo global de npm dentro del rootfs. */
     fun isOpenClawInstalled(): Boolean =
@@ -113,7 +121,16 @@ class OpenClawProot(private val context: Context) {
         onError: (String) -> Unit
     ): Boolean {
         return try {
+            // ── Limpiar rootfs antiguo completamente ────────────────────────
+            // Si hay una instalación previa de Alpine (de la versión antigua
+            // que no manejaba symlinks), los archivos viejos se mezclarían con
+            // la nueva extracción. Eliminamos todo para partir de cero.
+            if (rootfs.exists()) {
+                onProgress("Limpiando instalación anterior de Alpine...")
+                rootfs.deleteRecursivelySafe()
+            }
             rootfs.mkdirs()
+
             val tarFile = File(prootTmpDir, "alpine-rootfs.tar.gz")
             tarFile.parentFile?.mkdirs()
             if (tarFile.exists()) tarFile.delete()
@@ -187,22 +204,93 @@ class OpenClawProot(private val context: Context) {
                 return false
             }
 
-            onProgress("Extrayendo Alpine (~50 MB)…")
-            try {
-                FileInputStream(tarFile).use { fis ->
-                    BufferedInputStream(fis, 64 * 1024).use { bis ->
-                        GzipCompressorInputStream(bis).use { gzis ->
-                            TarArchiveInputStream(gzis).use { tais ->
-                                var entry = tais.nextEntry
-                                var extractedCount = 0
-                                while (entry != null) {
-                                    // Sanitizar: eliminar leading "/" para evitar
-                                    // escritura fuera del rootfs si el tar tiene paths absolutos
-                                    val safeName = entry.name.removePrefix("/")
-                                    val outputFile = File(rootfs, safeName)
-                                    if (entry.isDirectory) {
-                                        outputFile.mkdirs()
-                                    } else {
+            if (!extractAlpineArchive(tarFile, onProgress, onError)) {
+                return false
+            }
+            tarFile.delete()
+
+            // ── Directorios que proot necesita encontrar en el rootfs ────────
+            File(rootfs, "root").mkdirs()      // --cwd=/root
+            File(rootfs, "tmp").mkdirs()       // /tmp dentro del rootfs
+            File(rootfs, ".l2s").mkdirs()      // directorio para --link2symlink
+
+            // DNS dentro del rootfs (Alpine no trae resolv.conf por defecto)
+            File(rootfs, "etc").mkdirs()
+            val resolv = File(rootfs, "etc/resolv.conf")
+            if (!resolv.exists() || resolv.readText().isBlank()) {
+                resolv.writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+            }
+
+            // ── Aplicar +x a todos los binarios (Commons Compress no preserva) ──
+            onProgress("Aplicando permisos de ejecución...")
+            listOf("bin", "sbin", "usr/bin", "usr/sbin", "usr/local/bin")
+                .map { File(rootfs, it) }
+                .filter { it.isDirectory }
+                .flatMap { it.listFiles()?.toList() ?: emptyList() }
+                .filter { it.isFile }
+                .forEach { it.setExecutable(true, false) }
+
+            // Verificación final
+            val sh = File(rootfs, "bin/sh")
+            if (!sh.exists() || !sh.canExecute()) {
+                onError("bin/sh no ejecutable — extracción fallida")
+                return false
+            }
+            onProgress("Alpine verificado ✓")
+            true
+        } catch (e: Exception) {
+            log("downloadAndExtractAlpine failed: ${e.message}")
+            onError("Error descargando Alpine: ${e.message ?: e.javaClass.simpleName}")
+            false
+        }
+    }
+
+    /**
+     * Extrae el rootfs preservando enlaces del tar. Alpine depende de symlinks
+     * críticos como /bin/sh -> busybox y /lib/ld-musl-aarch64.so.1 -> libc.
+     */
+    fun extractAlpineArchive(
+        tarFile: File,
+        onProgress: (String) -> Unit,
+        onError: (String) -> Unit
+    ): Boolean {
+        val pendingLinks = mutableListOf<PendingLink>()
+
+        onProgress("Extrayendo Alpine (~50 MB)…")
+        return try {
+            FileInputStream(tarFile).use { fis ->
+                BufferedInputStream(fis, 64 * 1024).use { bis ->
+                    GzipCompressorInputStream(bis).use { gzis ->
+                        TarArchiveInputStream(gzis).use { tais ->
+                            var entry = tais.nextEntry
+                            var extractedCount = 0
+                            while (entry != null) {
+                                val outputFile = safeRootfsFile(entry.name)
+                                if (outputFile == null) {
+                                    log("Skipping unsafe tar entry: ${entry.name}")
+                                    entry = tais.nextEntry
+                                    continue
+                                }
+
+                                when {
+                                    entry.isDirectory -> outputFile.mkdirs()
+                                    entry.isSymbolicLink -> {
+                                        createArchiveLink(
+                                            outputFile = outputFile,
+                                            linkName = entry.linkName,
+                                            hardLink = false,
+                                            pendingLinks = pendingLinks
+                                        )
+                                    }
+                                    entry.isLink -> {
+                                        createArchiveLink(
+                                            outputFile = outputFile,
+                                            linkName = entry.linkName,
+                                            hardLink = true,
+                                            pendingLinks = pendingLinks
+                                        )
+                                    }
+                                    else -> {
                                         outputFile.parentFile?.mkdirs()
                                         outputFile.outputStream().use { out ->
                                             val buf = ByteArray(64 * 1024)
@@ -212,72 +300,26 @@ class OpenClawProot(private val context: Context) {
                                                 n = tais.read(buf, 0, buf.size)
                                             }
                                         }
-
-                                        // ── APLICAR PERMISOS DEL TAR ─────────────────────
-                                        // Apache Commons Compress NO aplica los bits de
-                                        // ejecución del tar automáticamente. Sin esto,
-                                        // todos los binarios de Alpine (sh, apk, busybox,
-                                        // node, npm) quedan sin permiso +x y proot falla
-                                        // con "'/bin/sh' is not executable".
-                                        val mode = entry.mode
-                                        val ownerExec  = (mode and 0b001_000_000) != 0
-                                        val groupExec  = (mode and 0b000_001_000) != 0
-                                        val otherExec  = (mode and 0b000_000_001) != 0
-                                        val anyExec = ownerExec || groupExec || otherExec
-                                        if (anyExec) {
-                                            outputFile.setExecutable(true, false)
-                                        }
-                                        // readable para todos (por defecto del tar)
-                                        outputFile.setReadable(true, false)
-
-                                        extractedCount++
-                                        if (extractedCount % 500 == 0) {
-                                            onProgress("Extrayendo Alpine… (archivo $extractedCount)")
-                                        }
+                                        applyTarFilePermissions(outputFile, entry.mode)
                                     }
-                                    entry = tais.nextEntry
                                 }
+
+                                extractedCount++
+                                if (extractedCount % 500 == 0) {
+                                    onProgress("Extrayendo Alpine… (archivo $extractedCount)")
+                                }
+                                entry = tais.nextEntry
                             }
                         }
                     }
                 }
-            } catch (e: Exception) {
-                log("tar extraction via commons-compress failed: ${e.message}")
-                onError("Error extrayendo Alpine: ${e.message ?: e.javaClass.simpleName}")
-                tarFile.delete()
-                return false
             }
-            tarFile.delete()
 
-            // ── Paso de seguridad: aplicar permisos a todos los binarios ─────
-            onProgress("Aplicando permisos de ejecución...")
-            applyAlpineExecutablePermissions()
-
-            // DNS dentro del rootfs (Alpine no trae resolv.conf por defecto)
-            // Múltiples DNS por si algún proveedor está bloqueado en la red.
-            File(rootfs, "etc").mkdirs()
-            File(rootfs, "etc/resolv.conf").writeText(
-                "nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 208.67.222.222\nnameserver 9.9.9.9\n"
-            )
-
-            // ── Verificación final: bin/sh debe existir y ser ejecutable ─────
-            val sh = File(rootfs, "bin/sh")
-            if (!sh.exists()) {
-                onError("Extracción incompleta — bin/sh no existe en el rootfs")
-                return false
-            }
-            if (!sh.canExecute()) {
-                sh.setExecutable(true, false)
-                if (!sh.canExecute()) {
-                    onError("bin/sh existe pero no es ejecutable — problema de permisos en el dispositivo")
-                    return false
-                }
-            }
-            onProgress("Alpine verificado ✓ (bin/sh ejecutable)")
+            resolvePendingLinks(pendingLinks)
             true
         } catch (e: Exception) {
-            log("downloadAndExtractAlpine failed: ${e.message}")
-            onError("Error descargando Alpine: ${e.message ?: e.javaClass.simpleName}")
+            log("tar extraction via commons-compress failed: ${e.message}")
+            onError("Error extrayendo Alpine: ${e.message ?: e.javaClass.simpleName}")
             false
         }
     }
@@ -285,10 +327,19 @@ class OpenClawProot(private val context: Context) {
     // ── Instalación de Node.js + openclaw dentro de Alpine ───────────────────
 
     /**
-     * Dentro del proot, ejecuta `apk add nodejs npm ca-certificates`,
-     * `npm install -g openclaw` y verifica las versiones.
-     * Retorna `true` si todo OK, `false` si falla.
+     * Dentro del proot, realiza la instalación completa de OpenClaw:
+     *   1. Detecta arquitectura ARM64
+     *   2. Verifica/instala Node.js y npm (skip si ya existen)
+     *   3. Verifica/instala npm (skip si ya existe)
+     *   4. Instala dependencias del sistema (python3, make, g++, libc6-compat, libstdc++)
+     *   5. Instala pnpm globalmente via npm
+     *   6. Configura PNPM_HOME en .bashrc y .profile para persistencia
+     *   7. Verifica versiones de node, npm, pnpm
+     *   8. Instala openclaw@beta via pnpm
+     *   9. Ejecuta openclaw onboard (con stdin vacío para evitar prompts)
+     *  10. Verificación final (openclaw --version)
      *
+     * Retorna `true` si todo OK, `false` si falla.
      * Si falla, captura la última línea que comienza con "FALLO:" y la usa como
      * mensaje de error en vez del genérico "install falló código 1".
      */
@@ -325,9 +376,6 @@ class OpenClawProot(private val context: Context) {
         }
 
         // ── Sanity check: verificar que proot puede ejecutar comandos ──
-        // Específicamente diseñado para capturar errores de proot (ej: no puede
-        // ejecutar /bin/sh por permisos, falta ptrace, etc.) que de otra forma
-        // aparecerían como genérico "Error sin diagnóstico de paso".
         onProgress("Verificando proot...")
         var sanityOutput = StringBuilder()
         val sanityCode = runInProot(
@@ -353,44 +401,114 @@ class OpenClawProot(private val context: Context) {
         AndroidLog.i(TAG, "Sanity check OK — proot puede ejecutar /bin/sh")
         onProgress("Verificación de proot OK ✓")
 
-        // ── Script de instalación ────────────────────────────────────────────
+        // ── Script de instalación completo (9 pasos) ─────────────────────────
         // Cada paso reporta explícitamente su resultado para saber exactamente dónde falla.
         // No usamos `set -e` porque oculta qué paso falló.
-        // `--no-audit --no-fund` en npm evita errores silenciosos de auditoría.
-        val script = """
-            echo "[0/4] Verificando red..."
-            ping -c 1 -W 3 1.1.1.1 > /dev/null 2>&1 || echo "[WARN] sin respuesta de ping — puede haber problemas de red"
+        // La variable PNPM_HOME se añade a .bashrc para persistencia entre sesiones.
+        val script = """"
+            echo "[1/10] Detectando arquitectura..."
+            arch=$(uname -m)
+            echo "Arquitectura detectada: ${'$'}arch"
+            case "${'$'}arch" in
+                aarch64|arm64) echo "✓ ARM64 confirmado" ;;
+                *) echo "[WARN] Arquitectura no esperada: ${'$'}arch (se esperaba aarch64)" ;;
+            esac
 
-            echo "[1/4] Actualizando indice de paquetes..."
-            if ! apk update --no-cache 2>&1; then
-                echo "FALLO:PASO1 apk update falló"
-                exit 1
+            echo "[2/10] Verificando Node.js..."
+            if command -v node > /dev/null 2>&1; then
+                echo "Node.js $(node --version) encontrado ✓"
+            else
+                echo "Node.js no encontrado. Instalando..."
+                apk update --no-cache 2>&1 || echo "[WARN] apk update falló"
+                if ! apk add --no-cache nodejs npm 2>&1; then
+                    echo "FALLO:PASO2 error instalando nodejs"
+                    exit 1
+                fi
             fi
 
-            echo "[2/4] Instalando nodejs y npm..."
-            if ! apk add --no-cache nodejs npm 2>&1; then
-                echo "FALLO:PASO2 apk add nodejs npm falló"
-                exit 1
+            echo "[3/10] Verificando npm..."
+            if command -v npm > /dev/null 2>&1; then
+                echo "npm $(npm --version) encontrado ✓"
+            else
+                echo "npm no encontrado. Instalando Node.js + npm..."
+                apk update --no-cache 2>&1 || echo "[WARN] apk update falló"
+                if ! apk add --no-cache nodejs npm 2>&1; then
+                    echo "FALLO:PASO3 error instalando nodejs+npm"
+                    exit 1
+                fi
             fi
 
-            echo "[2b/4] Instalando ca-certificates..."
-            apk add --no-cache ca-certificates 2>&1 || echo "[WARN] ca-certificates no disponible (no crítico)"
-
-            echo "[3/4] Instalando openclaw via npm..."
-            if ! npm install -g openclaw --no-audit --no-fund 2>&1; then
-                echo "FALLO:PASO3 npm install -g openclaw falló"
+            echo "[4/10] Instalando dependencias del sistema..."
+            apk update --no-cache 2>&1 || echo "[WARN] apk update falló"
+            if ! apk add --no-cache \
+                python3 make g++ curl git \
+                libc6-compat libstdc++ \
+                ca-certificates bash 2>&1; then
+                echo "FALLO:PASO4 error instalando dependencias del sistema"
                 exit 1
             fi
+            echo "Dependencias del sistema instaladas ✓"
 
-            echo "[4/4] Verificando..."
-            echo "Node.js: $(node --version 2>/dev/null || echo error), npm: $(npm --version 2>/dev/null || echo error)"
-            openclaw --version 2>/dev/null || echo "[WARN] openclaw --version no responde"
+            echo "[5/10] Instalando pnpm globalmente..."
+            if command -v pnpm > /dev/null 2>&1; then
+                echo "pnpm $(pnpm --version) ya instalado ✓"
+            else
+                if ! npm install -g pnpm 2>&1; then
+                    echo "FALLO:PASO5 npm install -g pnpm falló"
+                    exit 1
+                fi
+                echo "pnpm $(pnpm --version) instalado ✓"
+            fi
+
+            echo "[6/10] Configurando PNPM_HOME en .bashrc..."
+            mkdir -p /root/.local/share/pnpm
+            export PNPM_HOME="/root/.local/share/pnpm"
+            export PATH="${'$'}PNPM_HOME:${'$'}PATH"
+            if ! grep -q "PNPM_HOME" /root/.bashrc 2>/dev/null; then
+                cat >> /root/.bashrc << 'ENVEOF'
+    export PNPM_HOME="/root/.local/share/pnpm"
+    export PATH="${'$'}PNPM_HOME:${'$'}PATH"
+    ENVEOF
+                echo "PNPM_HOME configurado en .bashrc ✓"
+            else
+                echo "PNPM_HOME ya está en .bashrc ✓"
+            fi
+            # También en .profile por si el shell login no carga .bashrc
+            if ! grep -q "PNPM_HOME" /root/.profile 2>/dev/null; then
+                cat >> /root/.profile << 'ENVEOF'
+    export PNPM_HOME="/root/.local/share/pnpm"
+    export PATH="${'$'}PNPM_HOME:${'$'}PATH"
+    ENVEOF
+            fi
+
+            echo "[7/10] Verificando versiones..."
+            echo "node  => $(node --version 2>/dev/null || echo ERROR)"
+            echo "npm   => $(npm --version 2>/dev/null || echo ERROR)"
+            echo "pnpm  => $(pnpm --version 2>/dev/null || echo ERROR)"
+
+            echo "[8/10] Instalando OpenClaw (beta) con pnpm..."
+            if ! pnpm add -g openclaw@beta 2>&1; then
+                echo "FALLO:PASO8 pnpm add -g openclaw@beta falló"
+                exit 1
+            fi
+            echo "OpenClaw beta instalado ✓"
+
+            echo "[9/10] Ejecutando openclaw onboard..."
+            if ! echo "" | openclaw onboard 2>&1; then
+                echo "FALLO:PASO9 openclaw onboard falló"
+                exit 1
+            fi
+            echo "openclaw onboard completado ✓"
+
+            echo "[10/10] Verificación final..."
+            if ! openclaw --version 2>&1; then
+                echo "FALLO:PASO10 openclaw --version falló"
+                exit 1
+            fi
             echo "DONE"
         """.trimIndent()
 
         // Capturar la última línea FALLO: como mensaje de error específico
-        // Si nunca se emite FALLO: (ej: proot falla antes de ejecutar el script),
-        // lastErrorLine conserva el default y se reporta con el exit code real.
         var lastErrorLine = "Error sin diagnóstico de paso"
 
         val code = runInProot(
@@ -412,10 +530,10 @@ class OpenClawProot(private val context: Context) {
         }
     }
 
-    /** `npm update -g openclaw` dentro del proot. Retorna true si OK. */
+    /** `pnpm update -g openclaw@beta` dentro del proot. Retorna true si OK. */
     suspend fun updateOpenClaw(onProgress: (String) -> Unit): Boolean {
         val code = runInProot(
-            command = listOf("/bin/sh", "-c", "npm update -g openclaw && openclaw --version"),
+            command = listOf("/bin/sh", "-c", "pnpm update -g openclaw@beta && openclaw --version"),
             onOutput = onProgress
         )
         return code == 0
@@ -435,12 +553,10 @@ class OpenClawProot(private val context: Context) {
     /**
      * Arranca el gateway de OpenClaw como `Process` síncrono.
      * El llamador es responsable de leer stdout y manejar el ciclo de vida
-     * (idéntico al ProcessBuilder anterior basado en libnode).
      */
     fun startGatewayProcess(extraEnv: Map<String, String> = emptyMap()): Process {
         val pb = buildProotProcess(
-            command = listOf("/bin/sh", "-lc", "openclaw gateway"),
-            cwd = "/data/home/.openclaw"
+            listOf("/bin/sh", "-lc", "openclaw gateway")
         )
         if (extraEnv.isNotEmpty()) {
             pb.environment().putAll(extraEnv)
@@ -476,53 +592,48 @@ class OpenClawProot(private val context: Context) {
 
     /**
      * Construye el ProcessBuilder de proot listo para `.start()`.
-     * Aplica binds canónicos, simula uid 0 dentro del rootfs y configura
-     * el environment mínimo necesario para que Node/openclaw funcionen.
+     * Usa --link2symlink y -0 para compatibilidad con Samsung Knox / Android 12+,
+     * binds canónicos, y configura el environment mínimo necesario para
+     * que Node/openclaw funcionen.
      */
-    fun buildProotProcess(command: List<String>, cwd: String = "/root"): ProcessBuilder {
+    fun buildProotProcess(command: List<String>): ProcessBuilder {
         require(command.isNotEmpty()) { "command must not be empty" }
-        val dataBindPath = filesDir.absolutePath
+
+        // Asegurar que /root exista (Alpine minirootfs no lo incluye)
+        File(rootfs, "root").mkdirs()
+        File(rootfs, ".l2s").mkdirs()  // requerido por --link2symlink
 
         val args = mutableListOf<String>().apply {
             add(proot)
+            add("--link2symlink")                          // fix symlinks Alpine en filesDir Android
+            add("-0")                                      // fake root compatible Samsung/Android 12+
             add("--rootfs=${rootfs.absolutePath}")
             add("--bind=/proc")
             add("--bind=/dev")
-            add("--bind=/dev/null")
             add("--bind=/sys")
             add("--bind=/dev/urandom")
-            add("--bind=$dataBindPath:/data")
+            add("--bind=${filesDir.absolutePath}:/data")
             add("--bind=${prootTmpDir.absolutePath}:/tmp")
-            add("--change-id=0:0")
-            add("--cwd=$cwd")
+            add("--cwd=/root")
             addAll(command)
         }
 
         return ProcessBuilder(args).apply {
             redirectErrorStream(true)
             environment().apply {
-                // Limpieza obligatoria: nunca filtrar libs/preloads del host Android
                 remove("LD_PRELOAD")
                 remove("LD_LIBRARY_PATH")
-
-                // Variables CRÍTICAS para proot
-                put("PROOT_TMP_DIR",   prootTmpDir.absolutePath)
-                put("PROOT_NO_SECCOMP","1")
-
-                // Entorno Linux estándar dentro del proot
-                put("HOME",   "/root")
-                put("TMPDIR", "/data/home/.openclaw/tmp")
-                put("PATH",   "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
-                put("TERM",   "xterm-256color")
-                put("COLORTERM","truecolor")
-                put("LANG",   "en_US.UTF-8")
-                put("LC_ALL", "en_US.UTF-8")
-
-                // OpenClaw espera estas dos:
-                put("OPENCLAW_HOME", "/data/home/.openclaw")
-                put("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
-
-                // npm necesita un cache escribible (no en /home, distinto fs)
+                put("PROOT_TMP_DIR",    prootTmpDir.absolutePath)
+                put("PROOT_NO_SECCOMP", "1")
+                put("HOME",             "/root")
+                put("TMPDIR",           "/data/home/.openclaw/tmp")
+                put("PATH",             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+                put("TERM",             "xterm-256color")
+                put("COLORTERM",        "truecolor")
+                put("LANG",             "en_US.UTF-8")
+                put("LC_ALL",           "en_US.UTF-8")
+                put("OPENCLAW_HOME",    "/data/home/.openclaw")
+                put("SSL_CERT_FILE",    "/etc/ssl/certs/ca-certificates.crt")
                 put("npm_config_cache", "/tmp/npm-cache")
             }
         }
@@ -531,22 +642,21 @@ class OpenClawProot(private val context: Context) {
     // ── Terminal PTY: comando y env para TerminalSession ─────────────────────
 
     /**
-     * Argumentos para construir un `TerminalSession`. El primer elemento es la
-     * ejecutable (proot), el resto los binds + el sh interactivo de Alpine.
+     * Argumentos para construir un `TerminalSession`. El primer elemento debe
+     * ser argv[0] (el nombre del proceso) para que TerminalSession lo use
+     * correctamente como ejecutable.
      */
     fun buildShellCommand(): Array<String> = arrayOf(
-        // proot ejecutable (primer arg pasado a TerminalSession se ignora;
-        // realmente vale el `executable` separado, pero conservamos esto por
-        // simetría con la API anterior).
+        proot,                                           // argv[0]
+        "--link2symlink",
+        "-0",
         "--rootfs=${rootfs.absolutePath}",
         "--bind=/proc",
         "--bind=/dev",
-        "--bind=/dev/null",
         "--bind=/sys",
         "--bind=/dev/urandom",
         "--bind=${filesDir.absolutePath}:/data",
         "--bind=${prootTmpDir.absolutePath}:/tmp",
-        "--change-id=0:0",
         "--cwd=/data/home/.openclaw",
         "/bin/sh",
         "-i"
@@ -565,7 +675,7 @@ class OpenClawProot(private val context: Context) {
         "LC_ALL=en_US.UTF-8",
         "OPENCLAW_HOME=/data/home/.openclaw",
         "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
-        "PS1=~ \$ "
+        "PS1=~ \\$ "
     )
 
     // ── Uninstall ────────────────────────────────────────────────────────────
@@ -577,6 +687,173 @@ class OpenClawProot(private val context: Context) {
         prootTmpDir.mkdirs()
     }
 
+    private data class PendingLink(
+        val outputFile: File,
+        val linkName: String,
+        val hardLink: Boolean
+    )
+
+    private fun safeRootfsFile(entryName: String): File? {
+        val safeName = entryName.replace('\\', '/').removePrefix("/")
+        if (safeName.isBlank()) return null
+
+        val root = rootfs.toPath().toAbsolutePath().normalize()
+        val output = root.resolve(safeName).normalize()
+        return if (output.startsWith(root)) output.toFile() else null
+    }
+
+    private fun createArchiveLink(
+        outputFile: File,
+        linkName: String,
+        hardLink: Boolean,
+        pendingLinks: MutableList<PendingLink>
+    ) {
+        outputFile.parentFile?.mkdirs()
+        Files.deleteIfExists(outputFile.toPath())
+
+        if (hardLink) {
+            val targetFile = resolveArchiveLinkTarget(outputFile, linkName)
+            if (targetFile == null || !targetFile.exists()) {
+                pendingLinks += PendingLink(outputFile, linkName, hardLink = true)
+                return
+            }
+
+            try {
+                Files.createLink(outputFile.toPath(), targetFile.toPath())
+            } catch (e: Exception) {
+                if (!copyResolvedLinkTarget(outputFile, linkName)) {
+                    pendingLinks += PendingLink(outputFile, linkName, hardLink = true)
+                }
+            }
+            return
+        }
+
+        val symlinkTarget = symlinkTargetForHost(outputFile, linkName)
+        if (symlinkTarget == null) {
+            log("Skipping unsafe symlink ${outputFile.name} -> $linkName")
+            return
+        }
+
+        try {
+            Files.createSymbolicLink(outputFile.toPath(), Paths.get(symlinkTarget))
+        } catch (e: Exception) {
+            if (!copyResolvedLinkTarget(outputFile, linkName)) {
+                pendingLinks += PendingLink(outputFile, linkName, hardLink = false)
+            }
+        }
+    }
+
+    private fun resolvePendingLinks(pendingLinks: List<PendingLink>) {
+        pendingLinks.forEach { link ->
+            if (link.outputFile.exists()) return@forEach
+
+            val resolved = if (link.hardLink) {
+                copyResolvedLinkTarget(link.outputFile, link.linkName)
+            } else {
+                val symlinkTarget = symlinkTargetForHost(link.outputFile, link.linkName)
+                if (symlinkTarget != null) {
+                    try {
+                        link.outputFile.parentFile?.mkdirs()
+                        Files.createSymbolicLink(link.outputFile.toPath(), Paths.get(symlinkTarget))
+                        true
+                    } catch (e: Exception) {
+                        copyResolvedLinkTarget(link.outputFile, link.linkName)
+                    }
+                } else {
+                    false
+                }
+            }
+
+            if (!resolved) {
+                log("Unresolved tar link: ${link.outputFile.absolutePath} -> ${link.linkName}")
+            }
+        }
+    }
+
+    private fun symlinkTargetForHost(outputFile: File, linkName: String): String? {
+        val targetFile = resolveArchiveLinkTarget(outputFile, linkName) ?: return null
+        val parent = outputFile.parentFile?.toPath()?.toAbsolutePath()?.normalize() ?: return null
+        return parent.relativize(targetFile.toPath().toAbsolutePath().normalize()).toString()
+    }
+
+    private fun resolveArchiveLinkTarget(outputFile: File, linkName: String): File? {
+        val root = rootfs.toPath().toAbsolutePath().normalize()
+        val parent = outputFile.parentFile?.toPath()?.toAbsolutePath()?.normalize() ?: return null
+        val target = if (linkName.startsWith("/")) {
+            root.resolve(linkName.removePrefix("/"))
+        } else {
+            parent.resolve(linkName)
+        }.normalize()
+
+        return if (target.startsWith(root)) target.toFile() else null
+    }
+
+    private fun copyResolvedLinkTarget(outputFile: File, linkName: String): Boolean {
+        val targetFile = resolveArchiveLinkTarget(outputFile, linkName) ?: return false
+        if (!targetFile.exists()) return false
+
+        outputFile.parentFile?.mkdirs()
+        return try {
+            if (targetFile.isDirectory) {
+                outputFile.mkdirs()
+            } else {
+                Files.copy(
+                    targetFile.toPath(),
+                    outputFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.COPY_ATTRIBUTES
+                )
+                outputFile.setReadable(true, false)
+                if (targetFile.canExecute()) {
+                    outputFile.setExecutable(true, false)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            log("Could not materialize tar link ${outputFile.absolutePath} -> $linkName: ${e.message}")
+            false
+        }
+    }
+
+    private fun applyTarFilePermissions(outputFile: File, mode: Int) {
+        val ownerExec  = (mode and 0b001_000_000) != 0
+        val groupExec  = (mode and 0b000_001_000) != 0
+        val otherExec  = (mode and 0b000_000_001) != 0
+        val anyExec = ownerExec || groupExec || otherExec
+        if (anyExec) {
+            outputFile.setExecutable(true, false)
+        }
+        outputFile.setReadable(true, false)
+    }
+
+    // ── Preparación del entorno antes de ejecutar Proot ───────────────────────
+
+    /**
+     * Crea todos los directorios críticos en el host Android ANTES de que
+     * Proot se ejecute por primera vez.
+     *
+     * Rutas creadas:
+     *   - cacheDir/proot-tmp/           PROOT_TMP_DIR (bind-mount a /tmp dentro del rootfs)
+     *   - filesDir/home/                Directorio home en el host
+     *   - filesDir/home/.openclaw/      OPENCLAW_HOME (bind-mount a /data/home/.openclaw)
+     *   - filesDir/home/.openclaw/tmp/  OPENCLAW_TMP (TMPDIR para Node/NPM)
+     *   - filesDir/alpine-rootfs/       Rootfs Alpine
+     *   - filesDir/alpine-rootfs/root/  Directorio de trabajo seguro dentro del rootfs (--cwd=/root)
+     *   - filesDir/alpine-rootfs/.l2s/  Directorio para --link2symlink
+     *
+     * Es seguro llamarlo múltiples veces (mkdirs es idempotente).
+     */
+    fun ensureDirectories() {
+        // Acceder a cada propiedad fuerza la creación del directorio
+        prootTmpDir
+        homeDir
+        openclawHome
+        openclawTmp
+        rootfs
+        File(rootfs, "root").mkdirs()
+        File(rootfs, ".l2s").mkdirs()
+    }
+
     // ── Utilidades ───────────────────────────────────────────────────────────
 
 
@@ -585,6 +862,11 @@ class OpenClawProot(private val context: Context) {
      * Safety net: si el bucle de extracción no pudo aplicar permisos por algún motivo
      * (entry.mode = 0, tar corrupto, etc.), este método garantiza que los binarios
      * críticos tengan +x.
+     *
+     * También maneja el caso de symlinks rotos o copias de archivos linkados:
+     * si /bin/sh apunta a busybox pero el symlink no pudo crearse (Android
+     * restringe symlinks en ciertos FS), buscamos busybox como archivo regular
+     * y hacemos una copia con permisos.
      */
     private fun applyAlpineExecutablePermissions() {
         val binDirs = listOf("bin", "sbin", "usr/bin", "usr/sbin", "usr/local/bin")
@@ -607,6 +889,24 @@ class OpenClawProot(private val context: Context) {
         criticals.forEach { rel ->
             val f = File(rootfs, rel)
             if (f.exists() && !f.canExecute()) {
+                // Si es symlink roto (target no existe o no es ejecutable),
+                // materializarlo como copia del target real
+                if (Files.isSymbolicLink(f.toPath())) {
+                    val target = Files.readSymbolicLink(f.toPath())
+                    val targetFile = File(f.parentFile, target.toString())
+                    if (!targetFile.exists() || !targetFile.canExecute()) {
+                        log("Reparando symlink ${f.absolutePath} -> $target (target no ejecutable)")
+                        Files.delete(f.toPath())
+                        // Buscar el target real en el rootfs y copiarlo
+                        val resolvedTarget = resolveArchiveLinkTarget(f, target.toString())
+                        if (resolvedTarget != null && resolvedTarget.exists() && resolvedTarget.canExecute()) {
+                            resolvedTarget.copyTo(f, overwrite = true)
+                            log("Symlink materializado como copia de ${resolvedTarget.absolutePath}")
+                        } else {
+                            log("No se pudo resolver target $target para symlink ${f.name}")
+                        }
+                    }
+                }
                 f.setExecutable(true, false)
             }
         }

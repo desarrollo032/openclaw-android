@@ -25,7 +25,8 @@ class OpenClawTerminalManagerTest {
         env.shouldContain("TMPDIR=/data/home/.openclaw/tmp")
         env.shouldContain("PROOT_NO_SECCOMP=1")
         env.shouldContain("PROOT_TMP_DIR=${proot.prootTmpDir.absolutePath}")
-        env.shouldContain("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+        env.shouldContain("PATH=/root/.local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+        env.shouldContain("PNPM_HOME=/root/.local/share/pnpm")
         env.shouldContain("TERM=xterm-256color")
         env.shouldContain("SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")
     }

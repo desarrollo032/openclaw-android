@@ -12,11 +12,10 @@ private const val TAG = "OpenClawTermMgr"
 /**
  * OpenClawTerminalManager — Terminal PTY basado en proot + Alpine Linux.
  *
- * ANTES: usaba libbusybox.so + libldlinux.so + libnode.so con wrappers shell.
- * AHORA: usa proot → Alpine rootfs → /bin/sh interactivo.
+ * Usa proot → Alpine rootfs → /bin/sh interactivo.
  *
  * La sesión terminal corre dentro del entorno Alpine completo, con
- * Node.js, npm y openclaw disponibles directamente (sin wrappers).
+ * Node.js, npm y openclaw disponibles directamente.
  */
 class OpenClawTerminalManager(private val context: Context) {
 

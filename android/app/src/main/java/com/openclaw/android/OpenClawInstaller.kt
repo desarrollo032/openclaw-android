@@ -14,10 +14,8 @@ private const val TAG = "OpenClawInstaller"
 /**
  * OpenClawInstaller — Instalación basada en proot + Alpine Linux.
  *
- * AHORA: descarga Alpine minirootfs vía OpenClawProot, instala
- *        nodejs + npm + openclaw dentro del proot con apk.
- * ANTES (legacy): descargaba payload-v2.tar.xz, extraía glibc + libnode.so,
- *                 creaba wrappers shell con LD_PRELOAD/LD_LIBRARY_PATH.
+ * Descarga Alpine minirootfs vía OpenClawProot, instala
+ * nodejs + npm + openclaw dentro del proot con apk.
  *
  * Flujo:
  *   1. [isAlpineSetupComplete] → verifica Alpine + openclaw instalados
@@ -49,13 +47,20 @@ object OpenClawInstaller {
     // ── Setup orchestration ──────────────────────────────────────────────────
 
     /**
-     * Flujo completo de instalación:
-     *   1. Descargar + extraer Alpine minirootfs (~10 MB)
-     *   2. apk add nodejs npm ca-certificates
-     *   3. npm install -g openclaw
+     * Flujo completo de instalación dentro de Proot + Alpine Linux:
+     *
+     *   0. Crear directorios críticos en host (ensureDirectories)
+     *   1. Verificar libproot.so presente y ejecutable
+     *   2. Verificar conexión a Internet y espacio disponible
+     *   3. Descargar + extraer Alpine minirootfs ARM64 (~10 MB) con symlinks
+     *   4. Aplicar permisos de ejecución a todos los binarios del rootfs
+     *   5. Sanity check: ejecutar /bin/sh dentro de proot
+     *   6. Instalar Node.js, npm, pnpm, openclaw@beta (script de 10 pasos)
+     *   7. Ejecutar openclaw onboard
+     *   8. Marcar instalación como completada en SharedPreferences
      *
      * Reporta progreso vía [onProgress]. Llama [onComplete] al terminar,
-     * [onError] si algo falla.
+     * [onError] si algo falla (con la línea FALLO:PASOx específica).
      */
     suspend fun runSetup(
         context: Context,
@@ -65,10 +70,29 @@ object OpenClawInstaller {
     ) = withContext(Dispatchers.IO) {
         val proot = OpenClawProot(context)
 
+        // ── Paso 0: Crear todas las rutas críticas ANTES de ejecutar Proot ──
+        // Esto evita errores como:
+        //   - "can't chdir('/data/home/.openclaw/.'): No such file or directory"
+        //   - "execve('/bin/sh'): Permission denied" (por rootfs incompleto)
+        //   - "Function not implemented" al hacer chmod dentro de bind-mount
+        onProgress("Preparando directorios del entorno...")
+        proot.ensureDirectories()
+        onProgress("Directorios listos ✓")
+
         // ── Verificaciones previas ──────────────────────────────────────────
+        // libproot.so debe existir y ser ejecutable
         if (!proot.isProotPresent()) {
-            onError("libproot.so no encontrado — la APK está mal construida")
-            return@withContext
+            val prootFile = File(proot.proot)
+            if (prootFile.exists() && !prootFile.canExecute()) {
+                prootFile.setExecutable(true, false)
+                if (!prootFile.canExecute()) {
+                    onError("libproot.so no es ejecutable — la APK está mal construida")
+                    return@withContext
+                }
+            } else {
+                onError("libproot.so no encontrado en ${proot.proot} — la APK está mal construida")
+                return@withContext
+            }
         }
         if (!isNetworkAvailable(context)) {
             onError("Sin conexión a Internet — se necesita red para descargar Alpine")
@@ -93,13 +117,17 @@ object OpenClawInstaller {
                 onProgress("[Alpine] Alpine ya instalado ✓")
             }
 
-            // ── Paso 2: Node.js + npm + openclaw ────────────────────────────
+            // ── Paso 2: Node.js + npm + openclaw + onboard ───────────────────
             if (!proot.isOpenClawInstalled()) {
                 val ok = proot.installOpenClaw(
                     onProgress = { msg -> onProgress(msg) },
                     onError = { err -> onError(err) }
                 )
                 if (!ok) return@withContext
+
+                // Marcar onboard como completado para el frontend React
+                markOnboardComplete(context)
+
                 onProgress("Instalación completada ✓")
                 onComplete()
             } else {
