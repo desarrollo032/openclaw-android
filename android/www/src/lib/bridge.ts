@@ -19,6 +19,7 @@ interface OpenClawBridge {
   // Setup / Installation
   getSetupStatus(): string
   startSetup(): void
+  reinstallAlpine(): void
   pickFile(callbackId: string): void
   installFromUri(uri: string, configUri: string): void
   getAssetStatus(): string

@@ -3,7 +3,8 @@ import { useRoute } from '../lib/router'
 import { getLocale, setLocale, availableLocales, t } from '../i18n'
 import { fetchModels, fetchGatewayConfig, patchGatewayConfig, getProviderMeta, type ModelEntry } from '../lib/gateway'
 import { useGatewayStatus } from '../hooks/useGatewayStatus'
-import { RefreshCw, Search, Check, Thermometer, Braces, AlertCircle, Settings2, Wrench, Battery, Package, Info, Globe, Trash2, ChevronRight, Sliders, Cpu, HardDrive, Bell, Database, Settings as SettingsIcon } from 'lucide-react'
+import { bridge, callJson } from '../lib/bridge'
+import { RefreshCw, Search, Check, Thermometer, Braces, AlertCircle, Settings2, Wrench, Battery, Package, Info, Globe, Trash2, ChevronRight, Sliders, Cpu, HardDrive, Bell, Database, Settings as SettingsIcon, Shield } from 'lucide-react'
 import { SectionHeader } from '../components/SectionHeader'
 
 export function Settings() {
@@ -18,6 +19,30 @@ export function Settings() {
   const [saved, setSaved] = useState('')
   const [locale, setLocaleState] = useState(getLocale())
   const { health } = useGatewayStatus()
+  const [alpineReady, setAlpineReady] = useState<boolean | null>(null)
+  const [alpineAvailable, setAlpineAvailable] = useState(false)
+  const [confirmReinstall, setConfirmReinstall] = useState(false)
+  const [reinstalling, setReinstalling] = useState(false)
+
+  useEffect(() => {
+    if (!bridge.isAvailable()) return
+    const s = callJson<{ bootstrapInstalled: boolean; alpineReady: boolean; alpineAvailable: boolean }>('getSetupStatus')
+    if (s) {
+      setAlpineReady(s.alpineReady)
+      setAlpineAvailable(s.alpineAvailable)
+    }
+  }, [])
+
+  const handleReinstall = () => {
+    if (!confirmReinstall) {
+      setConfirmReinstall(true)
+      setTimeout(() => setConfirmReinstall(false), 4000)
+      return
+    }
+    setConfirmReinstall(false)
+    setReinstalling(true)
+    bridge.call('reinstallAlpine')
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -216,12 +241,88 @@ export function Settings() {
         <SettingRow icon={Info} label="Acerca de" desc={`Gateway v${gatewayVer}`} onClick={() => navigate('/settings/about')} />
       </div>
 
+      {/* ── Alpine status ── */}
+      {alpineReady !== null && (
+        <>
+          <SectionHeader icon={Shield} title="Alpine Linux" />
+          <div className="card p-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${alpineReady ? 'bg-green-soft' : 'bg-red-soft'}`}>
+                {alpineReady
+                  ? <Check size={20} className="text-green" />
+                  : <AlertCircle size={20} className="text-red" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-text-primary">
+                  {alpineReady ? 'Alpine instalado ✓' : 'Alpine no instalado'}
+                </div>
+                <div className="text-[11px] text-text-muted mt-0.5">
+                  {alpineReady
+                    ? 'Node.js + OpenClaw listos'
+                    : alpineAvailable
+                      ? 'La instalación falló o no se ha completado'
+                      : 'libproot.so no disponible — APK incorrecta'
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ── Danger zone ── */}
       <div className="card p-4 border-red/10">
         <div className="flex items-center gap-2.5 mb-2">
           <AlertCircle size={14} className="text-red" />
           <span className="text-[10px] font-semibold text-text-muted tracking-widest uppercase">Zona de peligro</span>
         </div>
+        <p className="text-xs text-text-muted mb-3 leading-relaxed">
+          Estas acciones son destructivas y no se pueden deshacer.
+        </p>
+
+        {/* ── Reinstalar Alpine ── */}
+        {(alpineReady === false || reinstalling) && (
+          <div className="mb-3 pb-3 border-b border-glass-border">
+            <p className="text-xs text-text-muted mb-3 leading-relaxed">
+              La instalación de Alpine no se completó correctamente.
+              Puedes reintentar la descarga e instalación desde cero.
+            </p>
+            <button
+              onClick={handleReinstall}
+              disabled={reinstalling}
+              className="btn btn-danger w-full text-xs py-2.5"
+            >
+              {reinstalling ? (
+                <><RefreshCw size={13} className="animate-spin" /> Reinstalando...</>
+              ) : confirmReinstall ? (
+                <><AlertCircle size={13} /> ¿Confirmar reinstalación?</>
+              ) : (
+                <><RefreshCw size={13} /> Reinstalar Alpine</>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* ── Reinstalar Alpine (ya instalado) ── */}
+        {alpineReady && !reinstalling && (
+          <div className="mb-3 pb-3 border-b border-glass-border">
+            <p className="text-xs text-text-muted mb-3 leading-relaxed">
+              Reinstala Alpine Linux desde cero. Útil si algo está corrupto
+              o quieres empezar de nuevo.
+            </p>
+            <button
+              onClick={handleReinstall}
+              className="btn btn-danger w-full text-xs py-2.5 opacity-70 hover:opacity-100"
+            >
+              {confirmReinstall ? (
+                <><AlertCircle size={13} /> ¿Confirmar reinstalación?</>
+              ) : (
+                <><RefreshCw size={13} /> Reinstalar Alpine</>
+              )}
+            </button>
+          </div>
+        )}
+
         <p className="text-xs text-text-muted mb-3 leading-relaxed">
           Esto eliminará toda la configuración local y recargará la aplicación.
         </p>

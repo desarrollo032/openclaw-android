@@ -95,6 +95,49 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
+    fun reinstallAlpine() {
+        logBridgeCall("reinstallAlpine")
+        scope.launch(Dispatchers.IO) {
+            try {
+                val proot = OpenClawProot(activity)
+                notifyReact("onInstallProgress", JSONObject().apply {
+                    put("step", 1)
+                    put("totalSteps", 2)
+                    put("percent", 10)
+                    put("stepName", "Eliminando Alpine anterior...")
+                    put("currentFile", "")
+                }.toString())
+                proot.wipeAlpine()
+                AndroidLog.i("AndroidBridge", "Alpine rootfs wiped — starting fresh install")
+                // Ahora ejecuta el flujo completo de instalación
+                OpenClawInstaller.runSetup(
+                    context = activity,
+                    onProgress = { progressMsg ->
+                        notifyReact("onInstallProgress", JSONObject().apply {
+                            put("step", 1)
+                            put("totalSteps", 2)
+                            put("percent", 0)
+                            put("stepName", progressMsg)
+                            put("currentFile", "")
+                        }.toString())
+                    },
+                    onComplete = {
+                        notifyReact("onInstallComplete", "{\"success\":true}")
+                    },
+                    onError = { error ->
+                        notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString())
+                    }
+                )
+            } catch (e: Exception) {
+                AndroidLog.e("AndroidBridge", "reinstallAlpine failed: ${e.message}", e)
+                notifyReact("onInstallError", JSONObject().apply {
+                    put("error", "Error al reinstalar Alpine: ${e.message}")
+                }.toString())
+            }
+        }
+    }
+
+    @JavascriptInterface
     fun pickFile(@Suppress("UNUSED_PARAMETER") callbackId: String) {
         activity.runOnUiThread {
             if (activity is OpenClawDashboardActivity) {
