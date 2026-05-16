@@ -1,6 +1,6 @@
 # Terminal PTY
 
-OpenClaw Android incluye una terminal interactiva que permite ejecutar comandos directamente sobre el entorno del runtime.
+OpenClaw Android incluye una terminal interactiva que ejecuta comandos **dentro del contenedor proot + Alpine Linux**.
 
 ---
 
@@ -10,7 +10,6 @@ OpenClaw Android incluye una terminal interactiva que permite ejecutar comandos 
 - [Selección del shell](#selección-del-shell)
 - [Teclas especiales](#teclas-especiales)
 - [Copiar y pegar](#copiar-y-pegar)
-- [Symlinks de BusyBox](#symlinks-de-busybox)
 - [Limitaciones conocidas](#limitaciones-conocidas)
 
 ---
@@ -21,7 +20,7 @@ OpenClaw Android incluye una terminal interactiva que permite ejecutar comandos 
 | --- | --- |
 | **`TerminalView`** | Widget Android que renderiza la rejilla de caracteres. |
 | **`TerminalSession`** | Gestiona el proceso shell y el buffer de texto. |
-| **`libbusybox.so`** | Provee las herramientas estándar de Linux (`ls`, `grep`, `sh`, etc.) en un binario único. |
+| **`OpenClawProot`** | Construye los argumentos de `proot` para ejecutar el shell dentro del Alpine. |
 
 Las librerías provienen de los AAR oficiales de **Termux** (`terminal-emulator` y `terminal-view`) ubicados en `android/app/libs/`.
 
@@ -29,11 +28,14 @@ Las librerías provienen de los AAR oficiales de **Termux** (`terminal-emulator`
 
 ## Selección del shell
 
-Por defecto se intenta usar **BusyBox** porque ofrece un entorno más predecible que `/system/bin/sh`, que varía entre fabricantes.
+El terminal usa **Alpine Linux shell** (`/bin/sh`) dentro de proot.
 
-1. Se verifica si `libbusybox.so` es ejecutable.
-2. Si falla, **fallback** automático a `/system/bin/sh`.
-3. Se inyectan las mismas variables de entorno que el Gateway para que `node` y `openclaw` funcionen igual.
+1. `OpenClawTerminalManager.createSession()` construye el comando proot:
+   ```
+   proot --rootfs=<alpine_dir> --bind=/proc --bind=/dev --change-id=0:0 /bin/sh -i
+   ```
+2. Se inyectan las variables de entorno de Alpine (`PATH`, `TERM`, `OPENCLAW_HOME`).
+3. Node.js, npm y openclaw están disponibles directamente desde el shell.
 
 ---
 
@@ -56,19 +58,9 @@ La terminal en Android es difícil de usar con el teclado virtual estándar. Por
 
 ---
 
-## Symlinks de BusyBox
-
-Para que comandos como `ls` funcionen escribiendo solo `ls` (y no `busybox ls`), `OpenClawTerminalManager` crea symlinks en `payload/bin` durante la instalación:
-
-```kotlin
-// Ejemplo de creación
-Os.symlink(busyboxPath, linkPath)
-```
-
----
-
 ## Limitaciones conocidas
 
 - **Fuentes** — la terminal requiere una fuente monoespaciada para alinear las celdas correctamente.
 - **Encoding** — se asume `UTF-8`; caracteres en otras codificaciones podrían no renderizarse bien.
-- **Permisos** — pese a ser una terminal, sigues bajo los permisos del usuario de la app. No hay `su` salvo dispositivos rooteados.
+- **Permisos** — pese a ser una terminal, sigues bajo los permisos de la app. No hay `su` salvo dispositivos rooteados.
+- **Proot overhead** — proot añade latencia en llamadas al sistema, pero es negligible para uso interactivo.

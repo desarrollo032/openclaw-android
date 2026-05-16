@@ -57,6 +57,8 @@ const h = bridge.on('onInstallProgress', (p) => {
 bridge.off('onInstallProgress', h)
 ```
 
+El bridge está sincronizado al 100% con los métodos expuestos por `AndroidBridge.kt`. Ver [BRIDGE.md](./BRIDGE.md) para la lista completa.
+
 ---
 
 ## Desarrollo local (sin Android)

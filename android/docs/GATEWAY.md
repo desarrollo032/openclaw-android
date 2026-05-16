@@ -1,6 +1,6 @@
 # Gestión del Gateway
 
-El **Gateway** es el proceso Node.js que ejecuta OpenClaw y expone la API en `http://127.0.0.1:18789`.
+El **Gateway** es el proceso OpenClaw que corre **dentro del contenedor proot + Alpine Linux** y expone la API en `http://127.0.0.1:18789`.
 
 ---
 
@@ -8,7 +8,6 @@ El **Gateway** es el proceso Node.js que ejecuta OpenClaw y expone la API en `ht
 
 - [Foreground Service](#foreground-service)
 - [Variables de entorno](#variables-de-entorno)
-- [Regla sobre `LD_PRELOAD`](#regla-sobre-ld_preload)
 - [Health-check y auto-reinicio](#health-check-y-auto-reinicio)
 - [Logs del gateway](#logs-del-gateway)
 - [Uptime](#uptime)
@@ -33,26 +32,16 @@ El proceso se inicia con un entorno controlado:
 
 | Variable | Valor / Función |
 | --- | --- |
-| `PATH` | Binarios del payload + `/system/bin`. |
-| `HOME` | Directorio del payload. |
-| `LD_LIBRARY_PATH` | `nativeLibraryDir` + `glibc/lib`. |
+| `PATH` | Binarios del Alpine (`/usr/bin`, `/bin`) + `$OPENCLAW_HOME`. |
+| `HOME` | Directorio del Alpine rootfs. |
 | `TMPDIR` | Cache de la app. |
 | `OPENCLAW_HOME` | Configuración del usuario (`.openclaw`). |
 | `OPENCLAW_DASHBOARD_TOKEN` | Token dinámico para autenticar el dashboard. |
-| `SSL_CERT_FILE` | Ruta a certificados SSL. |
-| `NODE_PATH` | Ruta a módulos Node.js. |
+| `TERM` | `xterm-256color`. |
 | `NODE_NO_WARNINGS` | Desactiva advertencias de Node.js. |
 | `NODE_DISABLE_COMPILE_CACHE` | Desactiva caché de compilación. |
-| `OA_GLIBC` | Indica que se está usando entorno glibc. |
-| `CONTAINER` | Indica ejecución en contenedor. |
 
----
-
-## Regla sobre `LD_PRELOAD`
-
-**REGLA:** **siempre** eliminar `LD_PRELOAD` del entorno antes de arrancar.
-
-**Por qué:** algunas capas de Android inyectan librerías que entran en conflicto con la `glibc` personalizada del payload, provocando un **crash inmediato** del proceso.
+**Nota:** Ya no se necesita `LD_LIBRARY_PATH`, `LD_PRELOAD`, ni `OA_GLIBC`. El gateway corre dentro del Alpine Linux que provee su propia glibc.
 
 ---
 

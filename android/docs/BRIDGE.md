@@ -28,23 +28,17 @@ El bridge permite que la UI React interactúe con las APIs nativas de Android a 
 
 | Método | Parámetros | Retorno | Descripción |
 | --- | --- | --- | --- |
-| `getSetupStatus()` | — | `JSON` | Estado completo (bootstrap, payload, fuentes, espacio). |
-| `getBootstrapStatus()` | — | `JSON` | Estado simplificado del bootstrap (legacy). |
-| `getPayloadStatus()` | — | `JSON` | Estado de payload listo (legacy). |
-| `getAssetStatus()` | — | `JSON` | Estado por componente (bootstrap, payload, platform, tools). |
-| `checkBootstrap()` | — | — | Dispara verificación del bootstrap. |
-| `checkPayload()` | — | — | Dispara verificación del payload. |
-| `startSetup()` | — | — | Inicia la extracción del payload + migración. |
-| `pickFile(callbackId)` | `String` | — | Abre selector; emite `native:file_picked_{id}`. |
-| `pickPayloadFile()` | — | — | Selecciona archivo `.tar.xz` para override de payload. |
-| `pickMigrationFile()` | — | — | Selecciona archivo `.tar.gz` para override de migración. |
-| `installFromUri(payloadUri, configUri)` | `String, String` | — | Instala desde URIs específicas. |
+| `getSetupStatus()` | — | `JSON` | Estado completo (bootstrap, Alpine, espacio). Campos: `bootstrapInstalled`, `alpineReady`, `alpineAvailable`, `alpineSizeBytes`, `alpineSource`, `canDownloadRemotely`, `onboardComplete`, `freeSpaceMB`, `requiredSpaceMB`, `hasEnoughSpace`. |
+| `getAssetStatus()` | — | `JSON` | Estado por componente: `bootstrap`, `alpine`, `platform`, `tools`. |
+| `startSetup()` | — | — | Inicia la instalación de Alpine + bootstrap. |
+| `pickFile(callbackId)` | `String` | — | Abre selector de archivos Android; emite `native:file_picked_{id}`. |
+| `installFromUri(uri, configUri)` | `String, String` | — | Instala Alpine desde URIs externas. |
 
 ### Gateway
 
 | Método | Parámetros | Retorno | Descripción |
 | --- | --- | --- | --- |
-| `startGateway()` | — | — | Inicia el servicio gateway. |
+| `startGateway()` | — | — | Inicia el servicio gateway dentro de proot + Alpine. |
 | `stopGateway()` | — | — | Detiene el gateway. |
 | `getGatewayState()` | — | `String` | `READY`, `STARTING`, `FAILED`, etc. |
 | `getGatewayUrl()` | — | `String` | URL del gateway (`http://127.0.0.1:18789`). |
@@ -58,9 +52,9 @@ El bridge permite que la UI React interactúe con las APIs nativas de Android a 
 
 | Método | Parámetros | Retorno | Descripción |
 | --- | --- | --- | --- |
-| `openTerminal()` / `showTerminal()` | — | — | Abre la actividad de terminal nativa. |
+| `openTerminal()` | — | — | Abre la actividad de terminal nativa (shell en proot + Alpine). |
 | `launchInteractiveCommand(cmd)` | `String` | — | Abre la terminal con un comando precargado. |
-| `runCommand(cmd)` | `String` | `JSON` | Ejecuta un comando no interactivo. |
+| `runCommand(cmd)` | `String` | `JSON` | Ejecuta un comando no interactivo dentro de proot. |
 | `runOpenClawCommand(cmd)` | `String` | `JSON` | Alias específico para comandos OpenClaw. |
 | `runCommandAsync(callbackId, cmd)` | `String, String` | — | Comando asíncrono; emite `native:command_result_{id}`. |
 | `createSession()` / `getTerminalSessions()` | — | `JSON` | Compatibilidad con el modelo de sesiones. |
@@ -69,7 +63,7 @@ El bridge permite que la UI React interactúe con las APIs nativas de Android a 
 
 | Método | Parámetros | Retorno | Descripción |
 | --- | --- | --- | --- |
-| `getSystemInfo()` | — | `JSON` | Versiones de Node, npm, OpenClaw y rutas. |
+| `getSystemInfo()` | — | `JSON` | Versiones de Node, npm, OpenClaw y rutas. Campos: `nodeVersion`, `npmVersion`, `openclawVersion`, `gitVersion`, `shellPath`, `toyboxAvailable`, `busyboxAvailable`, `alpineReady`, `diagnostics`, `freeSpaceMB`, `nativeLibDir`, `alpineDir`. |
 | `getAppInfo()` | — | `JSON` | `versionName`, `versionCode`, `packageName`. |
 | `getApkUpdateInfo()` | — | `JSON` | Info de actualizaciones APK. |
 | `getStorageInfo()` | — | `JSON` | Espacio libre y tamaño de carpetas. |
@@ -116,13 +110,10 @@ Los eventos se escuchan vía `window.addEventListener('android:NOMBRE', ...)` o 
 | `onInstallProgress` | `{ step, totalSteps, percent, extractedMB, totalMB, currentFile, stepName }` | `OpenClawInstaller` |
 | `onInstallComplete` | `{ success: true }` | `AndroidBridge` |
 | `onInstallError` | `{ error }` | `AndroidBridge` |
-| `onLocalAssetPicked` | `{ type, filename, sizeMB, source }` | `AndroidBridge` |
-| `onMigrationFilePicked` | `{ filename, sizeMB }` | `AndroidBridge` |
 | `install_progress` | `{ target, progress, message }` | `AndroidBridge` |
 | `onGatewayStateChanged` | `{ state }` | `OpenClawGatewayService` |
 | `onGatewayReady` | — | `OpenClawGatewayService` |
 | `onBackgroundExecutionChanged` | `{ enabled }` | `AndroidBridge` |
-| `native:file_picked_{callbackId}` | `{ uri, success }` | `AndroidBridge` |
 | `native:command_result_{callbackId}` | resultado del comando | `AndroidBridge` |
 
 ---
@@ -130,25 +121,26 @@ Los eventos se escuchan vía `window.addEventListener('android:NOMBRE', ...)` o 
 ## Ejemplo de uso en React
 
 ```typescript
-// Llamada directa
-const raw = window.OpenClaw?.getSetupStatus()
-const status = raw ? JSON.parse(raw) : null
-if (status && !status.payloadReady) {
-  window.OpenClaw?.startSetup()
+import { bridge } from '../lib/bridge'
+
+// Llamada simple
+bridge.call('startGateway')
+
+// Llamada que devuelve JSON
+const status = bridge.callJson<{ alpineReady: boolean }>('getSetupStatus')
+if (status && !status.alpineReady) {
+  bridge.call('startSetup')
 }
 
 // Escuchar progreso
-useEffect(() => {
-  const handler = (e: Event) => {
-    const detail = (e as CustomEvent).detail
-    console.log('Progreso:', detail.percent)
-  }
-  window.addEventListener('android:onInstallProgress', handler)
-  return () => window.removeEventListener('android:onInstallProgress', handler)
-}, [])
+const h = bridge.on('onInstallProgress', (p) => {
+  console.log('Progreso:', p.percent)
+})
+// ... más tarde
+bridge.off('onInstallProgress', h)
 ```
 
-> En el proyecto existe un wrapper tipado en `android/www/src/lib/bridge.ts` (`bridge.call`, `bridge.callJson`, `bridge.on`, `bridge.off`).
+> Existe un wrapper tipado en `android/www/src/lib/bridge.ts` (`bridge.call`, `bridge.callJson`, `bridge.on`, `bridge.off`).
 
 ---
 
