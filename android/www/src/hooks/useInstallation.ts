@@ -2,16 +2,16 @@ import { useState, useEffect } from 'react';
 import { AndroidBridge, type InstallationStatus, type InstallProgress } from '../utils/androidBridge';
 
 export function useInstallation() {
-  const [status, setStatus] = useState<InstallationStatus | null>(() => AndroidBridge.checkInstallation());
+  const [status, setStatus] = useState<InstallationStatus | null>(() => AndroidBridge.checkSetup());
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
-  const [isDone, setIsDone] = useState(status?.payloadReady ?? false);
+  const [isDone, setIsDone] = useState(status?.setupReady ?? false);
   const [error, setError] = useState<string | null>(null);
 
   const refreshStatus = () => {
-    const s = AndroidBridge.checkInstallation();
+    const s = AndroidBridge.checkSetup();
     setStatus(s);
-    if (s?.payloadReady) setIsDone(true);
+    if (s?.setupReady) setIsDone(true);
   };
 
   useEffect(() => {
@@ -34,34 +34,17 @@ export function useInstallation() {
       setError(data.error);
     });
 
-    const hFilePicked = (data: { type?: string; filename: string; sizeMB: number }) => {
-      console.log('File picked:', data);
-      refreshStatus();
-    };
-    const hFile = AndroidBridge.on('onLocalAssetPicked', hFilePicked);
-    const hMigrationFile = AndroidBridge.on('onMigrationFilePicked', hFilePicked);
-
     return () => {
       AndroidBridge.off('onInstallProgress', hProgress);
       AndroidBridge.off('onInstallComplete', hComplete);
       AndroidBridge.off('onInstallError', hError);
-      AndroidBridge.off('onLocalAssetPicked', hFile);
-      AndroidBridge.off('onMigrationFilePicked', hMigrationFile);
     };
   }, []);
 
   const install = () => {
     setError(null);
     setIsInstalling(true);
-    AndroidBridge.startInstallation();
-  };
-
-  const pickMigration = () => {
-    AndroidBridge.pickMigrationFile();
-  };
-
-  const pickPayload = () => {
-    AndroidBridge.pickPayloadFile();
+    AndroidBridge.startSetup();
   };
 
   return {
@@ -70,8 +53,6 @@ export function useInstallation() {
     isInstalling,
     isDone,
     error,
-    install,
-    pickPayload,
-    pickMigration
+    install
   };
 }

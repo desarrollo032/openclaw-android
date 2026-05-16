@@ -19,21 +19,15 @@ export {
   getNativeTheme,
 } from '../lib/bridge'
 
-import { call, callJson, getToken, on, off, onTokenRefresh } from '../lib/bridge'
+import { call, callJson, getToken, on, off, onTokenRefresh } from '../lib/bridge'  /* ── Installation status (proot + Alpine) ── */
 
-/* ── Interfaces legacy (mantenidas para compatibilidad) ── */
-
-export interface InstallationStatus {
-  payloadReady: boolean
-  payloadAvailable: boolean
-  migrationAvailable: boolean
-  freeSpaceMB: number
-  requiredSpaceMB: number
-  payloadSource?: 'apk' | 'local' | 'missing'
-  migrationSource?: 'apk' | 'local' | 'missing'
-  payloadSizeBytes?: number
-  migrationSizeBytes?: number
-}
+  export interface InstallationStatus {
+    setupReady: boolean
+    alpineAvailable: boolean
+    freeSpaceMB: number
+    requiredSpaceMB: number
+    alpineSizeBytes?: number
+  }
 
 export interface InstallProgress {
   step: number
@@ -45,28 +39,18 @@ export interface InstallProgress {
   stepName: string
 }
 
-/* ── Wrapper AndroidBridge legacy ── */
+/* ── Wrapper AndroidBridge legacy ── */  export const AndroidBridge = {
+    isAvailable: () => typeof window.OpenClaw !== 'undefined',
 
-export const AndroidBridge = {
-  isAvailable: () => typeof window.OpenClaw !== 'undefined',
+    checkSetup: (): InstallationStatus | null => {
+      return callJson<InstallationStatus>('getSetupStatus')
+    },
 
-  checkInstallation: (): InstallationStatus | null => {
-    return callJson<InstallationStatus>('checkInstallation')
-  },
+    startSetup: () => {
+      call('startSetup')
+    },
 
-  startInstallation: () => {
-    call('startInstallation')
-  },
-
-  pickMigrationFile: () => {
-    call('pickMigrationFile')
-  },
-
-  pickPayloadFile: () => {
-    call('pickPayloadFile')
-  },
-
-  startGateway: () => {
+    startGateway: () => {
     call('startGateway')
   },
 

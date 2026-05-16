@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.openclaw.android.proot.OpenClawProot
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,15 +35,13 @@ class OpenClawGatewayService : Service() {
         private val _state = MutableStateFlow(GatewayState.STARTING)
         val state: StateFlow<GatewayState> = _state
 
-        // Token compartido estáticamente — Activities lo leen ANTES de que el
-        // servicio envíe el Intent (race condition safety)
+        // Token compartido estáticamente
         @Volatile private var _currentToken: String = ""
         val currentToken: String get() = _currentToken
 
         fun isRunning(): Boolean = _state.value == GatewayState.READY
         fun getState(): GatewayState = _state.value
 
-        // Uptime en segundos desde que el proceso arrancó (0 si no está activo)
         private var _processStartTime = 0L
         fun getUptimeSeconds(): Long {
             if (_processStartTime == 0L) return 0L
@@ -52,14 +50,12 @@ class OpenClawGatewayService : Service() {
         internal fun markProcessStart() { _processStartTime = System.currentTimeMillis() }
         internal fun markProcessStop()  { _processStartTime = 0L }
 
-
         fun start(context: Context) {
-            // Si la ejecución en segundo plano está deshabilitada, no iniciar
             if (!OpenClawPreferences.isBackgroundExecutionEnabled) {
                 OpenClawLogger.log(TAG, "Background execution disabled by user — not starting service")
                 return
             }
-            
+
             val intent = Intent(context, OpenClawGatewayService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -91,8 +87,10 @@ class OpenClawGatewayService : Service() {
 
         startForeground(OpenClawConstants.NOTIFICATION_ID, buildNotification())
 
-        if (!OpenClawInstaller.isPayloadReady(this)) {
-            OpenClawLogger.log(TAG, "Payload not ready — cannot start gateway")
+        // Verificar que Alpine + openclaw estén instalados
+        val proot = OpenClawProot(this)
+        if (!proot.isAlpineInstalled() || !proot.isOpenClawInstalled()) {
+            OpenClawLogger.log(TAG, "Alpine/openclaw not installed — cannot start gateway")
             _state.value = GatewayState.FAILED
             updateNotification()
             stopSelf()
@@ -168,111 +166,30 @@ class OpenClawGatewayService : Service() {
         startProcess()
     }
 
-    private fun getNodeCompileCacheDir(): File {
-        val compileCacheDir = File(cacheDir, "openclaw-compile-cache")
-        if (!compileCacheDir.exists()) {
-            compileCacheDir.mkdirs()
-        }
-        return compileCacheDir
-    }
-
     private fun startProcess() {
         // Generar nuevo token en cada arranque del proceso
         dashboardToken = UUID.randomUUID().toString().replace("-", "") +
                          System.currentTimeMillis().toString()
         _currentToken = dashboardToken
-        // Registrar en el logger para redacción automática
         OpenClawLogger.registerSensitiveToken(dashboardToken)
 
         try {
-            val base             = OpenClawInstaller.getPayloadDir(this)
-            val filesDir         = this.filesDir
-            val nativeDir        = File(applicationInfo.nativeLibraryDir)
-            val loader           = File(nativeDir, "libldlinux.so")
-            val nodeExec         = File(nativeDir, "libnode.so")
-            val glibcLibs        = File(base, "glibc/lib").absolutePath
-            val libs             = "${nativeDir.absolutePath}:${glibcLibs}"
-            val openclaw         = File(base, "lib/node_modules/openclaw/openclaw.mjs")
-            val homeDir          = File(filesDir, "home").apply { mkdirs() }
-            val ocHome           = File(homeDir, ".openclaw").apply { mkdirs() }
-            val tmpDir           = File(ocHome, "tmp").apply { mkdirs() }
-            val nodeCompileCache = getNodeCompileCacheDir()
-            val channelsDir      = File(base, "lib/node_modules/openclaw/channels")
+            val proot = OpenClawProot(this)
 
-            listOf(loader, nodeExec).forEach { f ->
-                if (!f.exists()) {
-                    OpenClawLogger.log(TAG, "Missing: ${f.absolutePath}")
-                    _state.value = GatewayState.FAILED
-                    updateNotification()
-                    return
-                }
-                if (!f.canExecute()) {
-                    OpenClawLogger.log(TAG, "Fixing exec bit for ${f.absolutePath}")
-                    f.setExecutable(true, false)
-                }
-            }
-            if (!openclaw.exists()) {
-                OpenClawLogger.log(TAG, "Missing: ${openclaw.absolutePath}")
-                _state.value = GatewayState.FAILED
-                updateNotification()
-                return
-            }
-            if (!openclaw.canRead()) {
-                OpenClawLogger.log(TAG, "Fixing read bit for ${openclaw.absolutePath}")
-                openclaw.setReadable(true, false)
-            }
-
-            val pb = ProcessBuilder(
-                loader.absolutePath,
-                "--library-path", libs,
-                nodeExec.absolutePath,
-                "--disable-warning=ExperimentalWarning",
-                openclaw.absolutePath,
-                "gateway"
+            // Construir ProcessBuilder con proot → Alpine sh → openclaw gateway
+            val pb = proot.buildProotProcess(
+                listOf("/bin/sh", "-lc", "openclaw gateway")
             ).apply {
-                directory(base)
-                redirectErrorStream(true)
-                environment().apply {
-                    remove("LD_PRELOAD")
-                    put("OA_GLIBC",        "1")
-                    put("CONTAINER",       "1")
-                    put("TMPDIR",          tmpDir.absolutePath)
-                    put("HOME",            homeDir.absolutePath)
-                    put("TERM",            "xterm-256color")
-                    put("COLORTERM",       "truecolor")
-                    put("USER",            "openclaw")
-                    put("LOGNAME",         "openclaw")
-                    put("PS1",             "~ $ ")
-                    put("PATH",            "${File(filesDir, "usr/bin").absolutePath}:${nativeDir.absolutePath}:/system/bin:/system/xbin")
-                    put("LD_LIBRARY_PATH", libs)
-                    put("NODE_PATH",       File(base, "lib/node_modules").absolutePath)
-                    put("OPENCLAW_HOME",   ocHome.absolutePath)
-                    put("SSL_CERT_FILE",   File(base, "etc/tls/cert.pem").absolutePath)
-                    put("LANG",            "en_US.UTF-8")
-                    if (channelsDir.exists()) {
-                        put("OPENCLAW_PLUGIN_PATH", channelsDir.absolutePath)
-                    }
-                    put("NODE_NO_WARNINGS",                          "1")
-                    put("OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED", "1")
-                    put("OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED",   "1")
-                    // Variables de optimización de rendimiento
-                    put("NODE_COMPILE_CACHE", nodeCompileCache.absolutePath)
-                    put("OPENCLAW_NO_RESPAWN", "1")
-                    // Token de autenticación del dashboard — nunca se loguea (redactado)
-                    put("OPENCLAW_DASHBOARD_TOKEN", dashboardToken)
-                }
+                environment().put("OPENCLAW_DASHBOARD_TOKEN", dashboardToken)
             }
-
-
 
             gatewayProcess = pb.start()
             markProcessStart()
-            val pid = gatewayProcess.hashCode() // Java Process no expone PID en API < 26
-            OpenClawLogger.log(TAG, "Process started [pid~${pid}]: ${loader.name} → ${nodeExec.name} → openclaw.mjs")
+            OpenClawLogger.log(TAG, "Gateway started via proot → Alpine → openclaw gateway")
             _state.value = GatewayState.STARTING
             updateNotification()
 
-            // Capturar stdout/stderr — SIEMPRE, según reglas críticas
+            // Capturar stdout/stderr
             val proc = gatewayProcess!!
             serviceScope.launch(Dispatchers.IO) {
                 try {
@@ -312,7 +229,7 @@ class OpenClawGatewayService : Service() {
                 OpenClawConstants.CHANNEL_ID,
                 getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW
-            ).apply { 
+            ).apply {
                 description = getString(R.string.notification_channel_description)
             }
             getSystemService(NotificationManager::class.java)
@@ -329,19 +246,17 @@ class OpenClawGatewayService : Service() {
             GatewayState.RESTARTING ->
                 "🦀 OpenClaw · Reiniciando..." to "Intento $restartCount de 3"
             GatewayState.STARTING   ->
-                "🦀 OpenClaw · Iniciando..." to "Arrancando gateway Node.js..."
+                "🦀 OpenClaw · Iniciando..." to "Arrancando gateway proot..."
             GatewayState.FAILED     ->
                 "🦀 OpenClaw · Error" to "Gateway caído — toca para ver logs"
         }
 
-        // PendingIntent → abrir Dashboard
         val dashIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, OpenClawDashboardActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Action: Restart
         val restartIntent = PendingIntent.getService(
             this, 1,
             Intent(this, OpenClawGatewayService::class.java).apply {
@@ -350,7 +265,6 @@ class OpenClawGatewayService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Action: Ver logs
         val logsIntent = PendingIntent.getActivity(
             this, 2,
             Intent(this, OpenClawLogsActivity::class.java),

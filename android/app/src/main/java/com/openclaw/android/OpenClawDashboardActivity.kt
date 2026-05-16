@@ -29,7 +29,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
     }
-    
+
     internal lateinit var filePicker: ActivityResultLauncher<String>
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
 
@@ -40,16 +40,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Asegurar que los scripts y wrappers existan cada vez que abrimos la app
-        val payloadDir = OpenClawInstaller.getPayloadDir(this)
-        if (payloadDir.exists()) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                OpenClawInstaller.deployScripts(this@OpenClawDashboardActivity, payloadDir)
-                OpenClawInstaller.fixPermissions(payloadDir)
-                Log.i("Dashboard", "Comandos sincronizados correctamente")
-            }
-        }
 
         binding = ActivityDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -86,7 +76,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 androidBridge?.notifyReact("onGatewayStateChanged", payload)
 
                 if (state == GatewayState.READY) {
-                    androidBridge?.notifyReact("onGatewayReady", "{\"success\":true}")
+                    androidBridge?.notifyReact("onGatewayReady", "{\\\"success\\\":true}")
                 }
 
                 val token = OpenClawGatewayService.currentToken
@@ -103,7 +93,6 @@ class OpenClawDashboardActivity : AppCompatActivity() {
      */
     private fun checkAndRequestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            // No es necesario solicitar permiso en versiones anteriores a Android 13
             return
         }
 
@@ -112,15 +101,12 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 this,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED -> {
-                // Permiso ya concedido
                 Log.i(TAG, "Notification permission already granted")
             }
             shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) -> {
-                // Mostrar rationale antes de solicitar permiso
                 showNotificationPermissionRationale()
             }
             else -> {
-                // Solicitar permiso directamente
                 if (!OpenClawPreferences.isNotificationPermissionRequested) {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
@@ -167,7 +153,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
 
         androidBridge = AndroidBridge(this, binding.webView, lifecycleScope)
         binding.webView.addJavascriptInterface(androidBridge!!, "OpenClaw")
-        
+
         binding.webView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 return request?.url?.let { assetLoader.shouldInterceptRequest(it) }
@@ -198,7 +184,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
                 Log.e(TAG, "WebView Error: ${error?.description} at ${request?.url}")
             }
         }
-        
+
         binding.webView.webChromeClient = WebChromeClient()
     }
 

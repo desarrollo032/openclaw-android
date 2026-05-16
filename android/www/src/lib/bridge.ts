@@ -18,10 +18,6 @@ interface OpenClawBridge {
 
   // Setup / Installation
   getSetupStatus(): string
-  getBootstrapStatus(): string
-  checkBootstrap(): void
-  checkPayload(): void
-  getPayloadStatus(): string
   startSetup(): void
   pickFile(callbackId: string): void
   installFromUri(payloadUri: string, configUri: string): void
@@ -91,10 +87,6 @@ interface OpenClawBridge {
   applyUpdate(component: string): void
 
   // Legacy / misc
-  checkInstallation(): string
-  startInstallation(): void
-  pickPayloadFile(): void
-  pickMigrationFile(): void
   notifyReady(): void
 }
 

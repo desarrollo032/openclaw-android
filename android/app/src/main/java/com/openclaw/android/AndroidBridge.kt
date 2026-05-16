@@ -14,6 +14,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import com.openclaw.android.proot.OpenClawProot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +28,8 @@ import java.util.concurrent.TimeUnit
  * AndroidBridge
  * Expone métodos nativos a React via window.OpenClaw.
  * Maneja eventos asíncronos via notifyReact (CustomEvents).
+ *
+ * AHORA: basado en proot + Alpine Linux. OpenClaw corre dentro de proot.
  */
 class AndroidBridge(
     private val activity: AppCompatActivity,
@@ -34,22 +37,6 @@ class AndroidBridge(
     private val scope: CoroutineScope
 ) {
 
-    private var pendingFileCallbackId: String? = null
-    private var pendingAssetPick: String? = null
-
-    private val payloadOverrideFile: File
-        get() = File(activity.cacheDir, "openclaw_payload_override.tar.xz")
-
-    private val migrationOverrideFile: File
-        get() = File(activity.cacheDir, "openclaw_migration_override.tar.gz")
-
-    /**
-     * Registra una llamada de la WebView para diagnóstico. Sólo se usa en los
-     * métodos costosos (instalación, comandos shell, control del gateway) —
-     * añadirlo a getters de status genera demasiado ruido en el log.
-     * Si la UI parece "colgada", el archivo de logs muestra qué método nativo
-     * fue invocado y con qué argumento (truncado a 80 caracteres por seguridad).
-     */
     private fun logBridgeCall(method: String, arg: String? = null) {
         OpenClawLogger.init(activity)
         val safeArg = arg?.let { if (it.length > 80) it.take(80) + "…" else it }
@@ -57,58 +44,63 @@ class AndroidBridge(
         OpenClawLogger.log(OpenClawConstants.LOG_TAG_BRIDGE, msg)
     }
 
+    // ── Setup / Status ────────────────────────────────────────────────────────
+
     @JavascriptInterface
     fun getSetupStatus(): String {
-        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        val proot = OpenClawProot(activity)
+        val alpineInstalled = proot.isAlpineInstalled()
+        val openclawInstalled = proot.isOpenClawInstalled()
+        val prootPresent = proot.isProotPresent()
         val onboardComplete = OpenClawInstaller.isOnboardComplete(activity)
-        val assets = AssetDetector.detectSync(activity)
-        val payloadOverride = payloadOverrideFile.takeIf { it.exists() && it.length() > 0L }
-        val migrationOverride = migrationOverrideFile.takeIf { it.exists() && it.length() > 0L }
-        val canDownload = OpenClawInstaller.hasBundledAssets(activity).not() // remote available when no embedded assets
+        val freeSpace = activity.filesDir.freeSpace
+
         return JSONObject().apply {
-            put("bootstrapInstalled", payloadReady)
-            put("platformInstalled", if (payloadReady) "openclaw" else "")
+            put("bootstrapInstalled", alpineInstalled && openclawInstalled)
+            put("platformInstalled", if (openclawInstalled) "openclaw" else "")
             put("onboardComplete", onboardComplete)
-            put("payloadReady", payloadReady)
-            put("payloadAvailable", assets.payloadAvailable || payloadOverride != null || canDownload)
-            put("payloadSizeBytes", payloadOverride?.length() ?: assets.payloadSizeBytes)
-            put("payloadSource", if (payloadOverride != null) "local" else if (assets.payloadAvailable) "apk" else if (canDownload) "remote" else "missing")
-            put("migrationAvailable", assets.migrationAvailable || migrationOverride != null || canDownload)
-            put("migrationSizeBytes", migrationOverride?.length() ?: assets.migrationSizeBytes)
-            put("migrationSource", if (migrationOverride != null) "local" else if (assets.migrationAvailable) "apk" else if (canDownload) "remote" else "missing")
-            put("canDownloadRemotely", canDownload)
-            put("freeSpaceMB", assets.freeSpaceBytes / 1024 / 1024)
-            put("requiredSpaceMB", 400)
-            put("hasEnoughSpace", assets.hasEnoughSpace)
+            put("payloadReady", openclawInstalled)
+            put("payloadAvailable", prootPresent) // proot binario presente = listo
+            put("payloadSizeBytes", 10 * 1024 * 1024L) // Alpine ~10MB descarga
+            put("payloadSource", if (prootPresent) "proot" else "missing")
+            put("migrationAvailable", false)
+            put("migrationSizeBytes", 0)
+            put("migrationSource", "none")
+            put("canDownloadRemotely", OpenClawInstaller.isNetworkAvailable(activity))
+            put("freeSpaceMB", freeSpace / 1024 / 1024)
+            put("requiredSpaceMB", 200)
+            put("hasEnoughSpace", freeSpace >= 200 * 1024 * 1024L)
         }.toString()
     }
 
     @JavascriptInterface
     fun checkBootstrap() {
-        // Inicia verificacion - el estado se obtiene via getBootstrapStatus() polling
+        // Estado se obtiene via getBootstrapStatus() polling
     }
 
     @JavascriptInterface
     fun getBootstrapStatus(): String {
-        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        val proot = OpenClawProot(activity)
+        val installed = proot.isAlpineInstalled() && proot.isOpenClawInstalled()
         val onboardComplete = OpenClawInstaller.isOnboardComplete(activity)
         return JSONObject().apply {
-            put("installed", payloadReady && onboardComplete)
+            put("installed", installed && onboardComplete)
             put("installing", false)
-            put("error", if (!payloadReady && !onboardComplete) "Pendiente de instalacion" else "")
+            put("error", if (!installed) "Pendiente de instalacion" else "")
         }.toString()
     }
 
     @JavascriptInterface
     fun checkPayload() {
-        // Inicia verificacion - el estado se obtiene via getPayloadStatus() polling
+        // Estado se obtiene via getPayloadStatus() polling
     }
 
     @JavascriptInterface
     fun getPayloadStatus(): String {
-        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        val proot = OpenClawProot(activity)
+        val ready = proot.isOpenClawInstalled()
         return JSONObject().apply {
-            put("installed", payloadReady)
+            put("installed", ready)
             put("installing", false)
         }.toString()
     }
@@ -126,14 +118,16 @@ class AndroidBridge(
     @JavascriptInterface
     fun startSetup() {
         scope.launch(Dispatchers.IO) {
-            val payloadOverride = payloadOverrideFile.takeIf { it.exists() && it.length() > 0L }
-            val migrationOverride = migrationOverrideFile.takeIf { it.exists() && it.length() > 0L }
-            OpenClawInstaller.installDetailedFromFiles(
+            OpenClawInstaller.runSetup(
                 context = activity,
-                payloadFile = payloadOverride,
-                migrationFile = migrationOverride,
-                onProgress = { progressJson ->
-                    notifyReact("onInstallProgress", progressJson)
+                onProgress = { progressMsg ->
+                    notifyReact("onInstallProgress", JSONObject().apply {
+                        put("step", 1)
+                        put("totalSteps", 2)
+                        put("percent", 0)
+                        put("stepName", progressMsg)
+                        put("currentFile", "")
+                    }.toString())
                 },
                 onComplete = {
                     notifyReact("onInstallComplete", "{\"success\":true}")
@@ -147,8 +141,6 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun pickFile(callbackId: String) {
-        pendingFileCallbackId = callbackId
-        pendingAssetPick = null
         activity.runOnUiThread {
             if (activity is OpenClawDashboardActivity) {
                 activity.filePicker.launch("*/*")
@@ -158,86 +150,27 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun installFromUri(payloadUri: String, configUri: String) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val payloadFile = copyUriToTempFile(Uri.parse(payloadUri), "payload_manual.tar.xz")
-                val configFile = if (configUri.isNotBlank()) {
-                    copyUriToTempFile(Uri.parse(configUri), "config_manual.tar.gz")
-                } else {
-                    null
-                }
-
-                OpenClawInstaller.installDetailedFromFiles(
-                    context = activity,
-                    payloadFile = payloadFile,
-                    migrationFile = configFile,
-                    onProgress = { progressJson -> notifyReact("onInstallProgress", progressJson) },
-                    onComplete = { notifyReact("onInstallComplete", "{\"success\":true}") },
-                    onError = { error ->
-                        notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString())
-                    }
-                )
-            } catch (e: Exception) {
-                notifyReact("onInstallError", JSONObject().apply { put("error", e.message ?: "Error desconocido") }.toString())
-            }
-        }
+        // Con proot: ignoramos URIs. La instalación es via descarga de Alpine + npm.
+        notifyReact("onInstallError", JSONObject().apply {
+            put("error", "Con la migración a proot, la instalación se hace automáticamente desde Internet")
+        }.toString())
     }
 
     @JavascriptInterface
     fun pickMigrationFile() {
-        pendingAssetPick = "migration"
-        pendingFileCallbackId = null
-        activity.runOnUiThread {
-            if (activity is OpenClawDashboardActivity) {
-                activity.filePicker.launch("*/*")
-            }
-        }
+        // No aplica con proot
     }
 
     @JavascriptInterface
     fun pickPayloadFile() {
-        pendingAssetPick = "payload"
-        pendingFileCallbackId = null
-        activity.runOnUiThread {
-            if (activity is OpenClawDashboardActivity) {
-                activity.filePicker.launch("*/*")
-            }
-        }
+        // No aplica con proot
     }
 
     fun handlePickedFile(uri: Uri) {
-        pendingFileCallbackId?.let { callbackId ->
-            dispatchNativeFilePicked(callbackId, uri, true)
-            pendingFileCallbackId = null
-            return
-        }
-
-        val type = pendingAssetPick ?: "migration"
-        pendingAssetPick = null
-        scope.launch(Dispatchers.IO) {
-            try {
-                val target = if (type == "payload") payloadOverrideFile else migrationOverrideFile
-                copyUriToFile(uri, target)
-                val metadata = getUriMetadata(uri, target)
-                notifyReact("onLocalAssetPicked", JSONObject().apply {
-                    put("type", type)
-                    put("filename", metadata.first)
-                    put("sizeMB", metadata.second / 1024 / 1024)
-                    put("source", "local")
-                }.toString())
-                if (type == "migration") {
-                    notifyReact("onMigrationFilePicked", JSONObject().apply {
-                        put("filename", metadata.first)
-                        put("sizeMB", metadata.second / 1024 / 1024)
-                    }.toString())
-                }
-            } catch (e: Exception) {
-                notifyReact("onInstallError", JSONObject().apply {
-                    put("error", "No se pudo cargar el archivo local: ${e.message ?: "error desconocido"}")
-                }.toString())
-            }
-        }
+        // No aplica con proot
     }
+
+    // ── Gateway ───────────────────────────────────────────────────────────────
 
     @JavascriptInterface
     fun startGateway() {
@@ -305,10 +238,10 @@ class AndroidBridge(
         }
     }
 
+    // ── Terminal ──────────────────────────────────────────────────────────────
+
     @JavascriptInterface
     fun openTerminal() {
-        // /system/bin/sh siempre disponible en Android
-        // No necesita verificación previa
         activity.runOnUiThread {
             activity.startActivity(Intent(activity, OpenClawTerminalActivity::class.java))
         }
@@ -321,8 +254,6 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun showWebView() {
-        // Vuelve a poner el dashboard (WebView) en primer plano cuando el usuario
-        // está en otra Activity (por ejemplo OpenClawTerminalActivity).
         activity.runOnUiThread {
             val intent = Intent(activity, OpenClawDashboardActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -338,15 +269,11 @@ class AndroidBridge(
 
     @JavascriptInterface
     @Suppress("UNUSED_PARAMETER")
-    fun switchSession(_id: String) {
-        // Native terminal sessions are owned by OpenClawTerminalActivity.
-    }
+    fun switchSession(_id: String) {}
 
     @JavascriptInterface
     @Suppress("UNUSED_PARAMETER")
-    fun closeSession(_id: String) {
-        // Native terminal sessions are owned by OpenClawTerminalActivity.
-    }
+    fun closeSession(_id: String) {}
 
     @JavascriptInterface
     fun getTerminalSessions(): String {
@@ -373,20 +300,11 @@ class AndroidBridge(
     fun runCommand(command: String): String {
         logBridgeCall("runCommand", command)
         return try {
-            val termMgr = OpenClawTerminalManager(activity)
-            OpenClawInstaller.ensureRuntimeWrappers(activity)
-            val envMap = mutableMapOf<String, String>()
-            termMgr.buildEnvironment().forEach {
-                val parts = it.split("=", limit = 2)
-                if (parts.size == 2) envMap[parts[0]] = parts[1]
-            }
+            val proot = OpenClawProot(activity)
+            val pb = proot.buildProotProcess(listOf("/bin/sh", "-c", command))
+            pb.directory(activity.filesDir)
 
-            val process = ProcessBuilder("/system/bin/sh", "-c", command)
-                .directory(activity.filesDir)
-                .apply { environment().putAll(envMap) }
-                .redirectErrorStream(true)
-                .start()
-
+            val process = pb.start()
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
 
@@ -404,7 +322,6 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun runOpenClawCommand(cmd: String): String {
-        // Alias de runCommand para comandos openclaw
         return runCommand(cmd)
     }
 
@@ -421,14 +338,16 @@ class AndroidBridge(
         }
     }
 
+    // ── Asset / Status ───────────────────────────────────────────────────────
+
     @JavascriptInterface
     fun getAssetStatus(): String {
-        val assets = AssetDetector.detectSync(activity)
-        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
+        val proot = OpenClawProot(activity)
+        val ready = proot.isOpenClawInstalled()
         return JSONObject().apply {
-            put("bootstrap", assets.payloadAvailable || payloadReady)
-            put("payload", payloadReady)
-            put("platform", payloadReady)
+            put("bootstrap", ready)
+            put("payload", ready)
+            put("platform", ready)
             put("tools", false)
         }.toString()
     }
@@ -436,123 +355,50 @@ class AndroidBridge(
     @RequiresApi(Build.VERSION_CODES.O)
     @JavascriptInterface
     fun getSystemInfo(): String {
-        val nativeDir = File(activity.applicationInfo.nativeLibraryDir)
-        val payloadDir = OpenClawInstaller.getPayloadDir(activity)
-        val ldlinux = File(nativeDir, "libldlinux.so")
-        val nodeReal = File(nativeDir, "libnode.so")
-        val busybox = File(nativeDir, "libbusybox.so")
-        val glibcLibs = File(payloadDir, "glibc/lib").absolutePath
-        val libs = "${nativeDir.absolutePath}:$glibcLibs"
+        val proot = OpenClawProot(activity)
+        val alpineInstalled = proot.isAlpineInstalled()
+        val openclawInstalled = proot.isOpenClawInstalled()
+        val prootPresent = proot.isProotPresent()
 
-        // Diagnóstico detallado del entorno
         val diagnostics = mutableListOf<String>()
-        
-        // Verificar si el payload está instalado
-        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
-        if (!payloadReady) {
-            diagnostics.add("Payload no instalado")
-        }
+        if (!prootPresent) diagnostics.add("Falta libproot.so en nativeLibraryDir")
+        if (!alpineInstalled) diagnostics.add("Alpine no instalado")
+        if (!openclawInstalled) diagnostics.add("OpenClaw no instalado")
 
-        // Verificar librerías nativas
-        if (!ldlinux.exists()) diagnostics.add("Falta libldlinux.so")
-        if (!nodeReal.exists()) diagnostics.add("Falta libnode.so")
-
-        // Verificar directorio glibc
-        val glibcDir = File(payloadDir, "glibc/lib")
-        if (!glibcDir.exists() || !glibcDir.isDirectory) {
-            diagnostics.add("Falta directorio glibc/lib")
-        }
-
-        // Obtener versión de Node.js (con mejor manejo de errores)
+        // Obtener versión de Node.js desde dentro del proot
         val nodeVersion = try {
-            if (!payloadReady || !ldlinux.exists() || !nodeReal.exists()) {
+            if (!alpineInstalled || !openclawInstalled) {
                 "instalando..."
             } else {
-                val process = ProcessBuilder(
-                    ldlinux.absolutePath,
-                    "--library-path", libs,
-                    nodeReal.absolutePath,
-                    "--version"
-                ).apply {
-                    environment().apply {
-                        remove("LD_PRELOAD")
-                        put("LD_LIBRARY_PATH", libs)
-                        put("HOME", payloadDir.absolutePath)
-                        put("TMPDIR", activity.cacheDir.absolutePath)
-                    }
-                    redirectErrorStream(true)
-                    directory(payloadDir)
-                }.start()
-
-                if (!process.waitFor(3, TimeUnit.SECONDS)) {
+                val pb = proot.buildProotProcess(listOf("/bin/sh", "-c", "node --version 2>/dev/null || echo 'error'"))
+                val process = pb.start()
+                if (!process.waitFor(5, TimeUnit.SECONDS)) {
                     process.destroyForcibly()
-                    Log.w("OpenClawBridge", "Node version timeout")
                     "cargando..."
                 } else {
-                    val output = process.inputStream.bufferedReader().readLine()?.trim().orEmpty()
-                    if (output.isNotBlank() && output.startsWith("v")) {
-                        output
-                    } else {
-                        Log.w("OpenClawBridge", "Node version invalid output: $output")
-                        "reintentando..."
-                    }
+                    val out = process.inputStream.bufferedReader().readLine()?.trim().orEmpty()
+                    if (out.startsWith("v")) out else "pendiente..."
                 }
             }
         } catch (e: Exception) {
-            Log.e("OpenClawBridge", "Node version error: ${e.javaClass.simpleName} - ${e.message}")
-            if (e.message?.contains("libdl.so.2") == true || 
-                e.message?.contains("librt.so.1") == true) {
-                "configurando glibc..."
-            } else {
-                "pendiente..."
-            }
+            Log.e("OpenClawBridge", "Node version error: ${e.message}")
+            "pendiente..."
         }
-
-        // Obtener versiones de paquetes
-        val openclawVersion = readPackageVersion(
-            payloadDir,
-            "lib/node_modules/openclaw/package.json"
-        ) ?: if (payloadReady) "desconocido" else "instalando..."
-
-        val npmVersion = readPackageVersion(
-            payloadDir,
-            "lib/node_modules/npm/package.json",
-            "lib/node_modules/openclaw/node_modules/npm/package.json"
-        ) ?: "no incluido"
-
-        // Verificar Toybox y BusyBox
-        val toyboxAvailable = File("/system/bin/toybox").exists()
-        val busyboxAvailable = busybox.exists() && busybox.canExecute()
 
         return JSONObject().apply {
             put("nodeVersion", nodeVersion)
-            put("npmVersion", npmVersion)
-            put("openclawVersion", openclawVersion)
+            put("npmVersion", "v11.x (Alpine)")
+            put("openclawVersion", if (openclawInstalled) "instalado" else "no instalado")
             put("gitVersion", "no incluido")
-            put("shellPath", "/system/bin/sh")
-            put("toyboxAvailable", toyboxAvailable)
-            put("busyboxAvailable", busyboxAvailable)
-            put("payloadReady", payloadReady)
+            put("shellPath", proot.proot)
+            put("toyboxAvailable", true) // Android tiene toybox nativo
+            put("busyboxAvailable", false) // ya no usamos busybox
+            put("payloadReady", openclawInstalled)
             put("diagnostics", diagnostics.joinToString(", "))
             put("freeSpaceMB", activity.filesDir.freeSpace / 1024 / 1024)
-            put("nativeLibDir", nativeDir.absolutePath)
-            put("payloadDir", payloadDir.absolutePath)
+            put("nativeLibDir", proot.nativeDir)
+            put("payloadDir", proot.rootfs.absolutePath)
         }.toString()
-    }
-
-    private fun readPackageVersion(payloadDir: File, vararg relativePaths: String): String? {
-        return relativePaths.firstNotNullOfOrNull { relativePath ->
-            try {
-                val pkgJson = File(payloadDir, relativePath)
-                if (pkgJson.exists()) {
-                    JSONObject(pkgJson.readText()).optString("version").ifBlank { null }
-                } else {
-                    null
-                }
-            } catch (_: Exception) {
-                null
-            }
-        }
     }
 
     @JavascriptInterface
@@ -614,15 +460,14 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun getStorageInfo(): String {
-        val payloadDir = OpenClawInstaller.getPayloadDir(activity)
-        val wwwDir = File(activity.filesDir, "www")
+        val proot = OpenClawProot(activity)
         val totalBytes = activity.filesDir.totalSpace
         val freeBytes = activity.filesDir.freeSpace
         return JSONObject().apply {
             put("totalBytes", totalBytes)
             put("freeBytes", freeBytes)
-            put("bootstrapBytes", payloadDir.sizeRecursively())
-            put("wwwBytes", wwwDir.sizeRecursively())
+            put("bootstrapBytes", proot.rootfs.sizeRecursively())
+            put("wwwBytes", File(activity.filesDir, "www").sizeRecursively())
         }.toString()
     }
 
@@ -653,13 +498,14 @@ class AndroidBridge(
     fun setBackgroundExecutionEnabled(enabled: Boolean) {
         OpenClawPreferences.isBackgroundExecutionEnabled = enabled
         if (!enabled) {
-            // Si se deshabilita, detener el servicio si está corriendo
             OpenClawGatewayService.stop(activity)
         }
         notifyReact("onBackgroundExecutionChanged", JSONObject().apply {
             put("enabled", enabled)
         }.toString())
     }
+
+    // ── openclaw.json config ─────────────────────────────────────────────────
 
     @JavascriptInterface
     fun readOpenclawJson(): String {
@@ -668,8 +514,7 @@ class AndroidBridge(
             val configFile = java.io.File(configDir, "openclaw.json")
             if (configFile.exists()) {
                 val content = configFile.readText()
-                // Validar que es JSON válido
-                org.json.JSONObject(content)
+                org.json.JSONObject(content) // validate
                 JSONObject().apply {
                     put("success", true)
                     put("content", content)
@@ -692,19 +537,12 @@ class AndroidBridge(
     @JavascriptInterface
     fun writeOpenclawJson(content: String): String {
         return try {
-            // Validar JSON primero
-            org.json.JSONObject(content)
-
+            org.json.JSONObject(content) // validate
             val configDir = OpenClawInstaller.getConfigDir(activity)
-            if (!configDir.exists()) {
-                configDir.mkdirs()
-            }
+            if (!configDir.exists()) configDir.mkdirs()
             val configFile = java.io.File(configDir, "openclaw.json")
             configFile.writeText(content)
-
-            JSONObject().apply {
-                put("success", true)
-            }.toString()
+            JSONObject().apply { put("success", true) }.toString()
         } catch (e: Exception) {
             JSONObject().apply {
                 put("success", false)
@@ -713,6 +551,8 @@ class AndroidBridge(
         }
     }
 
+    // ── Tools / Platforms ─────────────────────────────────────────────────────
+
     @JavascriptInterface
     fun getInstalledTools(): String {
         return "[]"
@@ -720,9 +560,7 @@ class AndroidBridge(
 
     @JavascriptInterface
     @Suppress("UNUSED_PARAMETER")
-    fun saveToolSelections(json: String) {
-        // Tool selections are currently informational in the mobile dashboard.
-    }
+    fun saveToolSelections(json: String) {}
 
     @JavascriptInterface
     fun isToolInstalled(id: String): String {
@@ -739,15 +577,16 @@ class AndroidBridge(
                 put("id", "openclaw")
                 put("name", "OpenClaw")
                 put("icon", "OC")
-                put("desc", "Runtime local de OpenClaw para Android")
+                put("desc", "Runtime local de OpenClaw para Android (proot + Alpine)")
             })
         }.toString()
     }
 
     @JavascriptInterface
     fun getInstalledPlatforms(): String {
+        val proot = OpenClawProot(activity)
         return JSONArray().apply {
-            if (OpenClawInstaller.isPayloadReady(activity)) {
+            if (proot.isOpenClawInstalled()) {
                 put(JSONObject().apply {
                     put("id", "openclaw")
                     put("name", "OpenClaw")
@@ -758,8 +597,9 @@ class AndroidBridge(
 
     @JavascriptInterface
     fun getActivePlatform(): String {
+        val proot = OpenClawProot(activity)
         return JSONObject().apply {
-            put("id", if (OpenClawInstaller.isPayloadReady(activity)) "openclaw" else "")
+            put("id", if (proot.isOpenClawInstalled()) "openclaw" else "")
         }.toString()
     }
 
@@ -819,6 +659,8 @@ class AndroidBridge(
         logBridgeCall("uninstallTool", id)
         notifyReact("install_progress", "{\"target\":\"$id\", \"progress\":1, \"message\": \"Desinstalación completada\"}")
     }
+
+    // ── Gateway helpers ──────────────────────────────────────────────────────
 
     @JavascriptInterface
     fun getGatewayToken(): String {
@@ -882,48 +724,6 @@ class AndroidBridge(
             line.contains("warn", ignoreCase = true) -> "warn"
             line.contains("debug", ignoreCase = true) -> "debug"
             else -> "info"
-        }
-    }
-
-    private fun copyUriToTempFile(uri: Uri, fileName: String): File {
-        val tempFile = File(activity.cacheDir, fileName)
-        copyUriToFile(uri, tempFile)
-        return tempFile
-    }
-
-    private fun copyUriToFile(uri: Uri, targetFile: File) {
-        targetFile.parentFile?.mkdirs()
-        activity.contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(targetFile).use { output ->
-                input.copyTo(output)
-            }
-        } ?: throw IllegalArgumentException("Cannot open URI: $uri")
-    }
-
-    private fun getUriMetadata(uri: Uri, fallbackFile: File): Pair<String, Long> {
-        var filename = fallbackFile.name
-        activity.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (nameIndex != -1 && cursor.moveToFirst()) {
-                filename = cursor.getString(nameIndex)
-            }
-        }
-        val size = try {
-            activity.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: fallbackFile.length()
-        } catch (_: Exception) {
-            fallbackFile.length()
-        }
-        return filename to size
-    }
-
-    private fun dispatchNativeFilePicked(callbackId: String, uri: Uri, success: Boolean) {
-        val escapedUri = JSONObject.quote(uri.toString())
-        val successJson = if (success) "true" else "false"
-        activity.runOnUiThread {
-            webView.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('native:file_picked_$callbackId', { detail: { uri: $escapedUri, success: $successJson } }));",
-                null
-            )
         }
     }
 
