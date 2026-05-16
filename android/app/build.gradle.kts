@@ -77,6 +77,52 @@ tasks.register("updateVersionFromGit") {
     }
 }
 
+// ── proot binary download (libproot.so → jniLibs/arm64-v8a/) ───────────────────
+//
+// Reemplazo del antiguo payload glibc (libnode.so + libldlinux.so + libglibc*.so).
+// libproot.so es un ELF estático ARM64 (~500 KB) tomado del proyecto Termux,
+// y se carga en runtime para extraer y ejecutar el rootfs Alpine.
+//
+// Fuente: https://skirsten.github.io/proot-portable-android-binaries/aarch64/proot
+// Tamaño esperado: ~500 KB. Para builds offline, deposita el archivo manualmente
+// en app/src/main/jniLibs/arm64-v8a/libproot.so.
+
+val prootBinaryUrl =
+        "https://skirsten.github.io/proot-portable-android-binaries/aarch64/proot"
+val prootBinaryDest =
+        file("${projectDir}/src/main/jniLibs/arm64-v8a/libproot.so")
+
+tasks.register("fetchProot") {
+    description = "Descarga libproot.so (proot estático ARM64) a jniLibs/arm64-v8a/"
+    group = "build"
+
+    outputs.file(prootBinaryDest)
+
+    doLast {
+        if (prootBinaryDest.exists() && prootBinaryDest.length() > 0L) {
+            println("✓ libproot.so ya existe (${prootBinaryDest.length()} bytes), skip")
+            return@doLast
+        }
+        prootBinaryDest.parentFile?.mkdirs()
+        println("⏬ Descargando libproot.so desde $prootBinaryUrl…")
+        try {
+            java.net.URL(prootBinaryUrl).openStream().use { input ->
+                prootBinaryDest.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            prootBinaryDest.setExecutable(true, false)
+            println("✓ libproot.so descargado (${prootBinaryDest.length()} bytes)")
+        } catch (e: Exception) {
+            throw GradleException(
+                "Falló la descarga de libproot.so: ${e.message}\n" +
+                "Solución alternativa: coloca el binario manualmente en " +
+                "${prootBinaryDest.absolutePath}"
+            )
+        }
+    }
+}
+
 // ── Web UI auto-build task ────────────────────────────────────────────────────
 
 val wwwSrcDir = file("${rootProject.projectDir}/www")
@@ -163,6 +209,10 @@ tasks.whenTaskAdded {
         dependsOn("copyWebUIAssets")
         dependsOn("bundleScripts")
     }
+    // Asegurar que libproot.so esté en jniLibs antes de empaquetarse en el APK
+    if (name == "mergeDebugJniLibFolders" || name == "mergeReleaseJniLibFolders") {
+        dependsOn("fetchProot")
+    }
 }
 
 android {
@@ -229,9 +279,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // For robust tar.gz and tar.xz extraction
-    implementation("org.apache.commons:commons-compress:1.26.0")
-    implementation("org.tukaani:xz:1.9")
+    // En el modelo proot, la extracción del rootfs Alpine la hace /system/bin/tar
+    // (binario nativo de Android) — no necesitamos commons-compress ni xz aquí.
     implementation("androidx.webkit:webkit:1.10.0")
 
 

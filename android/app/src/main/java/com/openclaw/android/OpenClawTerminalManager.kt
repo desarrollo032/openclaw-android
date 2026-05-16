@@ -1,8 +1,8 @@
 package com.openclaw.android
 
 import android.content.Context
-import android.system.Os
 import android.util.Log
+import com.openclaw.android.proot.OpenClawProot
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import java.io.File
@@ -10,337 +10,128 @@ import java.io.File
 private const val TAG = "OpenClawTermMgr"
 
 /**
- * OpenClawTerminalManager
+ * OpenClawTerminalManager — versión proot + Alpine.
  *
- * Responsabilidades:
- * - Construir el entorno (environment array) idéntico al del ProcessBuilder del gateway.
- * - Priorizar shell nativo /system/bin/sh sobre BusyBox.
- * - Detectar y usar Toybox nativo del sistema Android 12+.
- * - Mantener BusyBox como fallback último recurso.
- * - Crear la TerminalSession con el shell adecuado.
- * - Gestionar el ciclo de vida de la sesión (start / finish / recreate).
+ * El terminal PTY ahora arranca `proot --rootfs=alpine-rootfs ... /bin/sh -i`,
+ * es decir, da al usuario una shell Alpine real (busybox/ash) con `node`, `npm`,
+ * `openclaw` ya disponibles en `/usr/bin` (instalados via `apk add`).
+ *
+ * La API pública conservada por compatibilidad con OpenClawTerminalActivity:
+ *   - createSession(client) → TerminalSession?
+ *   - getShellPath() → String   (ahora siempre = libproot.so)
+ *   - buildEnvironment() → Array<String>
+ *   - createBusyboxSymlinks() → Unit   (no-op; busybox vive en /bin del rootfs)
+ *   - isBusyboxAvailable() / isBusyboxValid() → ahora reflejan Alpine
+ *   - logDiagnostics() → log de estado proot/Alpine
  */
 class OpenClawTerminalManager(private val context: Context) {
 
-    private val nativeDir: File
-        get() = File(context.applicationInfo.nativeLibraryDir)
+    private val proot: OpenClawProot by lazy { OpenClawProot(context) }
 
-    private val payloadDir: File
-        get() = OpenClawInstaller.getPayloadDir(context)
-
-    private val homeDir: File
-        get() = File(context.filesDir, "home").apply { mkdirs() }
-
+    // Compatibilidad con código viejo (legibilidad/diagnóstico)
     val busyboxFile: File
-        get() = File(nativeDir, "libbusybox.so")
+        get() = File(proot.rootfs, "bin/busybox")
 
-    // ── Detección de shell disponible ────────────────────────
+    // ── Detección de shell disponible ────────────────────────────────────────
 
     /**
-     * Detecta el mejor shell disponible en este orden:
-     * 1. /system/bin/sh (siempre disponible, compatible seccomp)
-     * 2. libbusybox.so como último recurso
+     * Ahora el "shell" del PTY es **siempre proot**. El sh real es
+     * /bin/sh del rootfs Alpine, ejecutado vía proot.
      */
     fun getShellPath(): String {
-        // Opción 1 — sh nativo (SIEMPRE disponible en Android)
-        val systemSh = File("/system/bin/sh")
-        if (systemSh.exists() && systemSh.canExecute()) {
-            Log.d(TAG, "Shell: /system/bin/sh (nativo)")
-            return systemSh.absolutePath
+        val prootBin = File(proot.proot)
+        if (!prootBin.exists() || !prootBin.canExecute()) {
+            throw IllegalStateException(
+                "libproot.so no encontrado en ${prootBin.absolutePath}. " +
+                "Reconstruye la APK con :app:fetchProot."
+            )
         }
-
-        // Opción 2 — busybox como último recurso
-        val busybox = File(nativeDir, "libbusybox.so")
-        if (busybox.exists() && busybox.canExecute()) {
-            Log.w(TAG, "Shell: libbusybox.so (fallback — puede tener seccomp issues)")
-            return busybox.absolutePath
-        }
-
-        // Nunca debería llegar aquí en Android
-        throw IllegalStateException("No hay shell disponible en el dispositivo")
+        return prootBin.absolutePath
     }
 
+    /** PATH dentro del proot — devuelto sólo para diagnósticos. */
+    fun buildPath(): String =
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
     /**
-     * Construye el PATH completo para la sesión terminal.
-     * Prioriza binarios del payload, luego sistema Android.
+     * Environment para la TerminalSession. El array que retorna
+     * `OpenClawProot.buildShellEnv()` ya tiene todo lo necesario.
+     */
+    fun buildEnvironment(): Array<String> = proot.buildShellEnv()
+
+    // ── Creación de sesión PTY ───────────────────────────────────────────────
+
+    /**
+     * Crea la sesión terminal usando proot como ejecutable y /bin/sh del
+     * rootfs Alpine como shell final.
      *
-     * Comandos disponibles via /system/bin/ con toybox:
-     * ls, cat, grep, find, cp, mv, rm, chmod, tar, echo,
-     * env, which, mkdir, pwd, ps, kill, curl, wget, base64,
-     * diff, du, df, head, tail, sort, uniq, wc, sed, awk,
-     * date, hostname, id, whoami, uname, +200 más
-     */
-    private fun buildPath(): String {
-        return listOf(
-            File(context.filesDir, "usr/bin").absolutePath,
-            nativeDir.absolutePath,            // libnode.so, libldlinux.so
-            "/system/bin",                     // sh, toybox, ls, grep...
-            "/system/xbin"                     // herramientas extra
-        ).joinToString(":")
-    }
-
-    /**
-     * Environment completo para la sesión terminal.
-     * Idéntico al ProcessBuilder del gateway excepto
-     * que NO incluye flags de Node.js.
-     * NUNCA incluye LD_PRELOAD.
-     */
-    fun buildEnvironment(): Array<String> {
-        val glibcLibs = File(payloadDir, "glibc/lib").absolutePath
-        val libs = "${nativeDir.absolutePath}:${glibcLibs}"
-        val openclawHome = OpenClawInstaller.getConfigDir(context).apply { mkdirs() }
-        val tmpDir = File(openclawHome, "tmp").apply { mkdirs() }
-        val rc = ensureShellRc()
-
-        return arrayOf(
-            "HOME=${homeDir.absolutePath}",
-            "OPENCLAW_HOME=${openclawHome.absolutePath}",
-            "TMPDIR=${tmpDir.absolutePath}",
-            "TERM=xterm-256color",
-            "COLORTERM=truecolor",
-            "USER=openclaw",
-            "LOGNAME=openclaw",
-            "PATH=${buildPath()}",
-            "LD_LIBRARY_PATH=$libs",
-            "NODE_PATH=${File(payloadDir, "lib/node_modules").absolutePath}",
-            "SSL_CERT_FILE=${File(payloadDir, "etc/tls/cert.pem").absolutePath}",
-            "LANG=en_US.UTF-8",
-            "LC_ALL=en_US.UTF-8",
-            "NODE_NO_WARNINGS=1",
-            "OPENCLAW_NO_RESPAWN=1",
-            "OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1",
-            "OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1",
-            "ENV=${rc.absolutePath}",
-            "OPENCLAW_TERMINAL_RC=${rc.absolutePath}",
-            // Prompt corto — no ocupar toda la línea
-            "PS1=~ $ ",
-            // NO incluir LD_PRELOAD — crítico
-        )
-    }
-
-    private fun getNodeCompileCacheDir(): File {
-        val cacheDir = File(context.cacheDir, "openclaw-compile-cache")
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs()
-        }
-        return cacheDir
-    }
-
-    private fun ensureShellRc(): File {
-        val payload = payloadDir.absolutePath
-        val native = nativeDir.absolutePath
-        val binDir = File(context.filesDir, "usr/bin").absolutePath
-        val libs = "$native:$payload/glibc/lib"
-        val loader = "$native/libldlinux.so"
-        val node = "$native/libnode.so"
-        val openclawScript = "$payload/lib/node_modules/openclaw/openclaw.mjs"
-        val npmScript = "$payload/lib/node_modules/npm/bin/npm-cli.js"
-        val openclawHome = OpenClawInstaller.getConfigDir(context).absolutePath
-        val tmpDir = "$openclawHome/tmp"
-        homeDir.mkdirs()
-        OpenClawInstaller.getConfigDir(context).mkdirs()
-        File(tmpDir).mkdirs()
-        val rc = File(context.filesDir, "openclaw-terminal.rc")
-        rc.writeText(
-                """
-            PS1='~ ${'$'} '
-            HOME="${homeDir.absolutePath}"
-            OPENCLAW_HOME="$openclawHome"
-            TMPDIR="$tmpDir"
-            mkdir -p "${'$'}OPENCLAW_HOME" 2>/dev/null
-            mkdir -p "${'$'}TMPDIR" 2>/dev/null
-            cd "${'$'}OPENCLAW_HOME" 2>/dev/null || cd "${'$'}HOME"
-
-            # Priorizar ABSOLUTAMENTE los wrappers oficiales en $binDir
-            export PATH="$binDir:${'$'}{PATH}"
-            export OPENCLAW_HOME
-            export TMPDIR
-
-            # Evitar ejecutar archivos .js/.mjs directamente por error
-            # Funciones que evitan ejecutar wrappers desde app_payload/bin directamente.
-            node() {
-              unset LD_PRELOAD
-              unset NODE_OPTIONS
-              export NODE_NO_WARNINGS=1
-              export OPENCLAW_NO_RESPAWN=1
-              export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
-              export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
-              "$loader" --library-path "$libs" "$node" "${'$'}@"
-            }
-            openclaw() {
-              unset LD_PRELOAD
-              unset NODE_OPTIONS
-              export NODE_NO_WARNINGS=1
-              export OPENCLAW_NO_RESPAWN=1
-              export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
-              export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
-              "$loader" --library-path "$libs" "$node" --disable-warning=ExperimentalWarning "$openclawScript" "${'$'}@"
-            }
-            npm() {
-              if [ -f "$npmScript" ]; then
-                unset LD_PRELOAD
-                unset NODE_OPTIONS
-                export NODE_NO_WARNINGS=1
-                "$loader" --library-path "$libs" "$node" "$npmScript" "${'$'}@"
-              else
-                echo "npm: no incluido"
-                return 127
-              fi
-            }
-            pnpm() {
-              if [ -f "$payload/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
-                unset LD_PRELOAD
-                unset NODE_OPTIONS
-                export NODE_NO_WARNINGS=1
-                "$loader" --library-path "$libs" "$node" "$payload/lib/node_modules/pnpm/bin/pnpm.cjs" "${'$'}@"
-              else
-                echo "pnpm: no incluido"
-                return 127
-              fi
-            }
-            export PS1
-        """.trimIndent()
-        )
-        return rc
-    }
-
-    // ── Creación de sesión PTY ────────────────────────────────
-
-    /**
-     * Crea la sesión terminal con Toybox/sh nativo.
-     * Retorna null si no hay shell disponible.
+     * TerminalSession signature (Termux):
+     *   TerminalSession(shellPath, cwd, args, env, scrollbackLines, client)
+     *
+     * Los `args` aquí son TODOS los argumentos de proot (rootfs, binds, sh -i).
      */
     fun createSession(client: TerminalSessionClient): TerminalSession? {
         return try {
-            OpenClawInstaller.ensureRuntimeWrappers(context)
-            val shell = getShellPath()
-            val env = buildEnvironment()
-            val cwd = context.filesDir.absolutePath
+            if (!proot.isProotPresent()) {
+                Log.e(TAG, "libproot.so no presente")
+                return null
+            }
+            if (!proot.isAlpineInstalled()) {
+                Log.e(TAG, "Alpine rootfs no instalado")
+                return null
+            }
 
-            Log.d(TAG, "Iniciando sesión PTY")
-            Log.d(TAG, "Shell: $shell")
-            Log.d(TAG, "CWD: $cwd")
-            Log.d(TAG, "PATH: ${buildPath()}")
+            val shellExec = getShellPath()
+            // CWD del lado HOST: el filesDir. Proot internamente cambiará a /data/home/.openclaw
+            val cwdHost   = context.filesDir.absolutePath
+            val args      = proot.buildShellCommand()
+            val env       = proot.buildShellEnv()
+
+            Log.d(TAG, "Iniciando sesión PTY proot")
+            Log.d(TAG, "Exec: $shellExec")
+            Log.d(TAG, "CWD host: $cwdHost")
+            Log.d(TAG, "args[0..3]: ${args.take(4)}")
 
             TerminalSession(
-                shell,
-                cwd,
-                arrayOf("sh", "-i"),  // modo interactivo
+                shellExec,
+                cwdHost,
+                args,
                 env,
-                4000,                 // scrollback lines
+                4000,
                 client
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Error creando sesión: ${e.message}")
+            Log.e(TAG, "Error creando sesión PTY: ${e.message}", e)
             null
         }
     }
 
-    // ── Diagnósticos ─────────────────────────────────────────
+    // ── Diagnósticos ─────────────────────────────────────────────────────────
 
-    /**
-     * Log completo del entorno disponible.
-     * Llamar en onCreate() de OpenClawTerminalActivity para debug.
-     */
     fun logDiagnostics() {
-        Log.d(TAG, "=== DIAGNÓSTICO TERMINAL ===")
-
-        // Verificar shell
-        listOf("/system/bin/sh", "/system/bin/bash").forEach { path ->
-            val f = File(path)
-            Log.d(TAG,
-                "$path — exists:${f.exists()} canExec:${f.canExecute()}")
-        }
-
-        // Verificar toybox
-        val toybox = File("/system/bin/toybox")
-        Log.d(TAG,
-            "toybox — exists:${toybox.exists()} canExec:${toybox.canExecute()}")
-
-        // Listar applets de toybox disponibles
-        if (toybox.exists()) {
-            try {
-                val applets = ProcessBuilder("/system/bin/toybox")
-                    .redirectErrorStream(true)
-                    .start()
-                    .inputStream.bufferedReader().readText()
-                Log.d(TAG, "Toybox applets: $applets")
-            } catch (e: Exception) {
-                Log.w(TAG, "No se pudo listar toybox: ${e.message}")
-            }
-        }
-
-        // Verificar busybox (fallback)
-        val busybox = File(nativeDir, "libbusybox.so")
-        Log.d(TAG,
-            "libbusybox.so — exists:${busybox.exists()} " +
-            "canExec:${busybox.canExecute()} size:${busybox.length()}B")
-
-        // Verificar payload
-        Log.d(TAG,
-            "payloadDir — exists:${payloadDir.exists()} " +
-            "path:${payloadDir.absolutePath}")
-
+        Log.d(TAG, "=== DIAGNÓSTICO TERMINAL (proot+Alpine) ===")
+        Log.d(TAG, "libproot.so present:   ${proot.isProotPresent()}")
+        Log.d(TAG, "Alpine rootfs present: ${proot.isAlpineInstalled()}")
+        Log.d(TAG, "openclaw installed:    ${proot.isOpenClawInstalled()}")
+        Log.d(TAG, "rootfs path:           ${proot.rootfs.absolutePath}")
+        Log.d(TAG, "PROOT_TMP_DIR:         ${proot.prootTmpDir.absolutePath}")
+        Log.d(TAG, "OPENCLAW_HOME:         ${proot.openclawHome.absolutePath}")
         Log.d(TAG, "=== FIN DIAGNÓSTICO ===")
     }
 
-    // ── Verificación de busybox (para info solamente) ─────────
+    // ── No-ops / compatibilidad ──────────────────────────────────────────────
 
     /**
-     * Verifica si busybox está disponible Y compatible con seccomp.
-     * Solo para diagnóstico — el shell principal es /system/bin/sh.
+     * Con Alpine el shell viene en `/bin/busybox` dentro del rootfs y todos
+     * los applets ya tienen symlinks instalados. No hace falta crearlos.
      */
-    fun isBusyboxValid(): Boolean {
-        val busybox = File(nativeDir, "libbusybox.so")
-        if (!busybox.exists() || !busybox.canExecute()) return false
-        return try {
-            val process = ProcessBuilder(
-                busybox.absolutePath, "echo", "test"
-            ).redirectErrorStream(true).start()
-            val out = process.inputStream.bufferedReader().readText()
-            val code = process.waitFor()
-            // "Bad system call" indica seccomp bloqueando
-            !out.contains("Bad system call") && code == 0
-        } catch (e: Exception) { false }
-    }
-
-    // ── Symlinks de comandos (opcional con toybox) ────────────
+    fun createBusyboxSymlinks() { /* no-op */ }
 
     /**
-     * Con toybox nativo NO se necesitan symlinks.
-     * /system/bin/ ya tiene todos los comandos necesarios.
-     * Este método se mantiene por compatibilidad pero no hace nada
-     * si el sistema ya tiene los comandos disponibles.
+     * Disponibilidad de busybox = Alpine rootfs presente (busybox es el
+     * proveedor de `/bin/sh` en Alpine minirootfs).
      */
-    fun createBusyboxSymlinks() {
-        val toybox = File("/system/bin/toybox")
-        if (toybox.exists()) {
-            Log.d(TAG,
-                "Toybox disponible — symlinks no necesarios")
-            return
-        }
-        // Solo crear symlinks si NO hay toybox (caso muy raro)
-        val busybox = File(nativeDir, "libbusybox.so")
-        if (!busybox.exists()) return
-        val binDir = File(context.filesDir, "usr/bin")
-        binDir.mkdirs()
-        listOf("sh","ls","cat","grep","find","tar",
-               "chmod","mkdir","cp","mv","rm","echo",
-               "env","which","ps","kill").forEach { cmd ->
-            val link = File(binDir, cmd)
-            if (!link.exists()) {
-                try {
-                    Os.symlink(busybox.absolutePath, link.absolutePath)
-                } catch (e: Exception) {
-                    Log.w(TAG,
-                        "Symlink $cmd failed: ${e.message}")
-                }
-            }
-        }
-    }
+    fun isBusyboxAvailable(): Boolean = proot.isAlpineInstalled()
 
-    // ── Propiedades públicas ──────────────────────────────────
-
-    fun isBusyboxAvailable(): Boolean =
-        busyboxFile.exists() && busyboxFile.canExecute()
+    fun isBusyboxValid(): Boolean = isBusyboxAvailable()
 }

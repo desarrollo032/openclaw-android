@@ -3,61 +3,75 @@ package com.openclaw.android
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.system.Os
 import android.util.Log
+import com.openclaw.android.proot.OpenClawProot
 import java.io.File
-import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.nio.file.Files
-import java.security.MessageDigest
-import java.util.zip.GZIPInputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.json.JSONObject
 
 private const val TAG = "OpenClawInstaller"
 
-private const val PAYLOAD_SHA256 = "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE"
-private const val NPM_VERSION = "11.14.1"
-
+/**
+ * OpenClawInstaller — modelo proot + Alpine Linux.
+ *
+ * Reemplaza el antiguo payload glibc (libnode.so + libldlinux.so + payload-v2.tar.xz)
+ * por un flujo en dos pasos:
+ *   1. Descargar Alpine minirootfs ARM64 desde dl-cdn.alpinelinux.org
+ *   2. Dentro del proot: `apk add nodejs npm` + `npm install -g openclaw`
+ *
+ * La API pública se conserva (isPayloadReady, getPayloadDir, etc.) para que
+ * AndroidBridge y OpenClawDashboardActivity sigan compilando, pero la
+ * semántica interna apunta al rootfs Alpine.
+ *
+ * Mapeo de paths:
+ *   getPayloadDir(ctx)  →  filesDir/alpine-rootfs/usr
+ *      ⇒ "$payloadDir/lib/node_modules/openclaw"  vale para Alpine
+ *        porque `npm install -g` deposita en /usr/lib/node_modules
+ *   getConfigDir(ctx)   →  filesDir/home/.openclaw
+ */
 object OpenClawInstaller {
 
+    // ── Paths públicos ────────────────────────────────────────────────────────
+
+    /**
+     * Compatibilidad: antes era un dir gestionado por nosotros con `lib/node_modules`.
+     * Ahora apunta a `/usr` del rootfs Alpine, donde npm pone los globales.
+     * Garantía: `getPayloadDir(ctx)/lib/node_modules/openclaw` existe cuando
+     * `isPayloadReady` devuelve true.
+     */
     fun getPayloadDir(context: Context): File =
-            context.getDir("payload", Context.MODE_PRIVATE).apply { mkdirs() }
-    fun getConfigDir(context: Context): File = File(File(context.filesDir, "home"), ".openclaw")
+        File(File(context.filesDir, "alpine-rootfs"), "usr")
 
+    fun getConfigDir(context: Context): File =
+        File(File(context.filesDir, "home"), ".openclaw")
+
+    // ── Estado ───────────────────────────────────────────────────────────────
+
+    /**
+     * Devuelve true si tanto Alpine como `openclaw` están instalados y el
+     * binario `proot` está accesible.
+     */
     fun isPayloadReady(context: Context): Boolean {
-        val payloadDir = getPayloadDir(context)
-        val openclawDir = File(payloadDir, "lib/node_modules/openclaw")
-        val nodeLib = File(context.applicationInfo.nativeLibraryDir, "libnode.so")
-        
-        // Verificación más robusta: el directorio debe existir Y tener contenido
-        val payloadExists = openclawDir.exists() && openclawDir.isDirectory()
-        val nodeExists = nodeLib.exists() && nodeLib.isFile()
-        val npmExists = File(payloadDir, "lib/node_modules/npm/bin/npm-cli.js").exists()
-
-        if (payloadExists && nodeExists && npmExists) {
-            ensureRuntimeWrappers(context)
-        }
-        return payloadExists && nodeExists && npmExists
+        val proot = OpenClawProot(context)
+        if (!proot.isProotPresent()) return false
+        if (!proot.isAlpineInstalled()) return false
+        if (!proot.isOpenClawInstalled()) return false
+        // Verificación adicional: node debe estar instalado (apk add nodejs)
+        val nodeBin = File(proot.rootfs, "usr/bin/node")
+        if (!nodeBin.exists()) return false
+        return true
     }
 
-    fun uninstall(context: Context) {
-        getPayloadDir(context).deleteRecursivelySafe()
-        getConfigDir(context).deleteRecursivelySafe()
-        context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
-        Log.i(TAG, "Environment uninstalled successfully")
-    }
+    fun isAlpineInstalled(context: Context): Boolean =
+        OpenClawProot(context).isAlpineInstalled()
 
-    fun hasBundledAssets(context: Context): Boolean {
-        return try {
-            context.assets.open(OpenClawConstants.PAYLOAD_ASSET).use { true }
-        } catch (_: Exception) {
-            false
-        }
-    }
+    fun isOpenClawInstalled(context: Context): Boolean =
+        OpenClawProot(context).isOpenClawInstalled()
+
+    /** En el nuevo modelo no hay payload bundle en assets/. Siempre false. */
+    fun hasBundledAssets(@Suppress("UNUSED_PARAMETER") context: Context): Boolean = false
 
     fun isConfigRestored(context: Context): Boolean {
         val prefs = context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
@@ -71,805 +85,10 @@ object OpenClawInstaller {
         return false
     }
 
-    fun verifyPayloadIntegrity(context: Context): Boolean {
-        if (PAYLOAD_SHA256 == "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE") {
-            Log.w(TAG, "SHA-256 verification SKIPPED (dev mode)")
-            return true
-        }
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(8 * 1024)
-            context.assets.open(OpenClawConstants.PAYLOAD_ASSET).use { stream ->
-                var read: Int
-                while (stream.read(buffer).also { read = it } != -1) {
-                    digest.update(buffer, 0, read)
-                }
-            }
-            val computed = digest.digest().joinToString("") { "%02x".format(it) }
-            computed.equals(PAYLOAD_SHA256, ignoreCase = true)
-        } catch (e: Exception) {
-            Log.e(TAG, "verifyPayloadIntegrity failed", e)
-            false
-        }
-    }
+    /** Compatibilidad: con proot+Alpine no hay tarball local a verificar. */
+    fun verifyPayloadIntegrity(@Suppress("UNUSED_PARAMETER") context: Context): Boolean = true
 
-    private fun ensureNpmPackageInstalled(context: Context, base: File): Boolean {
-        val npmCli = File(base, "lib/node_modules/npm/bin/npm-cli.js")
-        if (npmCli.exists()) return true
-
-        Log.i(TAG, "npm missing in payload, attempting download from registry")
-        return try {
-            downloadAndInstallNpmPackage(base)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to download/install npm", e)
-            false
-        }
-    }
-
-    private fun downloadAndInstallNpmPackage(base: File): Boolean {
-        val tarballUrl = fetchNpmTarballUrl() ?: return false
-        val tempDir = File(base, "tmp/npm-bootstrap").apply {
-            deleteRecursivelySafe()
-            mkdirs()
-        }
-
-        if (!downloadAndExtractTarball(tarballUrl, tempDir)) return false
-
-        val packageDir = File(tempDir, "package")
-        if (!packageDir.exists() || !packageDir.isDirectory) return false
-
-        val npmTarget = File(base, "lib/node_modules/npm")
-        npmTarget.deleteRecursivelySafe()
-        packageDir.copyRecursively(npmTarget, true)
-
-        val npmCli = File(npmTarget, "bin/npm-cli.js")
-        val ok = npmCli.exists()
-        if (!ok) {
-            Log.e(TAG, "npm bootstrap failed: ${npmCli.absolutePath} not found")
-        }
-        tempDir.deleteRecursivelySafe()
-        return ok
-    }
-
-    private fun fetchNpmTarballUrl(): String? {
-        val registryEndpoints = listOf(
-                "https://registry.npmjs.org/npm/$NPM_VERSION",
-                "https://registry.npmmirror.com/npm/$NPM_VERSION",
-                "https://registry.npmjs.org/npm/latest",
-                "https://registry.npmmirror.com/npm/latest"
-        )
-        registryEndpoints.forEach { endpoint ->
-            try {
-                val conn = URL(endpoint).openConnection() as HttpURLConnection
-                conn.connectTimeout = 10000
-                conn.readTimeout = 15000
-                conn.requestMethod = "GET"
-                conn.setRequestProperty("Accept", "application/json")
-                if (conn.responseCode != 200) {
-                    conn.disconnect()
-                    return@forEach
-                }
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                conn.disconnect()
-                val json = JSONObject(body)
-                val tarball = json.optJSONObject("dist")?.optString("tarball", "")
-                if (!tarball.isNullOrBlank()) return tarball
-            } catch (e: Exception) {
-                Log.w(TAG, "fetchNpmTarballUrl failed for $endpoint: ${e.message}")
-            }
-        }
-        return null
-    }
-
-    private fun downloadAndExtractTarball(url: String, outputDir: File): Boolean {
-        return try {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 10000
-            conn.readTimeout = 30000
-            conn.requestMethod = "GET"
-            if (conn.responseCode != 200) {
-                conn.disconnect()
-                return false
-            }
-            conn.inputStream.use { stream ->
-                extractTarGzFromStream(stream, outputDir)
-            }
-            conn.disconnect()
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "downloadAndExtractTarball failed", e)
-            false
-        }
-    }
-
-    suspend fun installDetailed(
-            context: Context,
-            onProgress: (String) -> Unit,
-            onComplete: () -> Unit,
-            onError: (String) -> Unit
-    ): Unit = installDetailedFromFiles(context, null, null, onProgress, onComplete, onError)
-
-    suspend fun installDetailedFromFiles(
-            context: Context,
-            payloadFile: File?,
-            migrationFile: File?,
-            onProgress: (String) -> Unit,
-            onComplete: () -> Unit,
-            onError: (String) -> Unit
-    ): Unit =
-            withContext(Dispatchers.IO) {
-                try {
-                    val base = getPayloadDir(context)
-                    base.deleteRecursivelySafe()
-                    base.mkdirs()
-
-                    // ── Determine payload source (file | embedded asset | GitHub download) ──
-                    val payloadOk: Boolean
-                    if (payloadFile != null) {
-                        // Source: locally-provided file (from URI picker)
-                        payloadOk =
-                                payloadFile.inputStream().use { raw ->
-                                    val tracked =
-                                            ProgressInputStream(raw, payloadFile.length()) {
-                                                    read,
-                                                    total ->
-                                                onProgress(
-                                                        progressJson(
-                                                                1,
-                                                                payloadFile.name,
-                                                                read,
-                                                                total,
-                                                                ""
-                                                        )
-                                                )
-                                            }
-                                    extractTarXzFromStream(tracked, base)
-                                }
-                    } else if (hasBundledAssets(context)) {
-                        // Source: embedded APK asset
-                        payloadOk =
-                                context.extractTarXz(OpenClawConstants.PAYLOAD_ASSET, base) {
-                                        _,
-                                        read,
-                                        total,
-                                        currentFile ->
-                                    onProgress(
-                                            progressJson(
-                                                    1,
-                                                    OpenClawConstants.PAYLOAD_ASSET,
-                                                    read,
-                                                    total,
-                                                    currentFile
-                                            )
-                                    )
-                                }
-                    } else {
-                        // Source: download from GitHub
-                        if (!isNetworkAvailable(context)) {
-                            throw Exception(
-                                    "No hay conexión a Internet. " +
-                                            "El payload no está incluido en esta compilación y " +
-                                            "no se pudo descargar porque el dispositivo no tiene acceso a Internet."
-                            )
-                        }
-                        val downloadedPayload = downloadPayloadFromGithub(context) { read, total ->
-                            val pct = if (total > 0) ((read * 100) / total).toInt().coerceIn(0, 100) else 0
-                            onProgress(
-                                    progressJson(1, "Descargando payload...", read, total, "")
-                            )
-                        }
-                        if (downloadedPayload == null) {
-                            throw Exception("No se pudo descargar el payload desde GitHub")
-                        }
-                        payloadOk =
-                                downloadedPayload.inputStream().use { raw ->
-                                    val tracked =
-                                            ProgressInputStream(raw, downloadedPayload.length()) {
-                                                    read, total ->
-                                                onProgress(
-                                                        progressJson(
-                                                                1,
-                                                                downloadedPayload.name,
-                                                                read,
-                                                                total,
-                                                                ""
-                                                        )
-                                                )
-                                            }
-                                    extractTarXzFromStream(tracked, base)
-                                }
-                    }
-                    if (!payloadOk)
-                            throw Exception(
-                                    "Fallo en extraccion de ${payloadFile?.name ?: OpenClawConstants.PAYLOAD_ASSET}"
-                            )
-
-                    if (!ensureNpmPackageInstalled(context, base)) {
-                        throw Exception("npm no incluido y no se pudo descargar")
-                    }
-
-                    deployNativeLibs(context, base)
-                    deployScripts(context, base)
-                    fixPermissions(base)
-
-                    // ── Determine migration source (file | embedded asset | GitHub download) ──
-                    val migrationOk: Boolean
-                    if (migrationFile != null) {
-                        val migrationDest =
-                                openClawArchiveDestination(
-                                        context,
-                                        migrationFile.inputStream().use(::tarGzContainsOpenClawRoot)
-                                )
-                        migrationOk =
-                                migrationFile.inputStream().use { raw ->
-                                    val tracked =
-                                            ProgressInputStream(raw, migrationFile.length()) {
-                                                    read,
-                                                    total ->
-                                                onProgress(
-                                                        progressJson(
-                                                                2,
-                                                                migrationFile.name,
-                                                                read,
-                                                                total,
-                                                                ""
-                                                        )
-                                                )
-                                            }
-                                    extractTarGzFromStream(tracked, migrationDest)
-                                }
-                    } else if (assetExists(context, OpenClawConstants.MIGRATION_ASSET)) {
-                        val migrationDest =
-                                openClawArchiveDestination(
-                                        context,
-                                        assetContainsOpenClawRoot(context, OpenClawConstants.MIGRATION_ASSET)
-                                )
-                        migrationOk =
-                                context.extractTarGz(OpenClawConstants.MIGRATION_ASSET, migrationDest) {
-                                        _,
-                                        read,
-                                        total,
-                                        currentFile ->
-                                    onProgress(
-                                            progressJson(
-                                                    2,
-                                                    OpenClawConstants.MIGRATION_ASSET,
-                                                    read,
-                                                    total,
-                                                    currentFile
-                                            )
-                                    )
-                                }
-                    } else {
-                        // Migration is optional — try downloading from GitHub
-                        val downloadedMigration = if (isNetworkAvailable(context)) {
-                            downloadMigrationFromGithub(context) { read, total ->
-                                onProgress(
-                                        progressJson(
-                                                2,
-                                                "Descargando migracion...",
-                                                read,
-                                                total,
-                                                ""
-                                        )
-                                )
-                            }
-                        } else {
-                            null
-                        }
-                        if (downloadedMigration != null) {
-                            val migrationDest =
-                                    openClawArchiveDestination(
-                                            context,
-                                            downloadedMigration.inputStream().use(::tarGzContainsOpenClawRoot)
-                                    )
-                            migrationOk =
-                                    downloadedMigration.inputStream().use { raw ->
-                                        val tracked =
-                                                ProgressInputStream(raw, downloadedMigration.length()) {
-                                                        read, total ->
-                                                    onProgress(
-                                                            progressJson(
-                                                                    2,
-                                                                    downloadedMigration.name,
-                                                                    read,
-                                                                    total,
-                                                                    ""
-                                                            )
-                                                    )
-                                                }
-                                        extractTarGzFromStream(tracked, migrationDest)
-                                    }
-                        } else {
-                            migrationOk = true
-                        }
-                    }
-                    if (!migrationOk) {
-                        throw Exception(
-                                "Fallo en extraccion de ${migrationFile?.name ?: OpenClawConstants.MIGRATION_ASSET}"
-                        )
-                    }
-
-                    deployScripts(context, base)
-                    fixPermissions(base)
-                    setupFilesLayout(context)
-                    OpenClawTerminalManager(context).createBusyboxSymlinks()
-
-                    context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
-                            .apply()
-
-                    onComplete()
-                } catch (e: Exception) {
-                    onError(e.message ?: "Error desconocido")
-                }
-            }
-
-    private fun progressJson(
-            step: Int,
-            stepName: String,
-            read: Long,
-            total: Long,
-            currentFile: String
-    ): String {
-        val safeTotal = total.coerceAtLeast(0L)
-        val percent = if (total > 0) ((read * 100) / total).toInt().coerceIn(0, 100) else 0
-        return JSONObject()
-                .apply {
-                    put("step", step)
-                    put("totalSteps", 2)
-                    put("extractedMB", read / 1024 / 1024)
-                    put("totalMB", safeTotal / 1024 / 1024)
-                    put("percent", percent)
-                    put("currentFile", currentFile)
-                    put("stepName", stepName)
-                }
-                .toString()
-    }
-
-    private fun assetExists(context: Context, filename: String): Boolean {
-        return try {
-            context.assets.open(filename).close()
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun assetContainsOpenClawRoot(context: Context, filename: String): Boolean =
-            try {
-                context.assets.open(filename).use(::tarGzContainsOpenClawRoot)
-            } catch (_: Exception) {
-                false
-            }
-
-    private fun openClawArchiveDestination(context: Context, containsOpenClawRoot: Boolean): File {
-        val homeDir = File(context.filesDir, "home").apply { mkdirs() }
-        return if (containsOpenClawRoot) {
-            homeDir
-        } else {
-            File(homeDir, ".openclaw").apply { mkdirs() }
-        }
-    }
-
-    private fun tarGzContainsOpenClawRoot(inputStream: InputStream): Boolean =
-            try {
-                GZIPInputStream(inputStream.buffered(1 shl 16)).use { gzIn ->
-                    TarArchiveInputStream(gzIn).use { tarIn ->
-                        @Suppress("DEPRECATION") var entry = tarIn.nextTarEntry
-                        while (entry != null) {
-                            val name = normalizeArchiveEntryRoot(entry.name)
-                            if (name == ".openclaw" || name.startsWith(".openclaw/")) return true
-                            @Suppress("DEPRECATION")
-                            entry = tarIn.nextTarEntry
-                        }
-                    }
-                }
-                false
-            } catch (_: Exception) {
-                false
-            }
-
-    private fun normalizeArchiveEntryRoot(rawName: String): String {
-        var name = rawName.replace('\\', '/').trim()
-        while (name.startsWith("./")) name = name.removePrefix("./")
-        while (name.startsWith("/")) name = name.removePrefix("/")
-        return name
-    }
-
-    suspend fun installPayload(
-            context: Context,
-            onProgress: (msg: String, pct: Int) -> Unit
-    ): Boolean =
-            withContext(Dispatchers.IO) {
-                val base = getPayloadDir(context)
-                base.deleteRecursivelySafe()
-                base.mkdirs()
-                val ok =
-                        context.extractTarXz(OpenClawConstants.PAYLOAD_ASSET, base) { pct, _, _, _ ->
-                            onProgress("Extrayendo...", pct)
-                        }
-                if (ok) {
-                    if (!ensureNpmPackageInstalled(context, base)) {
-                        throw Exception("npm no incluido y no se pudo descargar")
-                    }
-                    deployNativeLibs(context, base)
-                    deployScripts(context, base)
-                    fixPermissions(base)
-                    setupFilesLayout(context)
-                    context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
-                            .apply()
-                }
-                ok
-            }
-
-    suspend fun fixPermissions(base: File) {
-        withContext(Dispatchers.IO) {
-            if (!base.exists()) return@withContext
-
-            try {
-                Log.i("Installer", "Aplicando permisos globales a: ${base.absolutePath}")
-                base.walkTopDown().forEach { file ->
-                    try {
-                        file.setReadable(true, false)
-                        file.setWritable(true, false)
-
-                        // Reglas ESTRICTAS para marcar como ejecutable:
-                        // 1. Directorios: SI
-                        // 2. Archivos en /bin/: SI (pero NO archivos .js/.mjs/.ts/.json)
-                        // 3. Archivos .sh: SI (pero NO en /lib/)
-                        // 4. CUALQUIER OTRO CASO: NO
-                        // 5. ESPECIAL: NUNCA ejecutar archivos con extensiones .js/.mjs/.json/.ts o
-                        // en /lib/
-                        val isInLibDir = file.path.contains("/lib/")
-                        val isJavascriptFile =
-                                file.name.endsWith(".js") ||
-                                        file.name.endsWith(".mjs") ||
-                                        file.name.endsWith(".ts") ||
-                                        file.name.endsWith(".json")
-
-                        val isExecutable =
-                                file.isDirectory ||
-                                        (file.path.contains("/bin/") &&
-                                                !isJavascriptFile &&
-                                                !isInLibDir) ||
-                                        (file.name.endsWith(".sh") &&
-                                                !isInLibDir &&
-                                                !isJavascriptFile)
-
-                        // NUNCA permitir que archivos .js/.mjs/.ts/.json o en /lib/ sean
-                        // ejecutables
-                        if (isJavascriptFile || isInLibDir) {
-                            file.setExecutable(false, false)
-                        } else if (isExecutable) {
-                            file.setExecutable(true, false)
-                        } else {
-                            file.setExecutable(false, false)
-                        }
-
-                        file.chmodWithOs()
-                    } catch (e: Exception) {
-                        Log.w("Installer", "chmod failed on ${file.absolutePath}: ${e.message}")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("Installer", "Error aplicando chmod global", e)
-            }
-        }
-
-    }
-
-    fun setupFilesLayout(context: Context) {
-        val filesDir = context.filesDir
-        val payload = getPayloadDir(context)
-        val homeDir = File(filesDir, "home").apply { mkdirs() }
-
-        File(homeDir, ".openclaw/tmp").mkdirs()
-        File(filesDir, "usr/bin").mkdirs()
-        File(filesDir, "usr/opt").mkdirs()
-
-        mapOf(
-                "usr/lib" to File(payload, "lib"),
-                "usr/glibc" to File(payload, "glibc"),
-                "usr/etc" to File(payload, "etc"),
-                "usr/tmp" to context.cacheDir
-        ).forEach { (rel, target) -> ensureSymlink(filesDir, rel, target) }
-    }
-
-    private fun ensureSymlink(filesDir: File, rel: String, target: File) {
-        val link = File(filesDir, rel)
-        try {
-            link.parentFile?.mkdirs()
-            val linkPath = link.toPath()
-            if (Files.isSymbolicLink(linkPath)) {
-                val current = runCatching { Files.readSymbolicLink(linkPath).toString() }.getOrNull()
-                if (current == target.absolutePath) return
-                Files.deleteIfExists(linkPath)
-            } else if (link.exists()) {
-                link.deleteRecursivelySafe()
-            }
-            Os.symlink(target.absolutePath, link.absolutePath)
-        } catch (e: Exception) {
-            Log.w(
-                    TAG,
-                    "No se pudo crear symlink ${link.absolutePath} -> ${target.absolutePath}: ${e.message}"
-            )
-        }
-    }
-
-    fun ensureRuntimeWrappers(context: Context) {
-        val base = getPayloadDir(context)
-        val primaryOpenClaw = File(context.filesDir, "usr/bin/openclaw")
-        val legacyWrappers =
-                listOf(
-                        File(context.filesDir, "app_payload/bin/node"),
-                        File(context.filesDir, "app_payload/bin/openclaw"),
-                        File(context.dataDir, "app_payload/bin/node"),
-                        File(context.dataDir, "app_payload/bin/openclaw")
-                )
-
-        val primaryNeedsRepair =
-                !primaryOpenClaw.exists() ||
-                        !safeRead(primaryOpenClaw).contains("OPENCLAW_NO_RESPAWN=1") ||
-                        !safeRead(primaryOpenClaw).contains("--disable-warning=ExperimentalWarning")
-        val legacyNeedsRepair =
-                legacyWrappers.any { !it.exists() || safeRead(it).contains("app_payload/bin/node") }
-
-        if (primaryNeedsRepair || legacyNeedsRepair) {
-            deployScripts(context, base)
-        } else {
-            ensureLegacyWrapperPermissions(context)
-        }
-    }
-
-    private fun safeRead(file: File): String =
-            try {
-                file.readText()
-            } catch (_: Exception) {
-                ""
-            }
-
-    fun deployNativeLibs(context: Context, base: File) {
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val payloadBinDir = File(base, "bin")
-        val payloadGlibcLibDir = File(base, "glibc/lib")
-
-        // Map of source files (in payload) to destination files (in nativeLibraryDir)
-        val libsToCopy =
-                mapOf(
-                        selectFirstExisting(
-                                File(payloadBinDir, "node.real"),
-                                File(nativeDir, "libnode.so")
-                        ) to File(nativeDir, "libnode.so"),
-                        File(payloadGlibcLibDir, "ld-linux-aarch64.so.1") to
-                                File(nativeDir, "libldlinux.so"),
-                        File(payloadBinDir, "busybox.real") to File(nativeDir, "libbusybox.so")
-                )
-
-        libsToCopy.forEach { (src, dst) ->
-            try {
-                if (src.exists()) {
-                    Log.i(TAG, "Copying ${src.name} to ${dst.absolutePath}")
-                    src.inputStream().use { input ->
-                        dst.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    // Set read/execute permissions for the native libraries
-                    dst.setReadable(true, false)
-                    dst.setExecutable(true, false)
-                    dst.chmodWithOs()
-                } else {
-                    Log.w(TAG, "Source library not found: ${src.absolutePath}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to copy ${src.name}: ${e.message}", e)
-            }
-        }
-    }
-
-    private fun selectFirstExisting(vararg candidates: File?): File {
-        return candidates.firstOrNull { it?.exists() == true }
-                ?: candidates.firstOrNull()
-                ?: File("")
-    }
-
-    fun deployScripts(context: Context, base: File) {
-        val binDir = File(context.filesDir, "usr/bin")
-        if (!binDir.exists()) binDir.mkdirs()
-        val legacyBinDirs = listOf(
-                File(context.filesDir, "app_payload/bin"),
-                File(context.dataDir, "app_payload/bin")
-        )
-        legacyBinDirs.forEach { if (!it.exists()) it.mkdirs() }
-
-        val nativeDir = context.applicationInfo.nativeLibraryDir
-        val linker = "$nativeDir/libldlinux.so"
-        val nodeLib = "$nativeDir/libnode.so"
-        val glibcLib = "$base/glibc/lib"
-        val nodeModules = "$base/lib/node_modules"
-        val openclawHome = File(context.filesDir, "home/.openclaw").absolutePath
-        val tmpDir = "$openclawHome/tmp"
-        val ocPathFull = "$base/lib/node_modules/openclaw/openclaw.mjs"
-        val npmPathFull = "$base/lib/node_modules/npm/bin/npm-cli.js"
-
-        // Crear wrapper para 'node' (Rutas absolutas inyectadas)
-        val nodeWrapper = File(binDir, "node")
-        if (nodeWrapper.exists()) nodeWrapper.delete()
-        nodeWrapper.writeText(
-                """
-            #!/system/bin/sh
-            # Rutas inyectadas (no derivadas para evitar problemas con $0 en exec)
-            LINKER="$linker"
-            NODE_LIB="$nodeLib"
-            LIBS="$nativeDir:$glibcLib"
-
-            unset LD_PRELOAD
-            unset NODE_OPTIONS
-            export NODE_NO_WARNINGS=1
-            export OPENCLAW_NO_RESPAWN=1
-            export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
-            export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
-            export LD_LIBRARY_PATH="${'$'}LIBS"
-            export NODE_PATH="$nodeModules"
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_LIB" "${'$'}@"
-        """.trimIndent()
-        )
-        nodeWrapper.chmodWithOs()
-
-        // Crear wrapper para 'openclaw' (Rutas absolutas inyectadas)
-        val openClawWrapper = File(binDir, "openclaw")
-        if (openClawWrapper.exists()) openClawWrapper.delete()
-        openClawWrapper.writeText(
-                """
-            #!/system/bin/sh
-            # Rutas inyectadas
-            NODE_BIN="$nodeLib"
-            OPENCLAW_SCRIPT="$ocPathFull"
-            LINKER="$linker"
-            LIBS="$nativeDir:$glibcLib"
-
-            unset LD_PRELOAD
-            unset NODE_OPTIONS
-            export NODE_NO_WARNINGS=1
-            export OPENCLAW_NO_RESPAWN=1
-            export OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1
-            export OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1
-            export LD_LIBRARY_PATH="${'$'}LIBS"
-            export NODE_PATH="$nodeModules"
-            export OPENCLAW_HOME="$openclawHome"
-            export TMPDIR="$tmpDir"
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" --disable-warning=ExperimentalWarning "${'$'}OPENCLAW_SCRIPT" "${'$'}@"
-        """.trimIndent()
-        )
-        openClawWrapper.chmodWithOs()
-
-        // Crear wrapper para 'npm' (Rutas absolutas inyectadas)
-        val npmWrapper = File(binDir, "npm")
-        if (npmWrapper.exists()) npmWrapper.delete()
-        npmWrapper.writeText(
-                """
-            #!/system/bin/sh
-            # Rutas inyectadas
-            NODE_BIN="$nodeLib"
-            NPM_CLI="$npmPathFull"
-            LINKER="$linker"
-            LIBS="$nativeDir:$glibcLib"
-
-            if [ ! -f "${'$'}NPM_CLI" ]; then
-                echo "npm: no incluido"
-                exit 127
-            fi
-            unset LD_PRELOAD
-            unset NODE_OPTIONS
-            export NODE_NO_WARNINGS=1
-            export LD_LIBRARY_PATH="${'$'}LIBS"
-            export NODE_PATH="$nodeModules"
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}NPM_CLI" "${'$'}@"
-        """.trimIndent()
-        )
-        npmWrapper.chmodWithOs()
-
-        // Crear wrapper para 'pnpm' si se instala en el payload
-        val pnpmWrapper = File(binDir, "pnpm")
-        if (pnpmWrapper.exists()) pnpmWrapper.delete()
-        pnpmWrapper.writeText(
-                """
-            #!/system/bin/sh
-            # Rutas inyectadas
-            NODE_BIN="$nodeLib"
-            PNPM_CLI="$base/lib/node_modules/pnpm/bin/pnpm.cjs"
-            LINKER="$linker"
-            LIBS="$nativeDir:$glibcLib"
-
-            if [ ! -f "${'$'}PNPM_CLI" ]; then
-                echo "pnpm: no incluido"
-                exit 127
-            fi
-            unset LD_PRELOAD
-            unset NODE_OPTIONS
-            export NODE_NO_WARNINGS=1
-            export LD_LIBRARY_PATH="${'$'}LIBS"
-            export NODE_PATH="$nodeModules"
-            exec "${'$'}LINKER" --library-path "${'$'}LIBS" "${'$'}NODE_BIN" "${'$'}PNPM_CLI" "${'$'}@"
-        """.trimIndent()
-        )
-        pnpmWrapper.chmodWithOs()
-
-        // Compatibilidad con instalaciones antiguas que invocan wrappers legacy:
-        // - /data/user/0/<pkg>/files/app_payload/bin/*
-        // - /data/user/0/<pkg>/app_payload/bin/*
-        legacyBinDirs.forEach { legacyBinDir ->
-            val legacyNodeWrapper = File(legacyBinDir, "node")
-            legacyNodeWrapper.writeText(
-                    """
-                #!/system/bin/sh
-                exec /system/bin/sh "${nodeWrapper.absolutePath}" "${'$'}@"
-            """.trimIndent()
-            )
-            legacyNodeWrapper.chmodWithOs()
-
-            val legacyOpenClawWrapper = File(legacyBinDir, "openclaw")
-            legacyOpenClawWrapper.writeText(
-                    """
-                #!/system/bin/sh
-                exec /system/bin/sh "${openClawWrapper.absolutePath}" "${'$'}@"
-            """.trimIndent()
-            )
-            legacyOpenClawWrapper.chmodWithOs()
-        }
-        ensureLegacyWrapperPermissions(context)
-
-        // Crear .mkshrc para alias automáticos en el terminal
-        val mkshrc = File(base, ".mkshrc")
-        mkshrc.writeText(
-                """
-            node() { sh "${File(binDir, "node").absolutePath}" "${'$'}@"; }
-            npm() { sh "${File(binDir, "npm").absolutePath}" "${'$'}@"; }
-            pnpm() { sh "${File(binDir, "pnpm").absolutePath}" "${'$'}@"; }
-            openclaw() { sh "${File(binDir, "openclaw").absolutePath}" "${'$'}@"; }
-            export PATH=${binDir.absolutePath}:${'$'}PATH
-        """.trimIndent()
-        )
-
-        try {
-            context.assets.list("scripts")?.forEach { name ->
-                context.assets.open("scripts/$name").use { input ->
-                    File(binDir, name).outputStream().use { input.copyTo(it) }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to deploy assets/scripts", e)
-        }
-    }
-
-    fun ensureLegacyWrapperPermissions(context: Context) {
-        val legacyRoots = listOf(File(context.filesDir, "app_payload"), File(context.dataDir, "app_payload"))
-
-        legacyRoots.forEach { root ->
-            val binDir = File(root, "bin")
-            val wrappers = listOf(File(binDir, "node"), File(binDir, "openclaw"))
-
-            listOf(root, binDir).forEach { dir ->
-                if (dir.exists()) {
-                    dir.setReadable(true, false)
-                    dir.setWritable(true, true)
-                    dir.setExecutable(true, false)
-                    dir.chmodWithOs(493)
-                }
-            }
-
-            wrappers.forEach { file ->
-                if (file.exists()) {
-                    file.setReadable(true, false)
-                    file.setWritable(true, true)
-                    file.setExecutable(true, false)
-                    file.chmodWithOs(493)
-                }
-            }
-        }
-    }
+    // ── Onboarding flag ──────────────────────────────────────────────────────
 
     fun isOnboardComplete(context: Context): Boolean {
         val prefs = context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
@@ -878,18 +97,172 @@ object OpenClawInstaller {
 
     fun markOnboardComplete(context: Context) {
         context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(OpenClawConstants.KEY_ONBOARD_COMPLETE, true)
-                .apply()
+            .edit()
+            .putBoolean(OpenClawConstants.KEY_ONBOARD_COMPLETE, true)
+            .apply()
     }
 
-    // ── Connectivity ──────────────────────────────────────────────────────────────
+    // ── Uninstall ────────────────────────────────────────────────────────────
+
+    fun uninstall(context: Context) {
+        OpenClawProot(context).wipeAlpine()
+        getConfigDir(context).deleteRecursivelySafe()
+        context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+        Log.i(TAG, "Environment uninstalled (Alpine rootfs + config wiped)")
+    }
+
+    // ── No-ops conservados por compatibilidad ────────────────────────────────
+    // Antes del proot, había que copiar libs nativas y desplegar wrappers shell.
+    // Con proot+Alpine, el binario proot vive en nativeLibraryDir (lo coloca el APK)
+    // y `openclaw`/`node`/`npm` viven dentro de Alpine en `/usr/bin`. No hacemos nada.
+
+    fun ensureRuntimeWrappers(@Suppress("UNUSED_PARAMETER") context: Context) { /* no-op */ }
+    fun deployNativeLibs(@Suppress("UNUSED_PARAMETER") context: Context,
+                         @Suppress("UNUSED_PARAMETER") base: File) { /* no-op */ }
+    fun deployScripts(@Suppress("UNUSED_PARAMETER") context: Context,
+                      @Suppress("UNUSED_PARAMETER") base: File) { /* no-op */ }
+    fun ensureLegacyWrapperPermissions(@Suppress("UNUSED_PARAMETER") context: Context) { /* no-op */ }
 
     /**
-     * Checks whether the device currently has an active internet connection.
-     * Uses [ConnectivityManager] to determine network capability.
-     * Safe to call from any thread.
+     * Compatibilidad con el código del Dashboard: antes corregía permisos del
+     * payload glibc tras la extracción. Con Alpine los permisos los pone el tar
+     * de Android al desempaquetar. Mantenemos la firma `suspend` para no romper
+     * llamadores existentes.
      */
+    suspend fun fixPermissions(@Suppress("UNUSED_PARAMETER") base: File) {
+        withContext(Dispatchers.IO) { /* no-op */ }
+    }
+
+    fun setupFilesLayout(context: Context) {
+        val proot = OpenClawProot(context)
+        proot.openclawHome.mkdirs()
+        proot.openclawTmp.mkdirs()
+        proot.prootTmpDir.mkdirs()
+    }
+
+    // ── Instalación (entry point principal) ──────────────────────────────────
+
+    /**
+     * Reescribe la API original: `installDetailed(ctx, onProgress, onComplete, onError)`.
+     * Ya no acepta payload/migration locales (no aplican en el modelo proot).
+     */
+    suspend fun installDetailed(
+        context: Context,
+        onProgress: (String) -> Unit,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit
+    ): Unit = installInternal(context, onProgress, onComplete, onError)
+
+    /** Mantiene la firma legacy de AndroidBridge.installFromUri (los archivos se ignoran). */
+    suspend fun installDetailedFromFiles(
+        context: Context,
+        @Suppress("UNUSED_PARAMETER") payloadFile: File?,
+        @Suppress("UNUSED_PARAMETER") migrationFile: File?,
+        onProgress: (String) -> Unit,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit
+    ): Unit = installInternal(context, onProgress, onComplete, onError)
+
+    private suspend fun installInternal(
+        context: Context,
+        onProgress: (String) -> Unit,
+        onComplete: () -> Unit,
+        onError: (String) -> Unit
+    ): Unit = withContext(Dispatchers.IO) {
+        val proot = OpenClawProot(context)
+
+        try {
+            // Pre-flight: proot binary debe existir en nativeLibraryDir
+            if (!proot.isProotPresent()) {
+                throw IllegalStateException(
+                    "libproot.so no está en nativeLibraryDir. " +
+                    "Reconstruye la APK con la tarea Gradle :app:fetchProot."
+                )
+            }
+
+            setupFilesLayout(context)
+
+            // Paso 1: Alpine rootfs
+            if (!proot.isAlpineInstalled()) {
+                if (!isNetworkAvailable(context)) {
+                    throw Exception(
+                        "Se necesita conexión a Internet para descargar Alpine Linux."
+                    )
+                }
+                onProgress(stepJson(1, "Descargando Alpine Linux", 0))
+                val ok = proot.downloadAndExtractAlpine(
+                    onProgress = { line ->
+                        onProgress(stepJson(1, line, -1))
+                    },
+                    onError = { msg ->
+                        throw Exception(msg)
+                    }
+                )
+                if (!ok) throw Exception("La descarga de Alpine falló")
+            } else {
+                onProgress(stepJson(1, "Alpine ya instalado", 100))
+            }
+
+            // Paso 2: openclaw via npm dentro del proot
+            if (!proot.isOpenClawInstalled()) {
+                if (!isNetworkAvailable(context)) {
+                    throw Exception(
+                        "Se necesita conexión a Internet para instalar openclaw via npm."
+                    )
+                }
+                onProgress(stepJson(2, "Instalando openclaw (apk + npm)", 0))
+                val latch = CountDownLatch(1)
+                var failure: String? = null
+                proot.installOpenClaw(
+                    onProgress = { line -> onProgress(stepJson(2, line, -1)) },
+                    onDone = { latch.countDown() },
+                    onError = { msg -> failure = msg; latch.countDown() }
+                )
+                if (!latch.await(15, TimeUnit.MINUTES)) {
+                    throw Exception("Timeout instalando openclaw (>15 min)")
+                }
+                failure?.let { throw Exception(it) }
+            } else {
+                onProgress(stepJson(2, "openclaw ya instalado", 100))
+            }
+
+            context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
+                .apply()
+
+            onComplete()
+        } catch (e: Exception) {
+            Log.e(TAG, "installInternal failed", e)
+            onError(e.message ?: "Error desconocido")
+        }
+    }
+
+    /**
+     * Variante simple usada por código legacy. Devuelve `true` si la
+     * instalación completó.
+     */
+    suspend fun installPayload(
+        context: Context,
+        onProgress: (msg: String, pct: Int) -> Unit
+    ): Boolean = withContext(Dispatchers.IO) {
+        var ok = false
+        val latch = CountDownLatch(1)
+        installDetailed(
+            context = context,
+            onProgress = { line -> onProgress(line, -1) },
+            onComplete = { ok = true; latch.countDown() },
+            onError = { msg -> Log.e(TAG, "installPayload: $msg"); latch.countDown() }
+        )
+        latch.await(15, TimeUnit.MINUTES)
+        ok
+    }
+
+    // ── Network helpers ──────────────────────────────────────────────────────
+
     fun isNetworkAvailable(context: Context): Boolean {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -902,125 +275,24 @@ object OpenClawInstaller {
         }
     }
 
-    // ── Download from GitHub ─────────────────────────────────────────────────────
-
-    /**
-     * Downloads the payload archive from GitHub to a temporary file.
-     * Returns the file if successful, or null on failure.
-     */
+    // ── Downloads legacy (conservados para AndroidBridge.pickPayloadFile flow) ──
+    // En el nuevo modelo no hay payload remoto; estas devuelven null.
+    @Suppress("UNUSED_PARAMETER")
     suspend fun downloadPayloadFromGithub(
-            context: Context,
-            onProgress: (read: Long, total: Long) -> Unit
-    ): File? = withContext(Dispatchers.IO) {
-        try {
-            val destFile = File(context.cacheDir, "openclaw_payload_downloaded.tar.xz")
-            val success = downloadFile(
-                    url = OpenClawConstants.PAYLOAD_GITHUB_URL,
-                    destFile = destFile,
-                    expectedSha256 = if (PAYLOAD_SHA256 == "REPLACE_WITH_ACTUAL_SHA256_BEFORE_RELEASE") null else PAYLOAD_SHA256,
-                    onProgress = onProgress
-            )
-            if (success) destFile else null
-        } catch (e: Exception) {
-            Log.e(TAG, "downloadPayloadFromGithub failed", e)
-            null
-        }
-    }
+        context: Context,
+        onProgress: (read: Long, total: Long) -> Unit
+    ): File? = null
 
-    /**
-     * Downloads the migration archive from GitHub to a temporary file.
-     * Returns the file if successful, or null on failure.
-     */
+    @Suppress("UNUSED_PARAMETER")
     suspend fun downloadMigrationFromGithub(
-            context: Context,
-            onProgress: (read: Long, total: Long) -> Unit
-    ): File? = withContext(Dispatchers.IO) {
-        try {
-            val destFile = File(context.cacheDir, "openclaw_migration_downloaded.tar.gz")
-            val success = downloadFile(
-                    url = OpenClawConstants.MIGRATION_GITHUB_URL,
-                    destFile = destFile,
-                    expectedSha256 = null,
-                    onProgress = onProgress
-            )
-            if (success) destFile else null
-        } catch (e: Exception) {
-            Log.e(TAG, "downloadMigrationFromGithub failed", e)
-            null
-        }
-    }
+        context: Context,
+        onProgress: (read: Long, total: Long) -> Unit
+    ): File? = null
 
-    /**
-     * Downloads a file from a URL with progress tracking and optional SHA-256 verification.
-     */
-    private suspend fun downloadFile(
-            url: String,
-            destFile: File,
-            expectedSha256: String?,
-            onProgress: (read: Long, total: Long) -> Unit
-    ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            Log.i(TAG, "Downloading $url")
-            val conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 15000
-            conn.readTimeout = 30000
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept", "application/octet-stream")
-            conn.setRequestProperty("User-Agent", "OpenClaw-Android/1.0")
+    // ── JSON progress builder ────────────────────────────────────────────────
 
-            if (conn.responseCode != 200) {
-                Log.e(TAG, "Download failed: HTTP ${conn.responseCode} for $url")
-                conn.disconnect()
-                return@withContext false
-            }
-
-            val contentLength = conn.contentLength.toLong().coerceAtLeast(0L)
-            Log.i(TAG, "Download size: $contentLength bytes")
-
-            destFile.parentFile?.mkdirs()
-            destFile.outputStream().use { output ->
-                conn.inputStream.use { input ->
-                    val tracked = ProgressInputStream(input, contentLength, onProgress)
-                    tracked.copyTo(output, bufferSize = 65536)
-                }
-            }
-            conn.disconnect()
-
-            if (destFile.length() == 0L) {
-                Log.e(TAG, "Downloaded file is empty: $url")
-                destFile.delete()
-                return@withContext false
-            }
-
-            // SHA-256 verification (only if a real hash is configured)
-            if (!expectedSha256.isNullOrBlank()) {
-                Log.i(TAG, "Verifying SHA-256...")
-                val digest = MessageDigest.getInstance("SHA-256")
-                val buffer = ByteArray(8 * 1024)
-                destFile.inputStream().use { stream ->
-                    var read: Int
-                    while (stream.read(buffer).also { read = it } != -1) {
-                        digest.update(buffer, 0, read)
-                    }
-                }
-                val computed = digest.digest().joinToString("") { "%02x".format(it) }
-                if (!computed.equals(expectedSha256, ignoreCase = true)) {
-                    Log.e(TAG, "SHA-256 mismatch! Expected: $expectedSha256, Got: $computed")
-                    destFile.delete()
-                    return@withContext false
-                }
-                Log.i(TAG, "SHA-256 verification passed")
-            }
-
-            Log.i(TAG, "Download complete: ${destFile.absolutePath} (${destFile.length()} bytes)")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "downloadFile failed for $url", e)
-            // Clean up partial download
-            try {
-                destFile.delete()
-            } catch (_: Exception) {}
-            false
-        }
+    private fun stepJson(step: Int, message: String, percent: Int): String {
+        val escaped = message.replace("\\", "\\\\").replace("\"", "\\\"")
+        return """{"step":$step,"totalSteps":2,"percent":$percent,"stepName":"$escaped","currentFile":""}"""
     }
 }

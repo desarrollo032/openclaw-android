@@ -1,0 +1,7 @@
+# Este directorio aloja libproot.so (proot estático ARM64).
+# El binario se descarga automáticamente al primer build via la tarea
+# Gradle :app:fetchProot. Si trabajas offline, coloca manualmente:
+#
+#   curl -fsSL https://skirsten.github.io/proot-portable-android-binaries/aarch64/proot \
+#        -o libproot.so
+#   chmod +x libproot.so

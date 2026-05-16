@@ -373,19 +373,21 @@ class AndroidBridge(
     fun runCommand(command: String): String {
         logBridgeCall("runCommand", command)
         return try {
-            val termMgr = OpenClawTerminalManager(activity)
-            OpenClawInstaller.ensureRuntimeWrappers(activity)
-            val envMap = mutableMapOf<String, String>()
-            termMgr.buildEnvironment().forEach {
-                val parts = it.split("=", limit = 2)
-                if (parts.size == 2) envMap[parts[0]] = parts[1]
+            // Los comandos del frontend se ejecutan AHORA dentro del proot Alpine,
+            // no en el host Android. Esto da acceso real a node/npm/openclaw y a
+            // las herramientas estándar (busybox sh, coreutils, etc.) sin tener
+            // que tocar /system/bin.
+            val proot = com.openclaw.android.proot.OpenClawProot(activity)
+            if (!proot.isProotPresent() || !proot.isAlpineInstalled()) {
+                return JSONObject().apply {
+                    put("stderr", "Alpine o libproot.so no disponibles")
+                    put("exitCode", 127)
+                }.toString()
             }
 
-            val process = ProcessBuilder("/system/bin/sh", "-c", command)
-                .directory(activity.filesDir)
-                .apply { environment().putAll(envMap) }
-                .redirectErrorStream(true)
-                .start()
+            val process = proot.buildProotProcess(
+                listOf("/bin/sh", "-lc", command)
+            ).start()
 
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
@@ -436,103 +438,56 @@ class AndroidBridge(
     @RequiresApi(Build.VERSION_CODES.O)
     @JavascriptInterface
     fun getSystemInfo(): String {
+        val proot = com.openclaw.android.proot.OpenClawProot(activity)
+        val payloadDir = OpenClawInstaller.getPayloadDir(activity) // alpine-rootfs/usr
         val nativeDir = File(activity.applicationInfo.nativeLibraryDir)
-        val payloadDir = OpenClawInstaller.getPayloadDir(activity)
-        val ldlinux = File(nativeDir, "libldlinux.so")
-        val nodeReal = File(nativeDir, "libnode.so")
-        val busybox = File(nativeDir, "libbusybox.so")
-        val glibcLibs = File(payloadDir, "glibc/lib").absolutePath
-        val libs = "${nativeDir.absolutePath}:$glibcLibs"
 
-        // Diagnóstico detallado del entorno
         val diagnostics = mutableListOf<String>()
-        
-        // Verificar si el payload está instalado
-        val payloadReady = OpenClawInstaller.isPayloadReady(activity)
-        if (!payloadReady) {
-            diagnostics.add("Payload no instalado")
-        }
+        val isReady = OpenClawInstaller.isPayloadReady(activity)
+        if (!proot.isProotPresent())       diagnostics.add("Falta libproot.so")
+        if (!proot.isAlpineInstalled())    diagnostics.add("Alpine no instalado")
+        if (!proot.isOpenClawInstalled())  diagnostics.add("openclaw no instalado")
 
-        // Verificar librerías nativas
-        if (!ldlinux.exists()) diagnostics.add("Falta libldlinux.so")
-        if (!nodeReal.exists()) diagnostics.add("Falta libnode.so")
-
-        // Verificar directorio glibc
-        val glibcDir = File(payloadDir, "glibc/lib")
-        if (!glibcDir.exists() || !glibcDir.isDirectory) {
-            diagnostics.add("Falta directorio glibc/lib")
-        }
-
-        // Obtener versión de Node.js (con mejor manejo de errores)
-        val nodeVersion = try {
-            if (!payloadReady || !ldlinux.exists() || !nodeReal.exists()) {
-                "instalando..."
-            } else {
-                val process = ProcessBuilder(
-                    ldlinux.absolutePath,
-                    "--library-path", libs,
-                    nodeReal.absolutePath,
-                    "--version"
-                ).apply {
-                    environment().apply {
-                        remove("LD_PRELOAD")
-                        put("LD_LIBRARY_PATH", libs)
-                        put("HOME", payloadDir.absolutePath)
-                        put("TMPDIR", activity.cacheDir.absolutePath)
-                    }
-                    redirectErrorStream(true)
-                    directory(payloadDir)
-                }.start()
-
-                if (!process.waitFor(3, TimeUnit.SECONDS)) {
-                    process.destroyForcibly()
-                    Log.w("OpenClawBridge", "Node version timeout")
-                    "cargando..."
-                } else {
-                    val output = process.inputStream.bufferedReader().readLine()?.trim().orEmpty()
-                    if (output.isNotBlank() && output.startsWith("v")) {
-                        output
-                    } else {
-                        Log.w("OpenClawBridge", "Node version invalid output: $output")
-                        "reintentando..."
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("OpenClawBridge", "Node version error: ${e.javaClass.simpleName} - ${e.message}")
-            if (e.message?.contains("libdl.so.2") == true || 
-                e.message?.contains("librt.so.1") == true) {
-                "configurando glibc..."
-            } else {
-                "pendiente..."
+        // ── Versiones consultando dentro del proot ──
+        fun queryVersion(cmd: String): String? {
+            if (!isReady) return null
+            return try {
+                val pb = proot.buildProotProcess(listOf("/bin/sh", "-lc", cmd))
+                val p = pb.start()
+                val finished = p.waitFor(3, TimeUnit.SECONDS)
+                if (!finished) { p.destroyForcibly(); return null }
+                val out = p.inputStream.bufferedReader().readText().trim()
+                out.lines().firstOrNull { it.isNotBlank() }
+            } catch (e: Exception) {
+                Log.w("OpenClawBridge", "queryVersion('$cmd') failed: ${e.message}")
+                null
             }
         }
 
-        // Obtener versiones de paquetes
+        val nodeVersion = queryVersion("node --version")
+            ?.takeIf { it.startsWith("v") }
+            ?: if (isReady) "desconocido" else "instalando..."
+
+        val npmVersion = queryVersion("npm --version")
+            ?: if (isReady) "desconocido" else "no incluido"
+
         val openclawVersion = readPackageVersion(
             payloadDir,
-            "lib/node_modules/openclaw/package.json"
-        ) ?: if (payloadReady) "desconocido" else "instalando..."
-
-        val npmVersion = readPackageVersion(
-            payloadDir,
-            "lib/node_modules/npm/package.json",
-            "lib/node_modules/openclaw/node_modules/npm/package.json"
-        ) ?: "no incluido"
-
-        // Verificar Toybox y BusyBox
-        val toyboxAvailable = File("/system/bin/toybox").exists()
-        val busyboxAvailable = busybox.exists() && busybox.canExecute()
+            "lib/node_modules/openclaw/package.json",
+            "local/lib/node_modules/openclaw/package.json"
+        ) ?: queryVersion("openclaw --version") ?: if (isReady) "desconocido" else "instalando..."
 
         return JSONObject().apply {
             put("nodeVersion", nodeVersion)
             put("npmVersion", npmVersion)
             put("openclawVersion", openclawVersion)
             put("gitVersion", "no incluido")
-            put("shellPath", "/system/bin/sh")
-            put("toyboxAvailable", toyboxAvailable)
-            put("busyboxAvailable", busyboxAvailable)
-            put("payloadReady", payloadReady)
+            put("shellPath", proot.proot)
+            put("toyboxAvailable", File("/system/bin/toybox").exists())
+            put("busyboxAvailable", proot.isAlpineInstalled())
+            put("alpineInstalled", proot.isAlpineInstalled())
+            put("prootPresent", proot.isProotPresent())
+            put("payloadReady", isReady)
             put("diagnostics", diagnostics.joinToString(", "))
             put("freeSpaceMB", activity.filesDir.freeSpace / 1024 / 1024)
             put("nativeLibDir", nativeDir.absolutePath)
