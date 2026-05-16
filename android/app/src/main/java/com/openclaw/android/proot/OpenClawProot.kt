@@ -1,6 +1,7 @@
 package com.openclaw.android.proot
 
 import android.content.Context
+import android.util.Log as AndroidLog
 import com.openclaw.android.OpenClawLogger
 import com.openclaw.android.deleteRecursivelySafe
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -211,6 +212,24 @@ class OpenClawProot(private val context: Context) {
                                                 n = tais.read(buf, 0, buf.size)
                                             }
                                         }
+
+                                        // ── APLICAR PERMISOS DEL TAR ─────────────────────
+                                        // Apache Commons Compress NO aplica los bits de
+                                        // ejecución del tar automáticamente. Sin esto,
+                                        // todos los binarios de Alpine (sh, apk, busybox,
+                                        // node, npm) quedan sin permiso +x y proot falla
+                                        // con "'/bin/sh' is not executable".
+                                        val mode = entry.mode
+                                        val ownerExec  = (mode and 0b001_000_000) != 0
+                                        val groupExec  = (mode and 0b000_001_000) != 0
+                                        val otherExec  = (mode and 0b000_000_001) != 0
+                                        val anyExec = ownerExec || groupExec || otherExec
+                                        if (anyExec) {
+                                            outputFile.setExecutable(true, false)
+                                        }
+                                        // readable para todos (por defecto del tar)
+                                        outputFile.setReadable(true, false)
+
                                         extractedCount++
                                         if (extractedCount % 500 == 0) {
                                             onProgress("Extrayendo Alpine… (archivo $extractedCount)")
@@ -230,6 +249,10 @@ class OpenClawProot(private val context: Context) {
             }
             tarFile.delete()
 
+            // ── Paso de seguridad: aplicar permisos a todos los binarios ─────
+            onProgress("Aplicando permisos de ejecución...")
+            applyAlpineExecutablePermissions()
+
             // DNS dentro del rootfs (Alpine no trae resolv.conf por defecto)
             // Múltiples DNS por si algún proveedor está bloqueado en la red.
             File(rootfs, "etc").mkdirs()
@@ -237,7 +260,20 @@ class OpenClawProot(private val context: Context) {
                 "nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 208.67.222.222\nnameserver 9.9.9.9\n"
             )
 
-            onProgress("Alpine instalado correctamente ✓")
+            // ── Verificación final: bin/sh debe existir y ser ejecutable ─────
+            val sh = File(rootfs, "bin/sh")
+            if (!sh.exists()) {
+                onError("Extracción incompleta — bin/sh no existe en el rootfs")
+                return false
+            }
+            if (!sh.canExecute()) {
+                sh.setExecutable(true, false)
+                if (!sh.canExecute()) {
+                    onError("bin/sh existe pero no es ejecutable — problema de permisos en el dispositivo")
+                    return false
+                }
+            }
+            onProgress("Alpine verificado ✓ (bin/sh ejecutable)")
             true
         } catch (e: Exception) {
             log("downloadAndExtractAlpine failed: ${e.message}")
@@ -251,21 +287,51 @@ class OpenClawProot(private val context: Context) {
     /**
      * Dentro del proot, ejecuta `apk add nodejs npm ca-certificates`,
      * `npm install -g openclaw` y verifica las versiones.
+     * Retorna `true` si todo OK, `false` si falla.
      *
-     * Llama [onProgress] por cada línea de stdout/stderr.
-     */
-    /**
-     * Dentro del proot, ejecuta `apk add nodejs npm ca-certificates`,
-     * `npm install -g openclaw` y verifica las versiones.
-     * Retorna `true` si todo OK, `false` si falla (el error se reporta via [onProgress] con "FALLO:PASO").
+     * Si falla, captura la última línea que comienza con "FALLO:" y la usa como
+     * mensaje de error en vez del genérico "install falló código 1".
      */
     suspend fun installOpenClaw(
         onProgress: (String) -> Unit,
         onError: (String) -> Unit
     ): Boolean {
+        // ── Pre-verificaciones antes de ejecutar proot ────────────────────────
+        val prootFile = File(proot)
+        if (!prootFile.exists()) {
+            onError("libproot.so no encontrado en $proot")
+            return false
+        }
+        if (!prootFile.canExecute()) {
+            AndroidLog.w(TAG, "libproot.so no es ejecutable — corrigiendo...")
+            prootFile.setExecutable(true, false)
+        }
+
+        // Verificar que Alpine tiene apk
+        val hasApk = File(rootfs, "sbin/apk").exists() ||
+                     File(rootfs, "usr/bin/apk").exists() ||
+                     File(rootfs, "bin/apk").exists()
+        if (!hasApk) {
+            onError("Alpine incompleto — falta binario apk. Reinstalar Alpine.")
+            return false
+        }
+
+        // Asegurar resolv.conf (DNS) dentro del rootfs
+        val resolv = File(rootfs, "etc/resolv.conf")
+        if (!resolv.exists() || resolv.readText().isBlank()) {
+            resolv.parentFile?.mkdirs()
+            resolv.writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 208.67.222.222\nnameserver 9.9.9.9\n")
+            AndroidLog.i(TAG, "resolv.conf re-escrito antes de instalar")
+        }
+
+        // ── Script de instalación ────────────────────────────────────────────
         // Cada paso reporta explícitamente su resultado para saber exactamente dónde falla.
         // No usamos `set -e` porque oculta qué paso falló.
+        // `--no-audit --no-fund` en npm evita errores silenciosos de auditoría.
         val script = """
+            echo "[0/4] Verificando red..."
+            ping -c 1 -W 3 1.1.1.1 > /dev/null 2>&1 || echo "[WARN] sin respuesta de ping — puede haber problemas de red"
+
             echo "[1/4] Actualizando indice de paquetes..."
             if ! apk update --no-cache 2>&1; then
                 echo "FALLO:PASO1 apk update falló"
@@ -282,7 +348,7 @@ class OpenClawProot(private val context: Context) {
             apk add --no-cache ca-certificates 2>&1 || echo "[WARN] ca-certificates no disponible (no crítico)"
 
             echo "[3/4] Instalando openclaw via npm..."
-            if ! npm install -g openclaw 2>&1; then
+            if ! npm install -g openclaw --no-audit --no-fund 2>&1; then
                 echo "FALLO:PASO3 npm install -g openclaw falló"
                 exit 1
             fi
@@ -293,18 +359,28 @@ class OpenClawProot(private val context: Context) {
             echo "DONE"
         """.trimIndent()
 
+        // Capturar la última línea FALLO: como mensaje de error específico
+        // Si nunca se emite FALLO: (ej: proot falla antes de ejecutar el script),
+        // lastErrorLine conserva el default y se reporta con el exit code real.
+        var lastErrorLine = "Error sin diagnóstico de paso"
+
         val code = runInProot(
             command = listOf("/bin/sh", "-c", script),
             onOutput = { line ->
                 onProgress(line)
                 log(line)
+                if (line.startsWith("FALLO:")) {
+                    lastErrorLine = line
+                }
             }
         )
-        if (code != 0) {
-            onError("install falló código $code")
-            return false
+
+        return if (code == 0) {
+            true
+        } else {
+            onError("$lastErrorLine [exit=$code]")
+            false
         }
-        return true
     }
 
     /** `npm update -g openclaw` dentro del proot. Retorna true si OK. */
@@ -356,10 +432,14 @@ class OpenClawProot(private val context: Context) {
     ): Int = withContext(Dispatchers.IO) {
         try {
             val proc = buildProotProcess(command).start()
-            proc.inputStream.bufferedReader().forEachLine { onOutput(it) }
+            proc.inputStream.bufferedReader().forEachLine { line ->
+                AndroidLog.d(TAG, line)
+                onOutput(line)
+            }
             proc.waitFor()
         } catch (e: Exception) {
             log("proot error: ${e.message}")
+            AndroidLog.e(TAG, "proot error: ${e.message}", e)
             onOutput("[error] ${e.message}")
             -1
         }
@@ -379,6 +459,7 @@ class OpenClawProot(private val context: Context) {
             add("--rootfs=${rootfs.absolutePath}")
             add("--bind=/proc")
             add("--bind=/dev")
+            add("--bind=/dev/null")
             add("--bind=/sys")
             add("--bind=/dev/urandom")
             add("--bind=$dataBindPath:/data")
@@ -431,6 +512,7 @@ class OpenClawProot(private val context: Context) {
         "--rootfs=${rootfs.absolutePath}",
         "--bind=/proc",
         "--bind=/dev",
+        "--bind=/dev/null",
         "--bind=/sys",
         "--bind=/dev/urandom",
         "--bind=${filesDir.absolutePath}:/data",
@@ -468,6 +550,38 @@ class OpenClawProot(private val context: Context) {
 
     // ── Utilidades ───────────────────────────────────────────────────────────
 
+
+    /**
+     * Aplica permisos de ejecución a todos los binarios dentro del rootfs Alpine.
+     * Safety net: si el bucle de extracción no pudo aplicar permisos por algún motivo
+     * (entry.mode = 0, tar corrupto, etc.), este método garantiza que los binarios
+     * críticos tengan +x.
+     */
+    private fun applyAlpineExecutablePermissions() {
+        val binDirs = listOf("bin", "sbin", "usr/bin", "usr/sbin", "usr/local/bin")
+
+        for (dirName in binDirs) {
+            val dir = File(rootfs, dirName)
+            if (!dir.exists()) continue
+            dir.listFiles()?.forEach { file ->
+                if (file.isFile && !file.canExecute()) {
+                    file.setExecutable(true, false)
+                }
+            }
+        }
+
+        // Binarios críticos que deben ser ejecutables
+        val criticals = listOf(
+            "bin/sh", "bin/busybox", "sbin/apk",
+            "usr/bin/node", "usr/bin/npm", "usr/local/bin/openclaw"
+        )
+        criticals.forEach { rel ->
+            val f = File(rootfs, rel)
+            if (f.exists() && !f.canExecute()) {
+                f.setExecutable(true, false)
+            }
+        }
+    }
 
     private fun log(msg: String) {
         OpenClawLogger.init(context)
