@@ -85,14 +85,12 @@ object OpenClawInstaller {
                     onProgress = { msg -> onProgress(msg) },
                     onDone = {
                         onProgress("Instalación completada ✓")
-                        persistInstallState(context)
                         onComplete()
                     },
                     onError = { err -> onError(err) }
                 )
             } else {
                 onProgress("OpenClaw ya instalado ✓")
-                persistInstallState(context)
                 onComplete()
             }
         } catch (e: Exception) {
@@ -170,15 +168,6 @@ object OpenClawInstaller {
             Context.MODE_PRIVATE
         )
         return prefs.getBoolean(OpenClawConstants.KEY_CONFIG_RESTORED, false)
-    }
-
-    private fun persistInstallState(context: Context) {
-        context.getSharedPreferences(
-            OpenClawConstants.PREFS_NAME,
-            Context.MODE_PRIVATE
-        ).edit()
-            .putBoolean(OpenClawConstants.KEY_ALPINE_INSTALLED, true)
-            .apply()
     }
 
     // ── Connectivity ──────────────────────────────────────────────────────────

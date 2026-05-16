@@ -1,7 +1,6 @@
 package com.openclaw.android.proot
 
 import android.content.Context
-import android.util.Log
 import com.openclaw.android.OpenClawLogger
 import com.openclaw.android.deleteRecursivelySafe
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -12,7 +11,6 @@ import java.io.FileInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.MessageDigest
 
 /**
  * OpenClawProot — núcleo de la integración proot + Alpine Linux.
@@ -192,7 +190,7 @@ class OpenClawProot(private val context: Context) {
                     BufferedInputStream(fis, 64 * 1024).use { bis ->
                         GzipCompressorInputStream(bis).use { gzis ->
                             TarArchiveInputStream(gzis).use { tais ->
-                                var entry = tais.nextTarEntry
+                                var entry = tais.nextEntry
                                 var extractedCount = 0
                                 while (entry != null) {
                                     // Sanitizar: eliminar leading "/" para evitar
@@ -216,7 +214,7 @@ class OpenClawProot(private val context: Context) {
                                             onProgress("Extrayendo Alpine… (archivo $extractedCount)")
                                         }
                                     }
-                                    entry = tais.nextTarEntry
+                                    entry = tais.nextEntry
                                 }
                             }
                         }
@@ -453,25 +451,6 @@ class OpenClawProot(private val context: Context) {
 
     // ── Utilidades ───────────────────────────────────────────────────────────
 
-    /** Verifica el SHA-256 de un archivo descargado. */
-    fun verifySha256(file: File, expected: String): Boolean {
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().use { input ->
-                val buf = ByteArray(8 * 1024)
-                while (true) {
-                    val n = input.read(buf)
-                    if (n <= 0) break
-                    digest.update(buf, 0, n)
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-                .equals(expected, ignoreCase = true)
-        } catch (e: Exception) {
-            Log.w(TAG, "sha256 failed for ${file.name}: ${e.message}")
-            false
-        }
-    }
 
     private fun log(msg: String) {
         OpenClawLogger.init(context)
