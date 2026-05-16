@@ -17,10 +17,6 @@ declare global {
 
       // Setup / Installation
       getSetupStatus(): string
-      getBootstrapStatus(): string
-      checkBootstrap(): void
-      checkPayload(): void
-      getPayloadStatus(): string
       startSetup(): void
       pickFile(callbackId: string): void
       installFromUri(payloadUri: string, configUri: string): void
@@ -89,19 +85,11 @@ declare global {
       applyUpdate(component: string): void
 
       // Legacy / misc
-      checkInstallation(): string
-      startInstallation(): void
-      pickPayloadFile(): void
-      pickMigrationFile(): void
       notifyReady(): void
     }
 
     /** Bridge legacy (window.AndroidBridge) - para retrocompatibilidad */
     AndroidBridge?: {
-      checkInstallation(): string
-      startInstallation(): void
-      pickPayloadFile(): void
-      pickMigrationFile(): void
       startGateway(): void
       stopGateway(): void
       getGatewayState(): string

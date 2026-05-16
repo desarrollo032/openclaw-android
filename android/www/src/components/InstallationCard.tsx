@@ -1,16 +1,16 @@
 import { useState, useCallback, useEffect } from 'react'
 import { bridge } from '../lib/bridge'
-import { CheckSquare, Package, Wrench, Rocket, AlertCircle, RefreshCw, Play } from 'lucide-react'
+import { CheckSquare, Package, Wrench, AlertCircle, RefreshCw, Play } from 'lucide-react'
 
-interface AssetStatus {
-  bootstrap: boolean
-  payload: boolean
-  platform: boolean
-  tools: boolean
+interface AlpineStatus {
+  alpine: boolean       // Alpine rootfs installed
+  node: boolean         // Node.js installed inside Alpine
+  openclaw: boolean     // openclaw npm package installed
+  onboard: boolean      // onboard completed
 }
 
 export function InstallationCard() {
-  const [assetStatus, setAssetStatus] = useState<AssetStatus | null>(null)
+  const [status, setStatus] = useState<AlpineStatus | null>(null)
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
 
@@ -18,8 +18,15 @@ export function InstallationCard() {
     if (!bridge.isAvailable()) return
     setChecking(true)
     try {
-      const raw = bridge.callJson<AssetStatus>('getAssetStatus')
-      if (raw) setAssetStatus(raw)
+      const raw = bridge.callJson<{ bootstrapInstalled?: boolean; payloadReady?: boolean; onboardComplete?: boolean }>('getSetupStatus')
+      if (raw) {
+        setStatus({
+          alpine: raw.bootstrapInstalled ?? false,
+          node: raw.payloadReady ?? false,
+          openclaw: raw.payloadReady ?? false,
+          onboard: raw.onboardComplete ?? false,
+        })
+      }
     } catch { /* */ }
     setChecking(false)
   }, [])
@@ -32,10 +39,15 @@ export function InstallationCard() {
     bridge.call('startSetup')
     // Poll para detectar cuando termina
     const id = setInterval(() => {
-      const raw = bridge.callJson<AssetStatus>('getAssetStatus')
+      const raw = bridge.callJson<{ bootstrapInstalled?: boolean; payloadReady?: boolean }>('getSetupStatus')
       if (raw) {
-        setAssetStatus(raw)
-        if (raw.bootstrap && raw.payload && raw.platform && raw.tools) {
+        setStatus({
+          alpine: raw.bootstrapInstalled ?? false,
+          node: raw.payloadReady ?? false,
+          openclaw: raw.payloadReady ?? false,
+          onboard: false,
+        })
+        if (raw.bootstrapInstalled && raw.payloadReady) {
           setInstalling(false)
           clearInterval(id)
         }
@@ -48,10 +60,10 @@ export function InstallationCard() {
   if (!bridge.isAvailable()) return null
 
   const steps = [
-    { key: 'bootstrap' as const, icon: Package, label: 'Bootstrap', done: assetStatus?.bootstrap },
-    { key: 'payload' as const, icon: Rocket, label: 'Payload', done: assetStatus?.payload },
-    { key: 'platform' as const, icon: Wrench, label: 'Plataforma', done: assetStatus?.platform },
-    { key: 'tools' as const, icon: CheckSquare, label: 'Herramientas', done: assetStatus?.tools },
+    { key: 'alpine' as const,   icon: Package,    label: 'Alpine Linux',    done: status?.alpine },
+    { key: 'node' as const,     icon: Package,    label: 'Node.js',         done: status?.node },
+    { key: 'openclaw' as const, icon: Wrench,     label: 'OpenClaw CLI',    done: status?.openclaw },
+    { key: 'onboard' as const,  icon: CheckSquare, label: 'Onboard',        done: status?.onboard },
   ]
 
   const allDone = steps.every(s => s.done)
@@ -71,7 +83,7 @@ export function InstallationCard() {
                 ? 'Instalando...'
                 : allDone
                   ? 'Completada'
-                  : assetStatus
+                  : status
                     ? `${steps.filter(s => s.done).length}/${steps.length}`
                     : 'Verificando...'}
             </div>
@@ -83,7 +95,7 @@ export function InstallationCard() {
         </button>
       </div>
 
-      {assetStatus ? (
+      {status ? (
         <div className="space-y-1.5">
           {steps.map(step => (
             <div key={step.key} className="flex items-center gap-2.5 text-xs">
@@ -116,7 +128,7 @@ export function InstallationCard() {
           className="btn btn-primary text-xs w-full mt-3 px-4 py-2"
         >
           <Play size={13} />
-          Iniciar instalación
+          Instalar componentes
         </button>
       )}
       {installing && (
@@ -125,7 +137,7 @@ export function InstallationCard() {
           Instalando componentes...
         </div>
       )}
-      {allDone && assetStatus && (
+      {allDone && status && (
         <div className="flex items-center justify-center gap-1.5 mt-3 text-xs text-green">
           <CheckSquare size={12} />
           Todos los componentes instalados

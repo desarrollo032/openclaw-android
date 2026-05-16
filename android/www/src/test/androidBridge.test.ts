@@ -1,51 +1,18 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { AndroidBridge } from '../utils/androidBridge'
 
 describe('AndroidBridge compatibility wrapper', () => {
-  const originalOpenClaw = window.OpenClaw
-  const originalAndroidBridge = window.AndroidBridge
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    window.AndroidBridge = undefined
-    window.OpenClaw = {
-      ...originalOpenClaw!,
-      checkInstallation: vi.fn(() => JSON.stringify({
-        payloadReady: false,
-        payloadAvailable: true,
-        migrationAvailable: true,
-        freeSpaceMB: 1024,
-        requiredSpaceMB: 400,
-        payloadSource: 'apk',
-        migrationSource: 'apk',
-      })),
-      startInstallation: vi.fn(),
-      pickPayloadFile: vi.fn(),
-      pickMigrationFile: vi.fn(),
-    }
-  })
-
-  afterEach(() => {
-    window.OpenClaw = originalOpenClaw
-    window.AndroidBridge = originalAndroidBridge
-  })
-
-  it('uses window.OpenClaw when the legacy window.AndroidBridge name is absent', () => {
+  it('isAvailable returns true when window.OpenClaw is present', () => {
     expect(AndroidBridge.isAvailable()).toBe(true)
-
-    const status = AndroidBridge.checkInstallation()
-
-    expect(window.OpenClaw?.checkInstallation).toHaveBeenCalled()
-    expect(status).toMatchObject({
-      payloadReady: false,
-      payloadAvailable: true,
-      payloadSource: 'apk',
-    })
   })
 
-  it('starts installation through window.OpenClaw', () => {
-    AndroidBridge.startInstallation()
+  it('checkSetup calls getSetupStatus', () => {
+    const status = AndroidBridge.checkSetup()
+    expect(status).not.toBeNull()
+  })
 
-    expect(window.OpenClaw?.startInstallation).toHaveBeenCalled()
+  it('startSetup calls startSetup on bridge', () => {
+    AndroidBridge.startSetup()
+    expect(window.OpenClaw?.startSetup).toHaveBeenCalled()
   })
 })

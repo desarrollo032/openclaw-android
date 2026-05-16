@@ -23,8 +23,8 @@ export function Skills() {
   useEffect(() => {
     if (!bridge.isAvailable()) { setLoading(false); return }
     try {
-      const s = bridge.callJson<string>('getBootstrapStatus') ?? ''
-      setInstalledSkills(s ? ['bash', 'code', 'edit', 'glob', 'read'] : [])
+      const s = bridge.callJson<{ bootstrapInstalled?: boolean }>('getSetupStatus')
+      setInstalledSkills(s?.bootstrapInstalled ? ['bash', 'code', 'edit', 'glob', 'read'] : [])
     } catch { /* */ }
     setLoading(false)
   }, [])
@@ -34,8 +34,8 @@ export function Skills() {
     setActionMsg('')
     if (!bridge.isAvailable()) { setLoading(false); return }
     try {
-      const s = bridge.callJson<string>('getBootstrapStatus') ?? ''
-      setInstalledSkills(s ? ['bash', 'code', 'edit', 'glob', 'read'] : [])
+      const s = bridge.callJson<{ bootstrapInstalled?: boolean }>('getSetupStatus')
+      setInstalledSkills(s?.bootstrapInstalled ? ['bash', 'code', 'edit', 'glob', 'read'] : [])
       setActionMsg('Skills actualizadas')
       setTimeout(() => setActionMsg(''), 2500)
     } catch { /* */ }

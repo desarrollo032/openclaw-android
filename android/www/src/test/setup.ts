@@ -23,7 +23,6 @@ Object.defineProperty(window, 'OpenClaw', {
       platformInstalled: 'openclaw',
       onboardComplete: true
     })),
-    getBootstrapStatus: vi.fn(),
     startSetup: vi.fn(),
     pickFile: vi.fn(),
     installFromUri: vi.fn(),
@@ -67,15 +66,6 @@ Object.defineProperty(window, 'OpenClaw', {
     startGateway: vi.fn(),
     stopGateway: vi.fn(),
     launchInteractiveCommand: vi.fn(),
-    checkInstallation: vi.fn(() => JSON.stringify({
-      payloadReady: true,
-      payloadAvailable: true,
-      migrationAvailable: false,
-      freeSpaceMB: 1000,
-      requiredSpaceMB: 400
-    })),
-    startInstallation: vi.fn(),
-    pickMigrationFile: vi.fn(),
     openTerminal: vi.fn(),
     getAuthToken: vi.fn(() => 'auth-token'),
     notifyReady: vi.fn(),
