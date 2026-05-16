@@ -1,6 +1,6 @@
 # OpenClaw Android
 
-> Ejecuta **OpenClaw** de forma nativa dentro de Android — sin Termux ni Proot — usando un runtime Node.js + glibc empaquetado en el APK.
+> Ejecuta **OpenClaw** de forma nativa dentro de Android — usando un contenedor **proot + Alpine Linux**, sin Termux ni root.
 
 ![OpenClaw en Android](docs/images/openclaw_android.jpg)
 
@@ -13,7 +13,6 @@
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Requisitos](#requisitos)
 - [Build local](#build-local)
-- [Empaquetar `npm` en el payload](#empaquetar-npm-en-el-payload)
 - [Documentación](#documentación)
 - [Estado del proyecto](#estado-del-proyecto)
 - [Licencia](#licencia)
@@ -24,7 +23,7 @@
 
 - **Android 12+** (`minSdk 31`, `targetSdk 35`, `compileSdk 35`).
 - ABI única: **`arm64-v8a`**.
-- Runtime **Node.js + glibc** empaquetado en `android/app/src/main/assets/payload-v2.tar.xz`.
+- Runtime **Node.js + npm** instalado dentro de **Alpine Linux** vía **proot**.
 - UI moderna en **React 19 + Vite 7 + Tailwind 4** cargada dentro de un `WebView`.
 - **Foreground Service** para el gateway (estable en segundo plano).
 - Terminal integrada basada en las librerías oficiales de Termux (`terminal-emulator`, `terminal-view`).
@@ -43,19 +42,20 @@
 │                  App Android (Kotlin)                    │
 │       Ciclo de vida · Bridge · GatewayService            │
 └──────────────┬─────────────────────────────▲─────────────┘
-               │ ProcessBuilder + PTY         │ stdout/stderr
+               │ proot --rootfs=... --bind=... │ stdout/stderr
 ┌──────────────▼─────────────────────────────┴─────────────┐
-│              Runtime (binarios nativos)                  │
-│   libldlinux.so → libnode.so → openclaw.mjs (Gateway)    │
+│         Contenedor proot + Alpine Linux                  │
+│   sh · node · npm · openclaw (todo dentro del Alpine)    │
 └──────────────────────────────────────────────────────────┘
 ```
 
 **Flujo resumido:**
 
-1. La app extrae `payload-v2.tar.xz` en almacenamiento privado interno.
-2. Kotlin expone `window.OpenClaw` a React mediante `@JavascriptInterface`.
-3. Un proceso Node.js corre como **Foreground Service** en el puerto `127.0.0.1:18789`.
-4. El WebView consume los assets locales y controla acciones/estado vía Bridge.
+1. La app bootstrapa Alpine Linux en almacenamiento privado interno.
+2. Instala Node.js + npm + OpenClaw dentro del Alpine vía `apk` y `npm`.
+3. Kotlin expone `window.OpenClaw` a React mediante `@JavascriptInterface`.
+4. Un proceso Node.js corre como **Foreground Service** dentro de proot en el puerto `127.0.0.1:18789`.
+5. El WebView consume los assets locales y controla acciones/estado vía Bridge.
 
 ---
 
@@ -109,28 +109,12 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## Empaquetar `npm` en el payload
-
-Si necesitas inyectar `npm` dentro del payload preinstalado:
-
-```bash
-python scripts/add_npm_to_payload.py \
-  --payload android/app/src/main/assets/payload-v2.tar.xz \
-  --output  android/app/src/main/assets/payload-v2-with-npm.tar.xz
-```
-
-Esto descarga el `npm` configurado y produce un payload con `lib/node_modules/npm/bin/npm-cli.js` listo para Android.
-
----
-
 ## Documentación
 
 ### Núcleo técnico
 - [DOCUMENTACION_TECNICA.md](DOCUMENTACION_TECNICA.md) — referencia técnica principal (es).
-- [DOCUMENTATION_TECHNICAL.md](DOCUMENTATION_TECHNICAL.md) — versión espejo (es, completa).
 
 ### Guías del proyecto
-- [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) — preparación de archivos e instalación.
 - [GUIA_VERSIONADO.md](GUIA_VERSIONADO.md) — flujo de versionado y tags.
 - [TESTING.md](TESTING.md) — suite de pruebas (Kotlin · React · E2E).
 - [CONTRIBUTING.md](CONTRIBUTING.md) — guía de contribución.
@@ -152,7 +136,6 @@ Esto descarga el `npm` configurado y produce un payload con `lib/node_modules/np
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/termux-ssh-guide.md](docs/termux-ssh-guide.md)
 - [docs/disable-phantom-process-killer.md](docs/disable-phantom-process-killer.md)
-- [docs/legacy-app-payload-compat.md](docs/legacy-app-payload-compat.md)
 
 ---
 
@@ -160,7 +143,7 @@ Esto descarga el `npm` configurado y produce un payload con `lib/node_modules/np
 
 Prioridades activas:
 
-- **Estabilidad** del runtime Node.js + glibc en Android 12+.
+- **Estabilidad** del runtime proot + Alpine en Android 12+.
 - **Observabilidad** del gateway (logs, health-check, uptime).
 - **Mantenibilidad** del bridge Kotlin ↔ TypeScript.
 

@@ -1,6 +1,6 @@
 # Documentación técnica — OpenClaw Android
 
-> Última revisión: 2026-05-15
+> Última revisión: 2026-05-15 (actualizada post-migración proot + Alpine)
 
 Referencia técnica del runtime, bridge, gateway y pipeline de build de la app.
 
@@ -21,40 +21,39 @@ Referencia técnica del runtime, bridge, gateway y pipeline de build de la app.
 
 ## Objetivo
 
-Describir cómo **OpenClaw** se ejecuta de forma autónoma en Android:
+Describir cómo **OpenClaw** se ejecuta de forma autónoma en Android usando **proot + Alpine Linux**:
 
-- Instalación del runtime Node.js + glibc.
+- Bootstrap de Alpine + instalación de Node.js/npm.
 - Bridge **Kotlin ↔ WebView** (`window.OpenClaw`).
-- Servicio gateway en foreground.
+- Servicio gateway en foreground dentro del contenedor proot.
 - Pipeline de build (Gradle + Vite).
 
 ---
 
 ## Componentes clave
 
-### Runtime nativo
+### Contenedor proot + Alpine
 
-| Librería | Función |
+| Componente | Función |
 | --- | --- |
-| `libnode.so` | Motor Node.js. |
-| `libbusybox.so` | Utilidades shell base. |
-| `libldlinux.so` + glibc empaquetado | Compatibilidad de binarios Linux dentro del sandbox de Android. |
+| **proot** | Traductor de syscalls (chroot sin root). Corre desde `nativeLibraryDir`. |
+| **Alpine Linux** | Distribución Linux mínima con `sh`, `apk`, Node.js, npm. |
+| **Termux libs** | `terminal-emulator.aar` + `terminal-view.aar` para la terminal PTY. |
 
-### Instalación del payload
+### Instalación del entorno
 
-- El payload se distribuye como asset (`payload-v2.tar.xz`).
-- Se extrae en almacenamiento **privado interno** de la app.
-- Se generan wrappers (`node`, `npm`, `openclaw`) para estandarizar ejecución.
-- Soporta **override local**: el usuario puede sustituir el payload o la migración con archivos seleccionados desde el dispositivo.
+- Se descarga o incluye un rootfs Alpine mínimo.
+- Se ejecuta `apk add nodejs npm` para instalar el runtime.
+- Se ejecuta `npm install -g openclaw` para instalar OpenClaw.
+- **No se necesita `payload-v2.tar.xz`, `libnode.so`, ni glibc empaquetada.**
 
 ### Bridge `window.OpenClaw`
 
 Capa de interoperabilidad entre **React** y **Kotlin**. Expone:
 
-- Estado de instalación y onboarding.
+- Estado de instalación y Alpine.
 - Control del gateway.
 - Ejecución de comandos (síncronos y asíncronos).
-- Picker de archivos para reemplazo de payload/migración.
 - Información del sistema y de la app.
 - Gestión de herramientas y plataformas.
 
@@ -65,6 +64,7 @@ Detalle completo en [android/docs/BRIDGE.md](android/docs/BRIDGE.md).
 ## Gateway y ciclo de vida
 
 - El gateway corre como **Foreground Service** en `127.0.0.1:18789`.
+- Ejecuta `openclaw` **dentro del contenedor proot + Alpine**.
 - Supervisión del proceso con **reinicio automático** ante caídas.
 - **Health-check** cada 10 s contra `/health`.
 - **Redacción de tokens** sensibles en los logs.

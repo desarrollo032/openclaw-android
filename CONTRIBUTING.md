@@ -32,7 +32,7 @@ Las contribuciones de cualquier tamaño son bienvenidas. Si es tu primera vez:
 
 ## Setup de desarrollo
 
-### Scripts shell (instalador, actualizador, parches)
+### Scripts shell (instalador, actualizador)
 
 ```bash
 git clone https://github.com/desarrollo032/openclaw-android.git
@@ -119,7 +119,7 @@ Los mensajes van en **inglés**, modo imperativo, sin prefijo:
 ```
 Fix update-core.sh syntax error
 Add multi-session terminal tab bar
-Upgrade Node.js to v22.22.0 for FTS5 support
+Migrate runtime to proot + Alpine Linux
 ```
 
 - Empieza con mayúscula, sin punto final.
@@ -140,7 +140,7 @@ PR contra `main`. En la descripción incluye:
 
 | Capa | Ruta | Descripción |
 | --- | --- | --- |
-| Shell scripts | raíz | Instalador, updater, parches, CLI. Corren en Termux. |
+| Shell scripts | raíz | Instalador, updater, CLI. Corren en Termux. |
 | App Android | `android/` | Kotlin + WebView UI + terminal nativa. |
 | Frontend | `android/www/` | React 19 + Vite 7 + Tailwind 4. |
 | Docs | `docs/`, `android/docs/` | Guías técnicas y operativas. |
@@ -165,12 +165,12 @@ Consulta el [README principal](README.md) para la arquitectura completa.
 Al contribuir, ten presente:
 
 - **Compatibilidad Termux** — los scripts deben funcionar con `$PREFIX` y sin root.
-- **Frontera glibc** — Node.js corre bajo `glibc-runner`, mientras las herramientas del sistema usan **Bionic libc**.
-- **Conversión de rutas** — las rutas estándar de Linux (`/tmp`, `/bin/sh`) se mapean a equivalentes Termux.
+- **proot + Alpine** — el runtime de OpenClaw corre dentro de un contenedor proot + Alpine Linux, no como binarios nativos de Android.
+- **Conversión de rutas** — las rutas estándar de Linux (`/tmp`, `/bin/sh`) se mapean a equivalentes de Termux o del Alpine.
 - **Rango Android** — la app objetivo es **`minSdk 31` → `targetSdk 35`** (Android 12 a 14).
 - **Idempotencia** — los scripts de instalación/actualización deben poder ejecutarse múltiples veces sin efectos secundarios.
 
-> 🔥 Antes de tocar el runtime nativo lee [android/docs/REGLAS_CRITICAS.md](android/docs/REGLAS_CRITICAS.md).
+> 🔥 Antes de tocar el runtime lee [android/docs/REGLAS_CRITICAS.md](android/docs/REGLAS_CRITICAS.md).
 
 ---
 
