@@ -19,8 +19,7 @@ class AssetDetectorTest {
 
         assets shouldNotBe null
         // En Robolectric los assets del proyecto están disponibles
-        assets.payloadAvailable shouldBe true
-        assets.migrationAvailable shouldBe false
+        assets.alpineAvailable shouldBe true
         assets.hasEnoughSpace shouldBe true  // En emulador siempre hay espacio
     }
 
@@ -35,20 +34,16 @@ class AssetDetectorTest {
     @Test
     fun `should hold correct values in data class`() {
         val info = AssetDetectionResult(
-            payloadAvailable = true,
-            payloadSizeBytes = 1000L,
-            payloadContents = emptyList(),
-            migrationAvailable = false,
-            migrationSizeBytes = 0L,
-            migrationContents = emptyList(),
+            alpineAvailable = true,
+            alpineSizeBytes = 1000L,
+            alpineContents = emptyList(),
             freeSpaceBytes = 1000000L,
             hasEnoughSpace = true
         )
 
-        info.payloadAvailable shouldBe true
-        info.migrationAvailable shouldBe false
+        info.alpineAvailable shouldBe true
         info.freeSpaceBytes shouldBe 1000000L
         info.hasEnoughSpace shouldBe true
-        info.payloadSizeBytes shouldBe 1000L
+        info.alpineSizeBytes shouldBe 1000L
     }
 }

@@ -6,6 +6,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
 import java.io.File
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -37,21 +38,19 @@ class OpenClawTerminalManagerTest {
         val openclawHome = File(homeDir, ".openclaw")
         val tmpDir = File(openclawHome, "tmp")
         val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val payloadDir = OpenClawInstaller.getPayloadDir(context)
-
         env.shouldContain("HOME=${homeDir.absolutePath}")
         env.shouldContain("OPENCLAW_HOME=${openclawHome.absolutePath}")
         env.shouldContain("TMPDIR=${tmpDir.absolutePath}")
         env.shouldContain("PATH=${File(context.filesDir, "usr/bin").absolutePath}:${nativeDir.absolutePath}:/system/bin:/system/xbin")
-        env.shouldContain("NODE_PATH=${File(payloadDir, "lib/node_modules").absolutePath}")
     }
 
+    @Ignore("Obsoleto: ya no se generan wrappers con proot + Alpine")
     @Test
     fun generatedOpenClawWrapperDisablesCliRespawnOnAndroid() {
         val context = prepareContext()
-        val payloadDir = OpenClawInstaller.getPayloadDir(context)
+        val configDir = OpenClawInstaller.getConfigDir(context)
 
-        OpenClawInstaller.deployScripts(context, payloadDir)
+        // deployScripts ya no aplica — OpenClaw corre dentro de proot
 
         val wrapper = File(context.filesDir, "usr/bin/openclaw").readText()
 
@@ -64,7 +63,7 @@ class OpenClawTerminalManagerTest {
         val expectedTmpdir = "$openclawHome/tmp"
         wrapper shouldContain "export TMPDIR=\"$expectedTmpdir\""
         wrapper shouldContain "--disable-warning=ExperimentalWarning"
-        wrapper shouldNotContain "app_payload/bin/node"
+        wrapper shouldNotContain "legacy_glibc/bin/node"
     }
 
     private fun prepareContext(): Context {

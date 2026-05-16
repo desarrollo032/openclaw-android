@@ -20,7 +20,7 @@ interface OpenClawBridge {
   getSetupStatus(): string
   startSetup(): void
   pickFile(callbackId: string): void
-  installFromUri(payloadUri: string, configUri: string): void
+  installFromUri(uri: string, configUri: string): void
   getAssetStatus(): string
 
   // Tools & Platforms
@@ -72,13 +72,10 @@ interface OpenClawBridge {
   getGatewayUptime(): string
   startGateway(): void
   stopGateway(): void
-  restartGateway(): void
+  restartGateway(): void      // Auth
+      getAuthToken(): string
 
-  // Auth
-  getAuthToken(): string
-  getGatewayToken(): string
-
-  // Locale & Theme (sincronización con Android nativo)
+      // Locale & Theme (sincronización con Android nativo)
   getLocale(): string
   getSystemTheme(): string
 

@@ -59,60 +59,15 @@ class AndroidBridge(
             put("bootstrapInstalled", alpineInstalled && openclawInstalled)
             put("platformInstalled", if (openclawInstalled) "openclaw" else "")
             put("onboardComplete", onboardComplete)
-            put("payloadReady", openclawInstalled)
-            put("payloadAvailable", prootPresent) // proot binario presente = listo
-            put("payloadSizeBytes", 10 * 1024 * 1024L) // Alpine ~10MB descarga
-            put("payloadSource", if (prootPresent) "proot" else "missing")
-            put("migrationAvailable", false)
-            put("migrationSizeBytes", 0)
-            put("migrationSource", "none")
+            put("alpineReady", openclawInstalled)
+            put("alpineAvailable", prootPresent)
+            put("alpineSizeBytes", 10 * 1024 * 1024L)
+            put("alpineSource", if (prootPresent) "proot" else "missing")
             put("canDownloadRemotely", OpenClawInstaller.isNetworkAvailable(activity))
             put("freeSpaceMB", freeSpace / 1024 / 1024)
             put("requiredSpaceMB", 200)
             put("hasEnoughSpace", freeSpace >= 200 * 1024 * 1024L)
         }.toString()
-    }
-
-    @JavascriptInterface
-    fun checkBootstrap() {
-        // Estado se obtiene via getBootstrapStatus() polling
-    }
-
-    @JavascriptInterface
-    fun getBootstrapStatus(): String {
-        val proot = OpenClawProot(activity)
-        val installed = proot.isAlpineInstalled() && proot.isOpenClawInstalled()
-        val onboardComplete = OpenClawInstaller.isOnboardComplete(activity)
-        return JSONObject().apply {
-            put("installed", installed && onboardComplete)
-            put("installing", false)
-            put("error", if (!installed) "Pendiente de instalacion" else "")
-        }.toString()
-    }
-
-    @JavascriptInterface
-    fun checkPayload() {
-        // Estado se obtiene via getPayloadStatus() polling
-    }
-
-    @JavascriptInterface
-    fun getPayloadStatus(): String {
-        val proot = OpenClawProot(activity)
-        val ready = proot.isOpenClawInstalled()
-        return JSONObject().apply {
-            put("installed", ready)
-            put("installing", false)
-        }.toString()
-    }
-
-    @JavascriptInterface
-    fun checkInstallation(): String {
-        return getSetupStatus()
-    }
-
-    @JavascriptInterface
-    fun startInstallation() {
-        startSetup()
     }
 
     @JavascriptInterface
@@ -149,26 +104,14 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun installFromUri(payloadUri: String, configUri: String) {
+    fun installFromUri(uri: String, configUri: String) {
         // Con proot: ignoramos URIs. La instalación es via descarga de Alpine + npm.
         notifyReact("onInstallError", JSONObject().apply {
             put("error", "Con la migración a proot, la instalación se hace automáticamente desde Internet")
         }.toString())
     }
 
-    @JavascriptInterface
-    fun pickMigrationFile() {
-        // No aplica con proot
-    }
-
-    @JavascriptInterface
-    fun pickPayloadFile() {
-        // No aplica con proot
-    }
-
-    fun handlePickedFile(uri: Uri) {
-        // No aplica con proot
-    }
+    // Migración a proot: pickPayloadFile/pickMigrationFile/handlePickedFile ya no aplican
 
     // ── Gateway ───────────────────────────────────────────────────────────────
 
@@ -346,7 +289,7 @@ class AndroidBridge(
         val ready = proot.isOpenClawInstalled()
         return JSONObject().apply {
             put("bootstrap", ready)
-            put("payload", ready)
+            put("alpine", ready)
             put("platform", ready)
             put("tools", false)
         }.toString()
@@ -393,11 +336,11 @@ class AndroidBridge(
             put("shellPath", proot.proot)
             put("toyboxAvailable", true) // Android tiene toybox nativo
             put("busyboxAvailable", false) // ya no usamos busybox
-            put("payloadReady", openclawInstalled)
+            put("alpineReady", openclawInstalled)
             put("diagnostics", diagnostics.joinToString(", "))
             put("freeSpaceMB", activity.filesDir.freeSpace / 1024 / 1024)
             put("nativeLibDir", proot.nativeDir)
-            put("payloadDir", proot.rootfs.absolutePath)
+            put("alpineDir", proot.rootfs.absolutePath)
         }.toString()
     }
 

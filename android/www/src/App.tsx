@@ -70,10 +70,10 @@ export function App() {
 
     const handleGatewayState = (event: Event) => {
       const detail = (event as CustomEvent).detail
-      const payload = typeof detail === 'string' ? (() => { try { return JSON.parse(detail) } catch { return null } })() : detail as { state?: string }
-      if (payload?.state) {
-        setStarting(payload.state === 'STARTING' || payload.state === 'RESTARTING')
-        setOnline(payload.state === 'READY')
+      const data = typeof detail === 'string' ? (() => { try { return JSON.parse(detail) } catch { return null } })() : detail as { state?: string }
+      if (data?.state) {
+        setStarting(data.state === 'STARTING' || data.state === 'RESTARTING')
+        setOnline(data.state === 'READY')
       }
     }
 

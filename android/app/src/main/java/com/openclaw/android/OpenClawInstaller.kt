@@ -14,11 +14,10 @@ private const val TAG = "OpenClawInstaller"
 /**
  * OpenClawInstaller — Instalación basada en proot + Alpine Linux.
  *
- * ANTES: descargaba payload-v2.tar.xz, extraía glibc + libnode.so,
- *        creaba wrappers shell con LD_PRELOAD/LD_LIBRARY_PATH.
- *
  * AHORA: descarga Alpine minirootfs vía OpenClawProot, instala
  *        nodejs + npm + openclaw dentro del proot con apk.
+ * ANTES (legacy): descargaba payload-v2.tar.xz, extraía glibc + libnode.so,
+ *                 creaba wrappers shell con LD_PRELOAD/LD_LIBRARY_PATH.
  *
  * Flujo:
  *   1. [isAlpineSetupComplete] → verifica Alpine + openclaw instalados
@@ -179,7 +178,7 @@ object OpenClawInstaller {
             OpenClawConstants.PREFS_NAME,
             Context.MODE_PRIVATE
         ).edit()
-            .putBoolean(OpenClawConstants.KEY_PAYLOAD_INSTALLED, true)
+            .putBoolean(OpenClawConstants.KEY_ALPINE_INSTALLED, true)
             .apply()
     }
 

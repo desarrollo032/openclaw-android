@@ -72,8 +72,8 @@ class OpenClawDashboardActivity : AppCompatActivity() {
             var lastToken: String = ""
 
             OpenClawGatewayService.state.collect { state ->
-                val payload = JSONObject().apply { put("state", state.name) }.toString()
-                androidBridge?.notifyReact("onGatewayStateChanged", payload)
+                val stateJson = JSONObject().apply { put("state", state.name) }.toString()
+                androidBridge?.notifyReact("onGatewayStateChanged", stateJson)
 
                 if (state == GatewayState.READY) {
                     androidBridge?.notifyReact("onGatewayReady", "{\\\"success\\\":true}")
@@ -139,7 +139,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
     }
 
     private fun handleFilePicked(uri: Uri) {
-        androidBridge?.handlePickedFile(uri)
+        // handlePickedFile ya no aplica con proot
     }
 
     @SuppressLint("SetJavaScriptEnabled")

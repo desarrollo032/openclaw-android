@@ -21,10 +21,10 @@ const STEPS = [
 interface SetupStatus {
   bootstrapInstalled?: boolean
   platformInstalled?: string
-  payloadReady?: boolean
-  payloadAvailable?: boolean
-  payloadSizeBytes?: number
-  payloadSource?: string
+  alpineReady?: boolean
+  alpineAvailable?: boolean
+  alpineSizeBytes?: number
+  alpineSource?: string
   canDownloadRemotely?: boolean
   onboardComplete?: boolean
   freeSpaceMB?: number
@@ -74,7 +74,7 @@ export function Setup({ onComplete }: Props) {
     if (stepIdx !== 0) return
     const s = refreshStatus()
     setLoading(false)
-    if (s?.bootstrapInstalled && s?.payloadReady) {
+    if (s?.bootstrapInstalled && s?.alpineReady) {
       // Alpine + openclaw already installed → skip to platform step
       setStepIdx(1)
       nextAnim()
@@ -87,7 +87,7 @@ export function Setup({ onComplete }: Props) {
     if (!installing) return
     const id = setInterval(() => {
       const s = refreshStatus()
-      if (s?.bootstrapInstalled && s?.payloadReady) {
+      if (s?.bootstrapInstalled && s?.alpineReady) {
         setInstalling(false)
         setStepIdx(1)
         nextAnim()
@@ -175,7 +175,7 @@ export function Setup({ onComplete }: Props) {
   // ── Setup step renderer ────────────────────────────────────────────────
   const renderSetupStep = () => {
     const needsSpace = setupStatus && setupStatus.hasEnoughSpace === false
-    const isAlreadyInstalled = setupStatus?.bootstrapInstalled && setupStatus?.payloadReady
+    const isAlreadyInstalled = setupStatus?.bootstrapInstalled && setupStatus?.alpineReady
 
     if (loading && !setupStatus) {
       return (
@@ -200,13 +200,13 @@ export function Setup({ onComplete }: Props) {
               <div className="text-xs font-semibold text-text-primary">Alpine Linux + Node.js</div>
               <div className="text-[10px] text-text-muted mt-0.5">
               {setupStatus?.bootstrapInstalled
-                ? setupStatus?.payloadReady
+                ? setupStatus?.alpineReady
                   ? 'Instalado ✓'
                   : 'Alpine listo, instalando OpenClaw...'
                 : 'Requiere descarga (~10 MB)'}
               </div>
             </div>
-            {setupStatus?.bootstrapInstalled && setupStatus?.payloadReady && (
+            {setupStatus?.bootstrapInstalled && setupStatus?.alpineReady && (
               <div className="w-6 h-6 rounded-full bg-green-soft flex items-center justify-center">
                 <Check size={12} className="text-green" />
               </div>

@@ -18,12 +18,12 @@ export function InstallationCard() {
     if (!bridge.isAvailable()) return
     setChecking(true)
     try {
-      const raw = bridge.callJson<{ bootstrapInstalled?: boolean; payloadReady?: boolean; onboardComplete?: boolean }>('getSetupStatus')
+      const raw = bridge.callJson<{ bootstrapInstalled?: boolean; alpineReady?: boolean; onboardComplete?: boolean }>('getSetupStatus')
       if (raw) {
         setStatus({
           alpine: raw.bootstrapInstalled ?? false,
-          node: raw.payloadReady ?? false,
-          openclaw: raw.payloadReady ?? false,
+          node: raw.alpineReady ?? false,
+          openclaw: raw.alpineReady ?? false,
           onboard: raw.onboardComplete ?? false,
         })
       }
@@ -39,15 +39,15 @@ export function InstallationCard() {
     bridge.call('startSetup')
     // Poll para detectar cuando termina
     const id = setInterval(() => {
-      const raw = bridge.callJson<{ bootstrapInstalled?: boolean; payloadReady?: boolean }>('getSetupStatus')
+      const raw = bridge.callJson<{ bootstrapInstalled?: boolean; alpineReady?: boolean }>('getSetupStatus')
       if (raw) {
         setStatus({
           alpine: raw.bootstrapInstalled ?? false,
-          node: raw.payloadReady ?? false,
-          openclaw: raw.payloadReady ?? false,
+          node: raw.alpineReady ?? false,
+          openclaw: raw.alpineReady ?? false,
           onboard: false,
         })
-        if (raw.bootstrapInstalled && raw.payloadReady) {
+        if (raw.bootstrapInstalled && raw.alpineReady) {
           setInstalling(false)
           clearInterval(id)
         }

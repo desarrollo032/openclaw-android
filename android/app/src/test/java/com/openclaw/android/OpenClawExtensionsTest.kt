@@ -50,15 +50,6 @@ class OpenClawExtensionsTest {
         byteArrayOf().toHex() shouldBe ""
     }
 
-    // ── OpenClawInstaller.getPayloadDir ──────────────────────────────────────
-
-    @Test
-    fun `should return payload directory`() {
-        val dir = OpenClawInstaller.getPayloadDir(context)
-        dir.name shouldBe "app_payload"
-        dir.exists() shouldBe true
-    }
-
     // ── OpenClawInstaller.getConfigDir ────────────────────────────────────────
 
     @Test

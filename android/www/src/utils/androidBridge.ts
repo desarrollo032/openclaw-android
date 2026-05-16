@@ -19,12 +19,13 @@ export {
   getNativeTheme,
 } from '../lib/bridge'
 
-import { call, callJson, getToken, on, off, onTokenRefresh } from '../lib/bridge'  /* ── Installation status (proot + Alpine) ── */
+import { call, callJson, getToken, on, off, onTokenRefresh } from '../lib/bridge'
 
-  export interface InstallationStatus {
+/* ── Installation status (proot + Alpine) ── */
+export interface InstallationStatus {
     bootstrapInstalled?: boolean
-    payloadReady?: boolean
-    payloadAvailable?: boolean
+    alpineReady?: boolean
+    alpineAvailable?: boolean
     freeSpaceMB?: number
     requiredSpaceMB?: number
     hasEnoughSpace?: boolean
@@ -40,7 +41,8 @@ export interface InstallProgress {
   stepName: string
 }
 
-/* ── Wrapper AndroidBridge legacy ── */  export const AndroidBridge = {
+/* ── Wrapper AndroidBridge legacy ── */
+export const AndroidBridge = {
     isAvailable: () => typeof window.OpenClaw !== 'undefined',
 
     checkSetup: (): InstallationStatus | null => {

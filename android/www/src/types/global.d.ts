@@ -19,7 +19,7 @@ declare global {
       getSetupStatus(): string
       startSetup(): void
       pickFile(callbackId: string): void
-      installFromUri(payloadUri: string, configUri: string): void
+      installFromUri(uri: string, configUri: string): void
       getAssetStatus(): string
 
       // Tools & Platforms

@@ -30,7 +30,7 @@ object OpenClawConstants {
 
     // SharedPreferences
     const val PREFS_NAME = "openclaw_install"
-    const val KEY_PAYLOAD_INSTALLED = "payload_installed"
+    const val KEY_ALPINE_INSTALLED = "alpine_installed"
     const val KEY_CONFIG_RESTORED = "config_restored"
     const val KEY_ONBOARD_COMPLETE = "onboard_complete"
 }

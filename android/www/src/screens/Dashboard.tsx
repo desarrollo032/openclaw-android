@@ -17,7 +17,7 @@ interface SystemInfo {
   npmVersion?: string
   openclawVersion?: string
   gitVersion?: string
-  payloadReady?: boolean
+  alpineReady?: boolean
   diagnostics?: string
 }
 
@@ -81,7 +81,7 @@ export function Dashboard() {
         npmVersion: data.npmVersion,
         openclawVersion: data.version,
         gitVersion: "no incluido",
-        payloadReady: true,
+        alpineReady: true,
       }
     } catch (err) {
       // Errores esperados cuando el gateway aún no responde — fallback al bridge nativo.
@@ -96,8 +96,8 @@ export function Dashboard() {
       }
     }
     info ??= getBridgeSystemInfo()
-    const nodeDisplay = info.nodeVersion && info.nodeVersion !== "unknown" ? info.nodeVersion : info.payloadReady ? "reintentando..." : "instalando..."
-    const ocDisplay = info.openclawVersion && info.openclawVersion !== "unknown" ? info.openclawVersion : info.payloadReady ? "desconocido" : "instalando..."
+    const nodeDisplay = info.nodeVersion && info.nodeVersion !== "unknown" ? info.nodeVersion : info.alpineReady ? "reintentando..." : "instalando..."
+    const ocDisplay = info.openclawVersion && info.openclawVersion !== "unknown" ? info.openclawVersion : info.alpineReady ? "desconocido" : "instalando..."
     setNodeVer(nodeDisplay)
     setNpmVer(info.npmVersion && info.npmVersion !== "unknown" ? info.npmVersion : "no incluido")
     setOcVer(ocDisplay)

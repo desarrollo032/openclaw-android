@@ -5,13 +5,13 @@ export function useInstallation() {
   const [status, setStatus] = useState<InstallationStatus | null>(() => AndroidBridge.checkSetup());
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
-  const [isDone, setIsDone] = useState(status?.payloadReady ?? false);
+  const [isDone, setIsDone] = useState(status?.alpineReady ?? false);
   const [error, setError] = useState<string | null>(null);
 
   const refreshStatus = () => {
     const s = AndroidBridge.checkSetup();
     setStatus(s);
-    if (s?.payloadReady) setIsDone(true);
+    if (s?.alpineReady) setIsDone(true);
   };
 
   useEffect(() => {

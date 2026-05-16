@@ -21,11 +21,11 @@ class OpenClawInstallerTest {
         OpenClawInstaller.uninstall(context)
     }
 
-    // ── isPayloadReady ────────────────────────────────────────────────────────
+    // ── isAlpineSetupComplete ──────────────────────────────────────────────────
 
     @Test
-    fun `should return false when payload is not installed`() {
-        OpenClawInstaller.isPayloadReady(context) shouldBe false
+    fun `should return false when alpine is not installed`() {
+        OpenClawInstaller.isAlpineSetupComplete(context) shouldBe false
     }
 
     // ── isConfigRestored ──────────────────────────────────────────────────────
@@ -55,13 +55,11 @@ class OpenClawInstallerTest {
         prefs.getBoolean("config_restored", false) shouldBe true
     }
 
-    // ── getPayloadDir ─────────────────────────────────────────────────────────
+    // ── isProotPresent ────────────────────────────────────────────────────────
 
     @Test
-    fun `should return a valid directory`() {
-        val dir = OpenClawInstaller.getPayloadDir(context)
-        dir shouldNotBe null
-        dir.exists() shouldBe true
+    fun `should return false when proot is not bundled`() {
+        OpenClawInstaller.isProotPresent(context) shouldBe false
     }
 
     // ── getConfigDir ──────────────────────────────────────────────────────────
@@ -73,24 +71,11 @@ class OpenClawInstallerTest {
         dir.parentFile shouldBe File(context.filesDir, "home")
     }
 
-    // ── setupFilesLayout ──────────────────────────────────────────────────────
+    // ── isAlpineInstalledOnly ─────────────────────────────────────────────────
 
     @Test
-    fun `should create the home and usr layout expected by the runtime`() {
-        OpenClawInstaller.setupFilesLayout(context)
-
-        File(context.filesDir, "home").isDirectory shouldBe true
-        File(context.filesDir, "home/.openclaw/tmp").isDirectory shouldBe true
-        File(context.filesDir, "usr/bin").isDirectory shouldBe true
-        File(context.filesDir, "usr/opt").isDirectory shouldBe true
-    }
-
-    // ── hasBundledAssets ──────────────────────────────────────────────────────
-
-    @Test
-    fun `should handle missing assets gracefully`() {
-        // En Robolectric los assets del proyecto están disponibles
-        OpenClawInstaller.hasBundledAssets(context) shouldBe true
+    fun `should return false when alpine is not installed`() {
+        OpenClawInstaller.isAlpineInstalledOnly(context) shouldBe false
     }
 
     // ── isOnboardComplete ─────────────────────────────────────────────────────
@@ -111,10 +96,8 @@ class OpenClawInstallerTest {
     @Test
     fun `should clean up all directories and preferences`() {
         // Crear archivos de prueba
-        val payloadDir = OpenClawInstaller.getPayloadDir(context)
         val configDir = OpenClawInstaller.getConfigDir(context)
         configDir.mkdirs()
-        File(payloadDir, "test.txt").writeText("test")
         File(configDir, "test.txt").writeText("test")
 
         // Marcar como completo
@@ -124,15 +107,14 @@ class OpenClawInstallerTest {
         OpenClawInstaller.uninstall(context)
 
         // Verificar limpieza
-        payloadDir.exists() shouldBe false
         configDir.exists() shouldBe false
         OpenClawInstaller.isOnboardComplete(context) shouldBe false
     }
 
-    // ── verifyPayloadIntegrity ────────────────────────────────────────────────
+    // ── isNetworkAvailable ────────────────────────────────────────────────────
 
     @Test
-    fun `should skip verification in dev mode`() {
-        OpenClawInstaller.verifyPayloadIntegrity(context) shouldBe true
+    fun `should not crash when checking network`() {
+        OpenClawInstaller.isNetworkAvailable(context) // no deberia lanzar excepcion
     }
 }

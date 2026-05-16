@@ -47,9 +47,9 @@ class GatewayServiceInstrumentedTest {
         try {
             OpenClawGatewayService.start(context)
             // El servicio debería haber intentado iniciar
-            // Nota: Sin payload instalado, puede fallar
+            // Nota: Sin Alpine + OpenClaw instalado, puede fallar
         } catch (e: Exception) {
-            // Esperado si no hay payload
+            // Esperado si la instalación no está completa
         }
 
         // Intentar detener

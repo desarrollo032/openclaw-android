@@ -47,8 +47,8 @@ class AndroidBridgeInstrumentedTest {
     @Test
     fun testInstallerState() {
         // Verificar estado inicial del instalador
-        val isReady = OpenClawInstaller.isPayloadReady(context)
-        // Sin payload instalado, debería ser false
+        val isReady = OpenClawInstaller.isAlpineSetupComplete(context)
+        // Sin Alpine instalado, debería ser false
         assertFalse(isReady)
     }
 
@@ -56,16 +56,13 @@ class AndroidBridgeInstrumentedTest {
     fun testAssetDetection() {
         val assets = AssetDetector.detectSync(context)
         assertNotNull(assets)
-        assertFalse(assets.payloadAvailable)
-        assertFalse(assets.migrationAvailable)
+        assertFalse(assets.alpineAvailable)
         assertTrue(assets.freeSpaceBytes > 0)
     }
 
     @Test
-    fun testPayloadDirectory() {
-        val payloadDir = OpenClawInstaller.getPayloadDir(context)
-        assertNotNull(payloadDir)
-        assertTrue(payloadDir.exists() || payloadDir.mkdirs())
+    fun testProotPresent() {
+        assertFalse(OpenClawInstaller.isProotPresent(context))
     }
 
     @Test
