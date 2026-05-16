@@ -3,7 +3,7 @@ import { useRoute } from '../lib/router'
 import { getLocale, setLocale, availableLocales, t } from '../i18n'
 import { fetchModels, fetchGatewayConfig, patchGatewayConfig, getProviderMeta, type ModelEntry } from '../lib/gateway'
 import { useGatewayStatus } from '../hooks/useGatewayStatus'
-import { bridge, callJson } from '../lib/bridge'
+import { bridge, callJson, on, off } from '../lib/bridge'
 import { RefreshCw, Search, Check, Thermometer, Braces, AlertCircle, Settings2, Wrench, Battery, Package, Info, Globe, Trash2, ChevronRight, Sliders, Cpu, HardDrive, Bell, Database, Settings as SettingsIcon, Shield } from 'lucide-react'
 import { SectionHeader } from '../components/SectionHeader'
 
@@ -33,6 +33,15 @@ export function Settings() {
     }
   }, [])
 
+  // Escuchar eventos de instalación para resetear estado
+  useEffect(() => {
+    if (!bridge.isAvailable()) return
+    const reset = () => { setReinstalling(false); setConfirmReinstall(false) }
+    const hComplete = on('onInstallComplete', reset)
+    const hError = on('onInstallError', reset)
+    return () => { off('onInstallComplete', hComplete); off('onInstallError', hError) }
+  }, [])
+
   const handleReinstall = () => {
     if (!confirmReinstall) {
       setConfirmReinstall(true)
@@ -42,6 +51,8 @@ export function Settings() {
     setConfirmReinstall(false)
     setReinstalling(true)
     bridge.call('reinstallAlpine')
+    // Navegar a Setup para ver progreso
+    navigate('/setup')
   }
 
   const load = useCallback(async () => {

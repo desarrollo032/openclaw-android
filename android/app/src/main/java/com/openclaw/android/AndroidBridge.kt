@@ -108,7 +108,7 @@ class AndroidBridge(
                     put("currentFile", "")
                 }.toString())
                 proot.wipeAlpine()
-                AndroidLog.i("AndroidBridge", "Alpine rootfs wiped — starting fresh install")
+                Log.i("AndroidBridge", "Alpine rootfs wiped — starting fresh install")
                 // Ahora ejecuta el flujo completo de instalación
                 OpenClawInstaller.runSetup(
                     context = activity,
@@ -129,7 +129,7 @@ class AndroidBridge(
                     }
                 )
             } catch (e: Exception) {
-                AndroidLog.e("AndroidBridge", "reinstallAlpine failed: ${e.message}", e)
+                Log.e("AndroidBridge", "reinstallAlpine failed: ${e.message}", e)
                 notifyReact("onInstallError", JSONObject().apply {
                     put("error", "Error al reinstalar Alpine: ${e.message}")
                 }.toString())
