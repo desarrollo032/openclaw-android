@@ -324,6 +324,35 @@ class OpenClawProot(private val context: Context) {
             AndroidLog.i(TAG, "resolv.conf re-escrito antes de instalar")
         }
 
+        // ── Sanity check: verificar que proot puede ejecutar comandos ──
+        // Específicamente diseñado para capturar errores de proot (ej: no puede
+        // ejecutar /bin/sh por permisos, falta ptrace, etc.) que de otra forma
+        // aparecerían como genérico "Error sin diagnóstico de paso".
+        onProgress("Verificando proot...")
+        var sanityOutput = StringBuilder()
+        val sanityCode = runInProot(
+            command = listOf("/bin/sh", "-c", "echo proot_sanity_ok"),
+            onOutput = { line ->
+                sanityOutput.appendLine(line)
+                AndroidLog.v(TAG, "[sanity] $line")
+            }
+        )
+
+        if (sanityCode != 0) {
+            val prootError = sanityOutput.toString().trim().ifBlank { "(sin output — proot no produjo mensaje de error)" }
+            val msg = "proot falló (exit=$sanityCode): $prootError"
+            AndroidLog.e(TAG, msg)
+            onError(msg)
+            return false
+        }
+
+        val outputOk = sanityOutput.contains("proot_sanity_ok")
+        if (!outputOk) {
+            AndroidLog.w(TAG, "sanity check: output no contiene proot_sanity_ok, pero exit=0: ${sanityOutput}")
+        }
+        AndroidLog.i(TAG, "Sanity check OK — proot puede ejecutar /bin/sh")
+        onProgress("Verificación de proot OK ✓")
+
         // ── Script de instalación ────────────────────────────────────────────
         // Cada paso reporta explícitamente su resultado para saber exactamente dónde falla.
         // No usamos `set -e` porque oculta qué paso falló.

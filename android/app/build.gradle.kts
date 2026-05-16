@@ -60,7 +60,7 @@ tasks.register("updateVersionFromGit") {
             } else if (raw.first().isDigit() || raw.startsWith("v")) {
                 raw
             } else {
-                "0.0-$raw"
+                "1.5-$raw"
             }
         }
 
