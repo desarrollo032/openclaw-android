@@ -1,12 +1,8 @@
 package com.openclaw.android
 
-import android.content.Context
-import io.kotest.matchers.booleans.shouldBeTrue
+import com.openclaw.android.proot.OpenClawProot
 import io.kotest.matchers.collections.shouldContain
-import io.kotest.matchers.string.shouldContain
-import io.kotest.matchers.string.shouldNotContain
-import java.io.File
-import org.junit.Ignore
+import io.kotest.matchers.shouldBe
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -16,60 +12,48 @@ import org.robolectric.RuntimeEnvironment
 class OpenClawTerminalManagerTest {
 
     @Test
-    fun interactiveShellLoadsOpenClawFunctionsFromRcFile() {
-        val context = prepareContext()
-        val env = OpenClawTerminalManager(context).buildEnvironment()
-        val rcPath = env.first { it.startsWith("ENV=") }.removePrefix("ENV=")
-        val rcFile = java.io.File(rcPath)
-
-        rcFile.exists().shouldBeTrue()
-        env.toList().shouldContain("OPENCLAW_TERMINAL_RC=$rcPath")
-        rcFile.readText().let { rc ->
-            rc shouldContain "openclaw()"
-            rc shouldNotContain "exec \"$"
-        }
-    }
-
-    @Test
-    fun terminalEnvironmentUsesHomeOpenClawHomeTmpAndUsrBinLayout() {
-        val context = prepareContext()
-        val env = OpenClawTerminalManager(context).buildEnvironment().toList()
-        val homeDir = File(context.filesDir, "home")
-        val openclawHome = File(homeDir, ".openclaw")
-        val tmpDir = File(openclawHome, "tmp")
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        env.shouldContain("HOME=${homeDir.absolutePath}")
-        env.shouldContain("OPENCLAW_HOME=${openclawHome.absolutePath}")
-        env.shouldContain("TMPDIR=${tmpDir.absolutePath}")
-        env.shouldContain("PATH=${File(context.filesDir, "usr/bin").absolutePath}:${nativeDir.absolutePath}:/system/bin:/system/xbin")
-    }
-
-    @Ignore("Obsoleto: ya no se generan wrappers con proot + Alpine")
-    @Test
-    fun generatedOpenClawWrapperDisablesCliRespawnOnAndroid() {
-        val context = prepareContext()
-        val configDir = OpenClawInstaller.getConfigDir(context)
-
-        // deployScripts ya no aplica — OpenClaw corre dentro de proot
-
-        val wrapper = File(context.filesDir, "usr/bin/openclaw").readText()
-
-        wrapper shouldContain "OPENCLAW_NO_RESPAWN=1"
-        wrapper shouldContain "OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED=1"
-        wrapper shouldContain "OPENCLAW_SOURCE_COMPILE_CACHE_RESPAWNED=1"
-        wrapper shouldContain "export OPENCLAW_HOME=\"${File(context.filesDir, "home/.openclaw").absolutePath}\""
-        // deployScripts construye tmpDir como openclawHome + "/tmp" (con barra)
-        val openclawHome = File(context.filesDir, "home/.openclaw").absolutePath
-        val expectedTmpdir = "$openclawHome/tmp"
-        wrapper shouldContain "export TMPDIR=\"$expectedTmpdir\""
-        wrapper shouldContain "--disable-warning=ExperimentalWarning"
-        wrapper shouldNotContain "legacy_glibc/bin/node"
-    }
-
-    private fun prepareContext(): Context {
+    fun `terminal environment uses proot internal paths`() {
         val context = RuntimeEnvironment.getApplication()
-        val nativeDir = File(context.filesDir, "native").apply { mkdirs() }
-        context.applicationInfo.nativeLibraryDir = nativeDir.absolutePath
-        return context
+        val manager = OpenClawTerminalManager(context)
+        val proot = OpenClawProot(context)
+
+        // Verificar que buildShellEnv contiene las variables esperadas
+        val env = proot.buildShellEnv().toList()
+
+        env.shouldContain("HOME=/root")
+        env.shouldContain("OPENCLAW_HOME=/data/home/.openclaw")
+        env.shouldContain("TMPDIR=/data/home/.openclaw/tmp")
+        env.shouldContain("PROOT_NO_SECCOMP=1")
+        env.shouldContain("PROOT_TMP_DIR=${proot.prootTmpDir.absolutePath}")
+        env.shouldContain("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+        env.shouldContain("TERM=xterm-256color")
+        env.shouldContain("SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")
+    }
+
+    @Test
+    fun `terminal shell command includes proot binds and sh interactive`() {
+        val context = RuntimeEnvironment.getApplication()
+        val proot = OpenClawProot(context)
+
+        val cmd = proot.buildShellCommand().toList()
+
+        // Verificar binds canónicos
+        cmd.shouldContain("--bind=/proc")
+        cmd.shouldContain("--bind=/dev")
+        cmd.shouldContain("--bind=/sys")
+        cmd.shouldContain("--bind=${proot.filesDir.absolutePath}:/data")
+        cmd.shouldContain("--bind=${proot.prootTmpDir.absolutePath}:/tmp")
+        cmd.shouldContain("--change-id=0:0")
+        cmd.shouldContain("/bin/sh")
+        cmd.shouldContain("-i")
+    }
+
+    @Test
+    fun `manager returns alpine not ready when proot has no rootfs`() {
+        val context = RuntimeEnvironment.getApplication()
+        val manager = OpenClawTerminalManager(context)
+
+        manager.isAlpineReady() shouldBe false
+        manager.isOpenClawReady() shouldBe false
     }
 }

@@ -68,14 +68,13 @@ object OpenClawInstaller {
         try {
             // ── Paso 1: Alpine ───────────────────────────────────────────────
             if (!proot.isAlpineInstalled()) {
+                // downloadAndExtractAlpine ya reporta el error específico vía su onError.
+                // Si retorna false, simplemente salimos sin duplicar el mensaje.
                 val ok = proot.downloadAndExtractAlpine(
                     onProgress = { msg -> onProgress("[Alpine] $msg") },
                     onError = { err -> onError("[Alpine] $err") }
                 )
-                if (!ok) {
-                    onError("No se pudo instalar Alpine Linux")
-                    return@withContext
-                }
+                if (!ok) return@withContext
             } else {
                 onProgress("[Alpine] Alpine ya instalado ✓")
             }

@@ -4,7 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.openclaw.android.OpenClawLogger
 import com.openclaw.android.deleteRecursivelySafe
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import java.io.BufferedInputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -94,8 +98,8 @@ class OpenClawProot(private val context: Context) {
 
     /**
      * Descarga el minirootfs Alpine de dl-cdn.alpinelinux.org y lo extrae en
-     * `rootfs`. Usa `/system/bin/tar` (de Android) — NO usa el tar de Alpine,
-     * que aún no existe en el rootfs.
+     * `rootfs`. Usa Apache Commons Compress (Java) en vez de `/system/bin/tar`
+     * para ser compatible con todos los dispositivos Android.
      *
      * Devuelve `true` si todo salió bien. Errores y progreso se reportan vía
      * los callbacks; también se replican en [OpenClawLogger].
@@ -153,22 +157,48 @@ class OpenClawProot(private val context: Context) {
             }
 
             onProgress("Extrayendo Alpine (~50 MB)…")
-            val tar = ProcessBuilder(
-                "/system/bin/tar",
-                "-xzf", tarFile.absolutePath,
-                "-C", rootfs.absolutePath
-            ).redirectErrorStream(true).start()
-            tar.inputStream.bufferedReader().forEachLine { line ->
-                log(line)
-                onProgress(line)
-            }
-            val exit = tar.waitFor()
-            tarFile.delete()
-
-            if (exit != 0) {
-                onError("tar terminó con código $exit")
+            try {
+                FileInputStream(tarFile).use { fis ->
+                    BufferedInputStream(fis, 64 * 1024).use { bis ->
+                        GzipCompressorInputStream(bis).use { gzis ->
+                            TarArchiveInputStream(gzis).use { tais ->
+                                var entry = tais.nextTarEntry
+                                var extractedCount = 0
+                                while (entry != null) {
+                                    // Sanitizar: eliminar leading "/" para evitar
+                                    // escritura fuera del rootfs si el tar tiene paths absolutos
+                                    val safeName = entry.name.removePrefix("/")
+                                    val outputFile = File(rootfs, safeName)
+                                    if (entry.isDirectory) {
+                                        outputFile.mkdirs()
+                                    } else {
+                                        outputFile.parentFile?.mkdirs()
+                                        outputFile.outputStream().use { out ->
+                                            val buf = ByteArray(64 * 1024)
+                                            var n = tais.read(buf, 0, buf.size)
+                                            while (n != -1) {
+                                                out.write(buf, 0, n)
+                                                n = tais.read(buf, 0, buf.size)
+                                            }
+                                        }
+                                        extractedCount++
+                                        if (extractedCount % 500 == 0) {
+                                            onProgress("Extrayendo Alpine… (archivo $extractedCount)")
+                                        }
+                                    }
+                                    entry = tais.nextTarEntry
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                log("tar extraction via commons-compress failed: ${e.message}")
+                onError("Error extrayendo Alpine: ${e.message ?: e.javaClass.simpleName}")
+                tarFile.delete()
                 return false
             }
+            tarFile.delete()
 
             // DNS dentro del rootfs (Alpine no trae resolv.conf por defecto)
             File(rootfs, "etc").mkdirs()

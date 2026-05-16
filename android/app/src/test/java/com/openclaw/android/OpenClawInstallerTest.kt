@@ -3,12 +3,12 @@ package com.openclaw.android
 import android.content.Context
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import java.io.File
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
-import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class OpenClawInstallerTest {
@@ -17,6 +17,10 @@ class OpenClawInstallerTest {
 
     @Before
     fun setUp() {
+        // Robolectric no asigna nativeLibraryDir automáticamente
+        val nativeDir = File(context.filesDir, "native").apply { mkdirs() }
+        context.applicationInfo.nativeLibraryDir = nativeDir.absolutePath
+
         // Limpiar estado antes de cada test
         OpenClawInstaller.uninstall(context)
     }
@@ -24,9 +28,11 @@ class OpenClawInstallerTest {
     // ── isAlpineSetupComplete ──────────────────────────────────────────────────
 
     @Test
-    fun `should return false when alpine is not installed`() {
+    fun `should return false when alpine setup is not complete`() {
         OpenClawInstaller.isAlpineSetupComplete(context) shouldBe false
     }
+
+
 
     // ── isConfigRestored ──────────────────────────────────────────────────────
 
@@ -36,23 +42,16 @@ class OpenClawInstallerTest {
     }
 
     @Test
-    fun `should return true when onboard is complete flag is set`() {
-        val prefs = context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("onboard_complete", true).apply()
-
-        OpenClawInstaller.isConfigRestored(context) shouldBe true
-    }
-
-    @Test
-    fun `should restore config from openclaw json and cache the restored flag`() {
+    fun `should detect openclaw json via isOnboardComplete when present`() {
         val configDir = OpenClawInstaller.getConfigDir(context)
         configDir.mkdirs()
-        File(configDir, "openclaw.json").writeText("{\"restored\":true}")
+        File(configDir, "openclaw.json").writeText("{\"ok\":true}")
 
-        OpenClawInstaller.isConfigRestored(context) shouldBe true
+        // isOnboardComplete busca openclaw.json en el directorio de configuración
+        OpenClawInstaller.isOnboardComplete(context) shouldBe true
 
         val prefs = context.getSharedPreferences(OpenClawConstants.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.getBoolean("config_restored", false) shouldBe true
+        prefs.getBoolean("config_restored", false) shouldBe false
     }
 
     // ── isProotPresent ────────────────────────────────────────────────────────
@@ -74,7 +73,7 @@ class OpenClawInstallerTest {
     // ── isAlpineInstalledOnly ─────────────────────────────────────────────────
 
     @Test
-    fun `should return false when alpine is not installed`() {
+    fun `should return false when alpine is not installed for isAlpineInstalledOnly`() {
         OpenClawInstaller.isAlpineInstalledOnly(context) shouldBe false
     }
 

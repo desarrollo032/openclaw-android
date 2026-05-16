@@ -9,7 +9,7 @@ docs/plan/
 *.aab
 *.dex
 *.class
-*.so
+
 /build/
 /app/build/
 /captures/

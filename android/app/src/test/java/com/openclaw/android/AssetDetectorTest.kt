@@ -3,6 +3,8 @@ package com.openclaw.android
 import io.kotest.matchers.comparables.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import java.io.File
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -13,14 +15,21 @@ class AssetDetectorTest {
 
     private val context = RuntimeEnvironment.getApplication()
 
+    @Before
+    fun setUp() {
+        // Robolectric no asigna nativeLibraryDir automáticamente
+        val nativeDir = File(context.filesDir, "native").apply { mkdirs() }
+        context.applicationInfo.nativeLibraryDir = nativeDir.absolutePath
+    }
+
     @Test
     fun `should detect available assets correctly`() {
         val assets = AssetDetector.detectSync(context)
 
         assets shouldNotBe null
-        // En Robolectric los assets del proyecto están disponibles
-        assets.alpineAvailable shouldBe true
-        assets.hasEnoughSpace shouldBe true  // En emulador siempre hay espacio
+        // En Robolectric no hay libproot.so, así que alpineAvailable es false
+        assets.alpineAvailable shouldBe false
+        assets.hasEnoughSpace shouldBe true
     }
 
     @Test

@@ -1,16 +1,12 @@
 package com.openclaw.android
 
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import java.io.File
-import java.io.ByteArrayInputStream
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class OpenClawExtensionsTest {
 
@@ -37,19 +33,6 @@ class OpenClawExtensionsTest {
         dir.exists() shouldBe false
     }
 
-    // ── ByteArray.toHex ──────────────────────────────────────────────────────
-
-    @Test
-    fun `should convert bytes to hex string`() {
-        val bytes = byteArrayOf(0x00, 0x0F, 0xFF.toByte())
-        bytes.toHex() shouldBe "000fff"
-    }
-
-    @Test
-    fun `should handle empty array`() {
-        byteArrayOf().toHex() shouldBe ""
-    }
-
     // ── OpenClawInstaller.getConfigDir ────────────────────────────────────────
 
     @Test
@@ -59,32 +42,10 @@ class OpenClawExtensionsTest {
         dir.parentFile shouldBe File(context.filesDir, "home")
     }
 
-    // ── Context.assetSize ─────────────────────────────────────────────────────
+    // ── isGatewayAlive ────────────────────────────────────────────────────────
 
     @Test
-    fun `should return minus 1 for non-existent asset`() {
-        context.assetSize("non_existent_asset.txt") shouldBe -1L
-    }
-
-    // ── extractTarXzFromStream ────────────────────────────────────────────────
-
-    @Test
-    fun `should handle invalid tar xz gracefully`() = runTest {
-        val invalidData = byteArrayOf(0x00, 0x01, 0x02, 0x03)
-        val result = ByteArrayInputStream(invalidData).use { stream ->
-            extractTarXzFromStream(stream, context.cacheDir, null)
-        }
-        result shouldBe false
-    }
-
-    // ── extractTarGzFromStream ────────────────────────────────────────────────
-
-    @Test
-    fun `should handle invalid tar gz gracefully`() = runTest {
-        val invalidData = byteArrayOf(0x00, 0x01, 0x02, 0x03)
-        val result = ByteArrayInputStream(invalidData).use { stream ->
-            extractTarGzFromStream(stream, context.cacheDir)
-        }
-        result shouldBe false
+    fun `should return false when gateway is not running`() {
+        isGatewayAlive() shouldBe false
     }
 }
