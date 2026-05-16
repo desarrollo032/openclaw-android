@@ -22,11 +22,12 @@ export {
 import { call, callJson, getToken, on, off, onTokenRefresh } from '../lib/bridge'  /* ── Installation status (proot + Alpine) ── */
 
   export interface InstallationStatus {
-    setupReady: boolean
-    alpineAvailable: boolean
-    freeSpaceMB: number
-    requiredSpaceMB: number
-    alpineSizeBytes?: number
+    bootstrapInstalled?: boolean
+    payloadReady?: boolean
+    payloadAvailable?: boolean
+    freeSpaceMB?: number
+    requiredSpaceMB?: number
+    hasEnoughSpace?: boolean
   }
 
 export interface InstallProgress {
