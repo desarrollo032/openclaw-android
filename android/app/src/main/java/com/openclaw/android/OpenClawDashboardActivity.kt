@@ -60,11 +60,18 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         filePicker = registerForActivityResult(
             ActivityResultContracts.GetContent()
         ) { uri: Uri? ->
-            uri?.let { handleFilePicked(it) }
+            uri?.let { handleFilePicked() }
         }
 
         setupWebView()
         binding.webView.loadUrl(DASHBOARD_URL)
+
+        // Manejar botón atrás
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                showExitDialog()
+            }
+        })
 
         // Verificar permisos de notificación al iniciar la actividad
         checkAndRequestNotificationPermission()
@@ -139,7 +146,7 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         OpenClawGatewayService.start(this)
     }
 
-    private fun handleFilePicked(uri: Uri) {
+    private fun handleFilePicked() {
         // handlePickedFile ya no aplica con proot
     }
 
@@ -189,11 +196,11 @@ class OpenClawDashboardActivity : AppCompatActivity() {
         binding.webView.webChromeClient = WebChromeClient()
     }
 
-    override fun onBackPressed() {
+    private fun showExitDialog() {
         AlertDialog.Builder(this)
             .setTitle("¿Salir?")
             .setMessage("El gateway seguirá corriendo en segundo plano.")
-            .setPositiveButton("Salir") { _, _ -> finish(); super.onBackPressed() }
+            .setPositiveButton("Salir") { _, _ -> finish() }
             .setNegativeButton("Cancelar", null)
             .show()
     }

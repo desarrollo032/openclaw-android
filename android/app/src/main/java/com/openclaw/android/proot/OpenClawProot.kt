@@ -11,6 +11,8 @@ import java.io.FileInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * OpenClawProot — núcleo de la integración proot + Alpine Linux.
@@ -229,9 +231,10 @@ class OpenClawProot(private val context: Context) {
             tarFile.delete()
 
             // DNS dentro del rootfs (Alpine no trae resolv.conf por defecto)
+            // Múltiples DNS por si algún proveedor está bloqueado en la red.
             File(rootfs, "etc").mkdirs()
             File(rootfs, "etc/resolv.conf").writeText(
-                "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
+                "nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 208.67.222.222\nnameserver 9.9.9.9\n"
             )
 
             onProgress("Alpine instalado correctamente ✓")
@@ -251,63 +254,77 @@ class OpenClawProot(private val context: Context) {
      *
      * Llama [onProgress] por cada línea de stdout/stderr.
      */
-    fun installOpenClaw(
+    /**
+     * Dentro del proot, ejecuta `apk add nodejs npm ca-certificates`,
+     * `npm install -g openclaw` y verifica las versiones.
+     * Retorna `true` si todo OK, `false` si falla (el error se reporta via [onProgress] con "FALLO:PASO").
+     */
+    suspend fun installOpenClaw(
         onProgress: (String) -> Unit,
-        onDone: () -> Unit,
         onError: (String) -> Unit
-    ) {
+    ): Boolean {
+        // Cada paso reporta explícitamente su resultado para saber exactamente dónde falla.
+        // No usamos `set -e` porque oculta qué paso falló.
         val script = """
-            set -e
-            echo "[1/4] Actualizando indice de paquetes (apk update)..."
-            apk update --no-cache
-            echo "[2/4] Instalando nodejs, npm y ca-certificates..."
-            apk add --no-cache nodejs npm ca-certificates
+            echo "[1/4] Actualizando indice de paquetes..."
+            if ! apk update --no-cache 2>&1; then
+                echo "FALLO:PASO1 apk update falló"
+                exit 1
+            fi
+
+            echo "[2/4] Instalando nodejs y npm..."
+            if ! apk add --no-cache nodejs npm 2>&1; then
+                echo "FALLO:PASO2 apk add nodejs npm falló"
+                exit 1
+            fi
+
+            echo "[2b/4] Instalando ca-certificates..."
+            apk add --no-cache ca-certificates 2>&1 || echo "[WARN] ca-certificates no disponible (no crítico)"
+
             echo "[3/4] Instalando openclaw via npm..."
-            npm install -g openclaw --prefer-offline || npm install -g openclaw
+            if ! npm install -g openclaw 2>&1; then
+                echo "FALLO:PASO3 npm install -g openclaw falló"
+                exit 1
+            fi
+
             echo "[4/4] Verificando..."
-            node --version
-            npm --version
-            openclaw --version || true
+            echo "Node.js: $(node --version 2>/dev/null || echo error), npm: $(npm --version 2>/dev/null || echo error)"
+            openclaw --version 2>/dev/null || echo "[WARN] openclaw --version no responde"
             echo "DONE"
         """.trimIndent()
 
-        runInProot(
+        val code = runInProot(
             command = listOf("/bin/sh", "-c", script),
             onOutput = { line ->
                 onProgress(line)
                 log(line)
-            },
-            onExit = { code ->
-                if (code == 0) onDone() else onError("install falló código $code")
             }
         )
+        if (code != 0) {
+            onError("install falló código $code")
+            return false
+        }
+        return true
     }
 
-    /** `npm update -g openclaw` dentro del proot. */
-    fun updateOpenClaw(
-        onProgress: (String) -> Unit,
-        onDone: () -> Unit
-    ) {
-        runInProot(
+    /** `npm update -g openclaw` dentro del proot. Retorna true si OK. */
+    suspend fun updateOpenClaw(onProgress: (String) -> Unit): Boolean {
+        val code = runInProot(
             command = listOf("/bin/sh", "-c", "npm update -g openclaw && openclaw --version"),
-            onOutput = onProgress,
-            onExit = { if (it == 0) onDone() }
+            onOutput = onProgress
         )
+        return code == 0
     }
 
-    /** Ejecuta `openclaw onboard` en el proot, asíncrono. */
-    fun runOnboard(
-        onProgress: (String) -> Unit,
-        onDone: () -> Unit,
-        onError: (String) -> Unit
-    ) {
-        runInProot(
+    /** Ejecuta `openclaw onboard` en el proot. Retorna true si OK. */
+    suspend fun runOnboard(
+        onProgress: (String) -> Unit
+    ): Boolean {
+        val code = runInProot(
             command = listOf("/bin/sh", "-c", "openclaw onboard"),
-            onOutput = onProgress,
-            onExit = { code ->
-                if (code == 0) onDone() else onError("onboard falló código $code")
-            }
+            onOutput = onProgress
         )
+        return code == 0
     }
 
     /**
@@ -316,7 +333,10 @@ class OpenClawProot(private val context: Context) {
      * (idéntico al ProcessBuilder anterior basado en libnode).
      */
     fun startGatewayProcess(extraEnv: Map<String, String> = emptyMap()): Process {
-        val pb = buildProotProcess(listOf("/bin/sh", "-lc", "openclaw gateway"))
+        val pb = buildProotProcess(
+            command = listOf("/bin/sh", "-lc", "openclaw gateway"),
+            cwd = "/data/home/.openclaw"
+        )
         if (extraEnv.isNotEmpty()) {
             pb.environment().putAll(extraEnv)
         }
@@ -326,26 +346,23 @@ class OpenClawProot(private val context: Context) {
     // ── Núcleo: runInProot ───────────────────────────────────────────────────
 
     /**
-     * Ejecuta un comando dentro del Alpine en un thread aparte.
-     * Recoge stdout y reporta el exit code via [onExit].
+     * Ejecuta un comando dentro del Alpine de forma bloqueante (suspend)
+     * y retorna el código de salida. Toda la salida stdout/stderr se
+     * pasa a [onOutput] línea por línea.
      */
-    fun runInProot(
+    suspend fun runInProot(
         command: List<String>,
-        onOutput: (String) -> Unit,
-        onExit: (Int) -> Unit
-    ) {
-        Thread({
-            val code = try {
-                val proc = buildProotProcess(command).start()
-                proc.inputStream.bufferedReader().forEachLine { onOutput(it) }
-                proc.waitFor()
-            } catch (e: Exception) {
-                log("proot error: ${e.message}")
-                onOutput("[error] ${e.message}")
-                -1
-            }
-            onExit(code)
-        }, "OpenClawProot-runner").apply { isDaemon = true }.start()
+        onOutput: (String) -> Unit
+    ): Int = withContext(Dispatchers.IO) {
+        try {
+            val proc = buildProotProcess(command).start()
+            proc.inputStream.bufferedReader().forEachLine { onOutput(it) }
+            proc.waitFor()
+        } catch (e: Exception) {
+            log("proot error: ${e.message}")
+            onOutput("[error] ${e.message}")
+            -1
+        }
     }
 
     /**
@@ -353,7 +370,7 @@ class OpenClawProot(private val context: Context) {
      * Aplica binds canónicos, simula uid 0 dentro del rootfs y configura
      * el environment mínimo necesario para que Node/openclaw funcionen.
      */
-    fun buildProotProcess(command: List<String>): ProcessBuilder {
+    fun buildProotProcess(command: List<String>, cwd: String = "/root"): ProcessBuilder {
         require(command.isNotEmpty()) { "command must not be empty" }
         val dataBindPath = filesDir.absolutePath
 
@@ -367,7 +384,7 @@ class OpenClawProot(private val context: Context) {
             add("--bind=$dataBindPath:/data")
             add("--bind=${prootTmpDir.absolutePath}:/tmp")
             add("--change-id=0:0")
-            add("--cwd=/root")
+            add("--cwd=$cwd")
             addAll(command)
         }
 

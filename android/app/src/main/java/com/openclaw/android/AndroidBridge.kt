@@ -95,7 +95,7 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun pickFile(callbackId: String) {
+    fun pickFile(@Suppress("UNUSED_PARAMETER") callbackId: String) {
         activity.runOnUiThread {
             if (activity is OpenClawDashboardActivity) {
                 activity.filePicker.launch("*/*")
@@ -104,7 +104,10 @@ class AndroidBridge(
     }
 
     @JavascriptInterface
-    fun installFromUri(uri: String, configUri: String) {
+    fun installFromUri(
+        @Suppress("UNUSED_PARAMETER") uri: String,
+        @Suppress("UNUSED_PARAMETER") configUri: String
+    ) {
         // Con proot: ignoramos URIs. La instalación es via descarga de Alpine + npm.
         notifyReact("onInstallError", JSONObject().apply {
             put("error", "Con la migración a proot, la instalación se hace automáticamente desde Internet")

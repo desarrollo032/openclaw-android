@@ -65,11 +65,25 @@ object OpenClawInstaller {
     ) = withContext(Dispatchers.IO) {
         val proot = OpenClawProot(context)
 
+        // ── Verificaciones previas ──────────────────────────────────────────
+        if (!proot.isProotPresent()) {
+            onError("libproot.so no encontrado — la APK está mal construida")
+            return@withContext
+        }
+        if (!isNetworkAvailable(context)) {
+            onError("Sin conexión a Internet — se necesita red para descargar Alpine")
+            return@withContext
+        }
+        val freeSpace = context.filesDir.freeSpace
+        if (freeSpace < 200 * 1024 * 1024L) {
+            val mbLibres = freeSpace / (1024 * 1024)
+            onError("Espacio insuficiente: ${mbLibres} MB libres, se necesitan 200 MB")
+            return@withContext
+        }
+
         try {
             // ── Paso 1: Alpine ───────────────────────────────────────────────
             if (!proot.isAlpineInstalled()) {
-                // downloadAndExtractAlpine ya reporta el error específico vía su onError.
-                // Si retorna false, simplemente salimos sin duplicar el mensaje.
                 val ok = proot.downloadAndExtractAlpine(
                     onProgress = { msg -> onProgress("[Alpine] $msg") },
                     onError = { err -> onError("[Alpine] $err") }
@@ -81,14 +95,13 @@ object OpenClawInstaller {
 
             // ── Paso 2: Node.js + npm + openclaw ────────────────────────────
             if (!proot.isOpenClawInstalled()) {
-                proot.installOpenClaw(
+                val ok = proot.installOpenClaw(
                     onProgress = { msg -> onProgress(msg) },
-                    onDone = {
-                        onProgress("Instalación completada ✓")
-                        onComplete()
-                    },
                     onError = { err -> onError(err) }
                 )
+                if (!ok) return@withContext
+                onProgress("Instalación completada ✓")
+                onComplete()
             } else {
                 onProgress("OpenClaw ya instalado ✓")
                 onComplete()
@@ -110,10 +123,8 @@ object OpenClawInstaller {
             onError("OpenClaw no está instalado. Ejecuta setup primero.")
             return@withContext
         }
-        proot.updateOpenClaw(
-            onProgress = onProgress,
-            onDone = onDone
-        )
+        val ok = proot.updateOpenClaw(onProgress = onProgress)
+        if (ok) onDone() else onError("Update falló")
     }
 
     // ── Uninstall ────────────────────────────────────────────────────────────
