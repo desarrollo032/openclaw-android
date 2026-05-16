@@ -6,8 +6,14 @@
         </trust-anchors>
     </base-config>
 
+    <!-- Permitir HTTP local para el gateway -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- Fallback HTTP para Alpine CDN si HTTPS falla por SSL -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">alpinelinux.org</domain>
     </domain-config>
 </network-security-config>
