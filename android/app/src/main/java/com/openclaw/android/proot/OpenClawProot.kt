@@ -54,10 +54,13 @@ class OpenClawProot(private val context: Context) {
         /** Versión de Alpine descargada. Cambiar requiere también verificar el SHA. */
         const val ALPINE_VERSION = "3.22.0"
 
-        /** URL oficial del minirootfs ARM64. */
+        /** URL oficial del minirootfs ARM64 (HTTPS). */
         val ALPINE_URL: String =
             "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/" +
             "alpine-minirootfs-$ALPINE_VERSION-aarch64.tar.gz"
+
+        /** Fallback HTTP si HTTPS falla por problemas de certificados SSL en el dispositivo. */
+        val ALPINE_HTTP_URL: String = ALPINE_URL.replace("https://", "http://")
 
         /** Path absoluto del openclaw.mjs dentro del rootfs Alpine (npm global). */
         private val OPENCLAW_PATHS_INSIDE_ALPINE = listOf(
@@ -115,41 +118,68 @@ class OpenClawProot(private val context: Context) {
             if (tarFile.exists()) tarFile.delete()
 
             onProgress("Descargando Alpine Linux ARM64 $ALPINE_VERSION…")
-            log("Downloading: $ALPINE_URL")
 
-            val conn = (URL(ALPINE_URL).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", "OpenClaw-Android/1.0")
-            }
-            if (conn.responseCode != 200) {
-                conn.disconnect()
-                onError("HTTP ${conn.responseCode} al descargar Alpine")
-                return false
-            }
-            val total = conn.contentLength.toLong().coerceAtLeast(0L)
-            var copied = 0L
-            var lastPct = -1
-            tarFile.outputStream().use { out ->
-                conn.inputStream.use { input: InputStream ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n <= 0) break
-                        out.write(buf, 0, n)
-                        copied += n
-                        if (total > 0) {
-                            val pct = ((copied * 100) / total).toInt()
-                            if (pct != lastPct) {
-                                lastPct = pct
-                                onProgress("Descargando Alpine… $pct%")
+            // ── Descarga con fallback HTTPS → HTTP ────────────────────────────
+            // Algunos dispositivos tienen CAs desactualizados o configuraciones
+            // de red que bloquean la validación SSL (proxies corporativos,
+            // custom ROMs, etc.). Primero intentamos HTTPS; si falla por SSL,
+            // reintentamos con HTTP.
+            val urlsToTry = listOf(ALPINE_URL, ALPINE_HTTP_URL)
+            var downloaded = false
+
+            for (attemptUrl in urlsToTry) {
+                if (downloaded) break
+                log("Download attempt: $attemptUrl")
+
+                try {
+                    val conn = (URL(attemptUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 15_000
+                        readTimeout = 30_000
+                        requestMethod = "GET"
+                        setRequestProperty("User-Agent", "OpenClaw-Android/1.0")
+                    }
+                    if (conn.responseCode != 200) {
+                        conn.disconnect()
+                        continue
+                    }
+                    val total = conn.contentLength.toLong().coerceAtLeast(0L)
+                    var copied = 0L
+                    var lastPct = -1
+                    tarFile.outputStream().use { out ->
+                        conn.inputStream.use { input: InputStream ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n <= 0) break
+                                out.write(buf, 0, n)
+                                copied += n
+                                if (total > 0) {
+                                    val pct = ((copied * 100) / total).toInt()
+                                    if (pct != lastPct) {
+                                        lastPct = pct
+                                        onProgress("Descargando Alpine… $pct%")
+                                    }
+                                }
                             }
                         }
                     }
+                    conn.disconnect()
+                    downloaded = true
+                    if (attemptUrl != ALPINE_URL) {
+                        log("Downloaded via HTTP fallback (HTTPS SSL error on this device)")
+                        onProgress("Descarga completada (vía HTTP)")
+                    }
+                } catch (e: javax.net.ssl.SSLException) {
+                    log("HTTPS failed: ${e.message}, trying HTTP fallback...")
+                    // Intentar con HTTP en la siguiente iteración
                 }
             }
-            conn.disconnect()
+
+            if (!downloaded) {
+                onError("No se pudo descargar Alpine (HTTPS y HTTP fallaron)")
+                return false
+            }
+
             if (tarFile.length() == 0L) {
                 tarFile.delete()
                 onError("Descarga vacía de Alpine")
