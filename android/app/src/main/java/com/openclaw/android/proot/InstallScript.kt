@@ -219,7 +219,7 @@ object InstallScript {
                 if [ "${'$'}pnpm_ok" -ne 1 ]; then
                     if command -v corepack >/dev/null 2>&1; then
                         phase_step pnpm "Activando pnpm vía corepack"
-                        cd /root 2>/dev/null || true
+                        mkdir -p /tmp/oc-build && cd /tmp/oc-build 2>/dev/null || cd /tmp
                         if corepack enable 2>&1 && corepack prepare pnpm@latest --activate 2>&1; then
                             phase_step pnpm "pnpm activado vía corepack"
                             pnpm_ok=1
@@ -238,7 +238,7 @@ object InstallScript {
                     done
                     if [ -n "${'$'}NPM_CLI" ]; then
                         phase_step pnpm "Ejecutando node ${'$'}NPM_CLI install -g pnpm"
-                        cd /root 2>/dev/null || true
+                        mkdir -p /tmp/oc-build && cd /tmp/oc-build 2>/dev/null || cd /tmp
                         if node "${'$'}NPM_CLI" install -g pnpm 2>&1; then
                             pnpm_ok=1
                         else
@@ -311,7 +311,7 @@ ENVEOF
                 phase_skip openclaw "OpenClaw ya instalado"
             else
                 phase_start openclaw "Instalando OpenClaw (beta)"
-                cd /root 2>/dev/null || true
+                mkdir -p /tmp/oc-build && cd /tmp/oc-build 2>/dev/null || cd /tmp
                 oc_ok=0
 
                 # Intento 1: pnpm
