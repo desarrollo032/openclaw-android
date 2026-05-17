@@ -85,7 +85,7 @@ class OpenClawProot(private val context: Context) {
     // ── Rutas en el host Android ─────────────────────────────────────────────
 
     val filesDir: File        get() = context.filesDir
-    val nativeDir: String     get() = context.applicationInfo.nativeLibraryDir
+    val nativeDir: String     get() = context.applicationInfo.nativeLibraryDir ?: ""
     val rootfs: File          get() = File(filesDir, "alpine-rootfs").apply { mkdirs() }
     val prootTmpDir: File     get() = File(context.cacheDir, "proot-tmp").apply { mkdirs() }
     val homeDir: File         get() = File(filesDir, "home").apply { mkdirs() }
@@ -613,7 +613,7 @@ class OpenClawProot(private val context: Context) {
         val args = mutableListOf<String>().apply {
             add(proot)
             add("--link2symlink")                          // fix symlinks Alpine en filesDir Android
-            add("-0")                                      // fake root compatible Samsung/Android 12+
+            add("--change-id=0:0")                         // fake root compatible Samsung/Android 12+
             add("--rootfs=${rootfs.absolutePath}")
             add("--bind=/proc")
             add("--bind=/dev")
@@ -635,7 +635,8 @@ class OpenClawProot(private val context: Context) {
                 put("PROOT_LOADER",     "$nativeDir/libproot_loader.so")
                 put("HOME",             "/root")
                 put("TMPDIR",           "/data/home/.openclaw/tmp")
-                put("PATH",             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+                put("PNPM_HOME",        "/root/.local/share/pnpm")
+                put("PATH",             "/root/.local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
                 put("TERM",             "xterm-256color")
                 put("COLORTERM",        "truecolor")
                 put("LANG",             "en_US.UTF-8")
@@ -657,7 +658,7 @@ class OpenClawProot(private val context: Context) {
     fun buildShellCommand(): Array<String> = arrayOf(
         proot,                                           // argv[0]
         "--link2symlink",
-        "-0",
+        "--change-id=0:0",
         "--rootfs=${rootfs.absolutePath}",
         "--bind=/proc",
         "--bind=/dev",
@@ -677,7 +678,8 @@ class OpenClawProot(private val context: Context) {
         "PROOT_LOADER=$nativeDir/libproot_loader.so",
         "HOME=/root",
         "TMPDIR=/data/home/.openclaw/tmp",
-        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PNPM_HOME=/root/.local/share/pnpm",
+        "PATH=/root/.local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "TERM=xterm-256color",
         "COLORTERM=truecolor",
         "LANG=en_US.UTF-8",
