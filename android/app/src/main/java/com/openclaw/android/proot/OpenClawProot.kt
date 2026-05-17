@@ -412,7 +412,7 @@ class OpenClawProot(private val context: Context) {
         // Cada paso reporta explícitamente su resultado para saber exactamente dónde falla.
         // No usamos `set -e` porque oculta qué paso falló.
         // La variable PNPM_HOME se añade a .bashrc para persistencia entre sesiones.
-        val script = """"
+        val script = """
             echo "[1/10] Detectando arquitectura..."
             arch=$(uname -m)
             echo "Arquitectura detectada: ${'$'}arch"
