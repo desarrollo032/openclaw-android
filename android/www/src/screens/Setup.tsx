@@ -11,6 +11,7 @@ import {
   Loader2,
   Circle,
   XCircle,
+  SkipForward,
 } from 'lucide-react'
 
 interface Props { onComplete: () => void }
@@ -26,7 +27,7 @@ const STEPS = [
  * coincidir con las que emite el script de OpenClawProot.installOpenClaw
  * y con las que reporta AndroidBridge.getInstallPhases().
  */
-const INSTALL_PHASES: { key: string; label: string }[] = [
+const INSTALL_PHASES: { key: string; label: string; skippable?: boolean }[] = [
   { key: 'dirs',       label: 'Preparar directorios del entorno' },
   { key: 'alpine',     label: 'Descargar y extraer Alpine Linux' },
   { key: 'arch',       label: 'Detectar arquitectura' },
@@ -34,10 +35,10 @@ const INSTALL_PHASES: { key: string; label: string }[] = [
   { key: 'apk_update', label: 'Refrescar índice de paquetes' },
   { key: 'nodejs',     label: 'Instalar Node.js' },
   { key: 'npm',        label: 'Instalar npm' },
-  { key: 'sys_deps',   label: 'Dependencias mínimas (libstdc++, ca-certs, bash)' },
-  { key: 'pnpm',       label: 'Instalar pnpm (gestor de paquetes)' },
-  { key: 'pnpm_env',   label: 'Configurar PNPM_HOME' },
-  { key: 'versions',   label: 'Verificar versiones' },
+  { key: 'sys_deps',   label: 'Dependencias mínimas (libstdc++, ca-certs, bash)', skippable: true },
+  { key: 'pnpm',       label: 'Instalar pnpm (gestor de paquetes)', skippable: true },
+  { key: 'pnpm_env',   label: 'Configurar PNPM_HOME', skippable: true },
+  { key: 'versions',   label: 'Verificar versiones', skippable: true },
   { key: 'openclaw',   label: 'Instalar OpenClaw (beta)' },
   { key: 'onboard',    label: 'Configurar OpenClaw (onboard)' },
   { key: 'verify',     label: 'Verificación final' },
@@ -75,7 +76,7 @@ const MAX_LOG_LINES = 60
 
 export function Setup({ onComplete }: Props) {
   const [stepIdx, setStepIdx] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [statusChecked, setStatusChecked] = useState(false)
   const [error, setError] = useState('')
   const [errorPhase, setErrorPhase] = useState<string | null>(null)
   const [platforms, setPlatforms] = useState<{ id: string; name: string; installed: boolean }[]>([])
@@ -89,8 +90,13 @@ export function Setup({ onComplete }: Props) {
   const [logLines, setLogLines] = useState<string[]>([])
 
   const installingRef = useRef(false)
-  installingRef.current = installing
   const logEndRef = useRef<HTMLDivElement | null>(null)
+
+  // Sync ref with state inside an effect (React compiler forbids ref updates during render)
+  useEffect(() => { installingRef.current = installing }, [installing])
+
+  // Derived: loading is true until the first status check completes
+  const loading = !statusChecked
 
   const nextAnim = () => setAnimKey(k => k + 1)
   const current = STEPS[stepIdx]
@@ -127,13 +133,13 @@ export function Setup({ onComplete }: Props) {
   // ── Initial setup detection ────────────────────────────────────────────
   useEffect(() => {
     if (!bridge.isAvailable()) {
-      setLoading(false)
+      setStatusChecked(true)
       return
     }
     if (stepIdx !== 0) return
     const s = refreshStatus()
     refreshCompletedPhases()
-    setLoading(false)
+    setStatusChecked(true)
     if (s?.bootstrapInstalled && s?.alpineReady) {
       setStepIdx(1)
       nextAnim()
@@ -160,7 +166,6 @@ export function Setup({ onComplete }: Props) {
   // ── Step 1 (platform) init ─────────────────────────────────────────────
   useEffect(() => {
     if (stepIdx === 1) {
-      setLoading(false)
       setPlatforms([
         { id: 'openclaw', name: 'OpenClaw Core', installed: false },
         { id: 'code', name: 'Code Server', installed: false },
@@ -283,6 +288,22 @@ export function Setup({ onComplete }: Props) {
     setTimeout(() => onComplete(), 1500)
   }
 
+  /** Saltar una fase fallida (solo fases marcadas como skippable). */
+  const handleSkipPhase = useCallback((key: string) => {
+    if (!bridge.isAvailable()) return
+    bridge.call('skipPhase', key)
+    // Actualizar el estado local inmediatamente para feedback visual
+    setPhaseStatus(prev => ({
+      ...prev,
+      [key]: { state: 'skipped', message: 'Saltado por el usuario' }
+    }))
+    // Si era la fase con error activo, limpiar el error
+    if (errorPhase === key) {
+      setErrorPhase(null)
+      setError('')
+    }
+  }, [errorPhase])
+
   // ── Phase list summary ─────────────────────────────────────────────────
   const phaseSummary = (() => {
     let done = 0, running = 0, errored = 0
@@ -299,7 +320,7 @@ export function Setup({ onComplete }: Props) {
   const hasPartialProgress = phaseSummary.done > 0 || phaseSummary.errored > 0
 
   // ── Setup step renderer ────────────────────────────────────────────────
-  const renderPhaseRow = (key: string, label: string) => {
+  const renderPhaseRow = (key: string, label: string, skippable?: boolean) => {
     const status = phaseStatus[key]?.state ?? 'pending'
     const message = phaseStatus[key]?.message ?? ''
 
@@ -344,6 +365,16 @@ export function Setup({ onComplete }: Props) {
             <div className="text-[10px] text-text-muted truncate mt-0.5">{message}</div>
           )}
         </div>
+        {status === 'error' && skippable && !installing && (
+          <button
+            onClick={() => handleSkipPhase(key)}
+            className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-400 text-[10px] font-medium hover:bg-amber-500/30 transition-colors"
+            title="Saltar esta fase y continuar"
+          >
+            <SkipForward size={10} />
+            Saltar
+          </button>
+        )}
       </div>
     )
   }
@@ -411,7 +442,7 @@ export function Setup({ onComplete }: Props) {
                     ? `Falló en: ${INSTALL_PHASES.find(p => p.key === errorPhase)?.label ?? errorPhase}`
                     : 'Error durante la instalación'}
                 </div>
-                <div className="opacity-80 mt-0.5 break-words">{error}</div>
+                <div className="opacity-80 mt-0.5 wrap-break-word">{error}</div>
                 {hasPartialProgress && (
                   <div className="opacity-70 mt-1">
                     Se conservarán las {phaseSummary.done} fases ya completadas al reintentar.
@@ -447,7 +478,7 @@ export function Setup({ onComplete }: Props) {
         {/* Phase checklist */}
         {(installing || hasPartialProgress || error) && (
           <div className="rounded-xl bg-glass-bg border border-glass-border p-2 space-y-1.5 max-h-[280px] overflow-y-auto">
-            {INSTALL_PHASES.map(p => renderPhaseRow(p.key, p.label))}
+            {INSTALL_PHASES.map(p => renderPhaseRow(p.key, p.label, p.skippable))}
           </div>
         )}
 
