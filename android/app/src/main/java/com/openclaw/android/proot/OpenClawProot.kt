@@ -334,21 +334,30 @@ class OpenClawProot(private val context: Context) {
     // ── Instalación de Node.js + openclaw dentro de Alpine ───────────────────
 
     /**
-     * Dentro del proot, realiza la instalación completa de OpenClaw:
-     *   1. Detecta arquitectura ARM64
-     *   2. Verifica/instala Node.js y npm (skip si ya existen)
-     *   3. Verifica/instala npm (skip si ya existe)
-     *   4. Instala dependencias del sistema (python3, make, g++, libc6-compat, libstdc++)
-     *   5. Instala pnpm globalmente via npm
-     *   6. Configura PNPM_HOME en .bashrc y .profile para persistencia
-     *   7. Verifica versiones de node, npm, pnpm
-     *   8. Instala openclaw@beta via pnpm
-     *   9. Ejecuta openclaw onboard (con stdin vacío para evitar prompts)
-     *  10. Verificación final (openclaw --version)
+     * Dentro del proot, realiza la instalación completa de OpenClaw en 12 fases:
+     *   arch       — verificar aarch64
+     *   apk_repos  — confirmar /etc/apk/repositories
+     *   apk_update — refrescar índice (con 3 reintentos)
+     *   nodejs     — apk add nodejs
+     *   npm        — apk add npm
+     *   sys_deps   — runtime mínimo: libstdc++, ca-certificates, bash
+     *   pnpm       — apk add pnpm (con fallback a 'node npm-cli.js install -g pnpm')
+     *   pnpm_env   — exportar PNPM_HOME en .bashrc/.profile
+     *   versions   — print de node/npm/pnpm
+     *   openclaw   — pnpm add -g openclaw@beta
+     *   onboard    — openclaw onboard
+     *   verify     — openclaw --version
      *
-     * Retorna `true` si todo OK, `false` si falla.
-     * Si falla, captura la última línea que comienza con "FALLO:" y la usa como
-     * mensaje de error en vez del genérico "install falló código 1".
+     * Cada fase es resumible: escribe un marker en
+     * /root/.openclaw-install/<key>.done y los reintentos saltan las fases ya
+     * completadas. Si una fase falla, el script termina; el host captura la
+     * última línea PHASE:<key>:error:<msg> y la reporta vía [onError].
+     *
+     * Fix de proot/Android: al terminar nodejs/pnpm/openclaw aplicamos
+     * `fix_node_shebang` para reescribir '#!/usr/bin/env node' →
+     * '#!/usr/bin/node' y evitar el error
+     *   env: can't execute 'node': Function not implemented
+     * que aparece cuando busybox env intenta execvp(node) bajo el sandbox.
      */
     suspend fun installOpenClaw(
         onProgress: (String) -> Unit,
@@ -566,16 +575,24 @@ class OpenClawProot(private val context: Context) {
             fi
 
             # ────────────────────────────────────────────────────────────────
-            # Fase 6: sys_deps — dependencias del sistema (instalación individual)
+            # Fase 6: sys_deps — dependencias mínimas de runtime
             # ────────────────────────────────────────────────────────────────
+            # Solo paquetes necesarios para EJECUTAR openclaw, no para
+            # compilarlo. Hemos dejado fuera:
+            #   - python3/make/g++  (solo si openclaw usara node-gyp / native modules)
+            #   - libc6-compat      (solo para binarios glibc; openclaw es JS puro)
+            #   - curl              (no lo usa openclaw; pnpm tiene su propio HTTP)
+            #   - git               (openclaw no clona repos en runtime)
+            # Lo que queda es lo que realmente necesita la CLI para correr:
+            #   - libstdc++         requerido por el binario node (C++ runtime)
+            #   - ca-certificates   requerido para HTTPS dentro de node
+            #   - bash              scripts de openclaw esperan bash, no ash
             if phase_done sys_deps; then
                 phase_skip sys_deps "Dependencias del sistema ya instaladas"
             else
-                phase_start sys_deps "Instalando dependencias del sistema"
-                # Cada paquete se instala por separado. Si uno falla, el script
-                # continúa con los demás y reporta cuáles fallaron al final.
+                phase_start sys_deps "Instalando dependencias mínimas de runtime"
                 dep_failures=""
-                for pkg in python3 make g++ curl git libc6-compat libstdc++ ca-certificates bash; do
+                for pkg in libstdc++ ca-certificates bash; do
                     if ! install_pkg sys_deps "${'$'}pkg" "${'$'}pkg"; then
                         dep_failures="${'$'}dep_failures ${'$'}pkg"
                     fi
@@ -584,20 +601,92 @@ class OpenClawProot(private val context: Context) {
                     phase_err sys_deps "Paquetes fallidos:${'$'}dep_failures"
                     exit 1
                 fi
-                phase_ok sys_deps "Dependencias del sistema instaladas"
+                phase_ok sys_deps "Dependencias de runtime instaladas"
             fi
 
             # ────────────────────────────────────────────────────────────────
-            # Fase 7: pnpm — instalar pnpm via npm global
+            # Helper: reescribe shebangs '#!/usr/bin/env node' → '#!/usr/bin/node'
             # ────────────────────────────────────────────────────────────────
+            # Workaround para un bug de proot en Android:
+            #   "env: can't execute 'node': Function not implemented"
+            #
+            # Cuando el kernel resuelve un shebang #!/usr/bin/env node, ejecuta
+            # /usr/bin/env y éste hace execvp("node",...) que en ciertos kernels
+            # Android devuelve ENOSYS dentro del sandbox proot. Sin embargo,
+            # execve("/usr/bin/node",...) directo funciona (lo probamos con
+            # 'node --version'). Por eso reescribimos el shebang para llamar
+            # node directamente sin pasar por env.
+            fix_node_shebang() {
+                local f="${'$'}1"
+                [ -e "${'$'}f" ] || return 0
+                # Resolver symlinks: editamos el archivo real, no el enlace
+                local real
+                real=${'$'}(readlink -f "${'$'}f" 2>/dev/null || echo "${'$'}f")
+                [ -f "${'$'}real" ] || return 0
+                local first
+                first=${'$'}(head -n 1 "${'$'}real" 2>/dev/null)
+                case "${'$'}first" in
+                    "#!/usr/bin/env node"*|"#!/usr/bin/env -S node"*)
+                        # Sustitución portable: funciona con busybox sed y GNU sed.
+                        sed -i '1s|^#!/usr/bin/env .*node.*|#!/usr/bin/node|' "${'$'}real" 2>/dev/null || true
+                        ;;
+                esac
+            }
+
+            # Aplicar fix a npm/npx ahora que están instalados — esto es lo que
+            # destrabar 'npm install -g pnpm' en intentos posteriores.
+            for bin in /usr/bin/npm /usr/bin/npx \
+                       /usr/local/bin/npm /usr/local/bin/npx; do
+                fix_node_shebang "${'$'}bin"
+            done
+
+            # ────────────────────────────────────────────────────────────────
+            # Fase 7: pnpm — instalar pnpm
+            # ────────────────────────────────────────────────────────────────
+            # Estrategia:
+            #   1. Intentar 'apk add pnpm' (community repo, paquete nativo)
+            #   2. Si falla, invocar npm directamente vía 'node npm-cli.js' para
+            #      bypasear el shebang #!/usr/bin/env node que rompe en proot
             if phase_done pnpm && command -v pnpm >/dev/null 2>&1; then
                 phase_skip pnpm "pnpm ya instalado (${'$'}(pnpm --version 2>/dev/null))"
             else
-                phase_start pnpm "Instalando pnpm vía npm"
-                if ! npm install -g pnpm 2>&1; then
-                    phase_err pnpm "npm install -g pnpm falló"
-                    exit 1
+                phase_start pnpm "Instalando pnpm"
+                pnpm_ok=0
+
+                # Intento 1: apk (rápido, sin tocar npm)
+                pnpm_log=/tmp/apk-pnpm.log
+                if apk add --no-progress pnpm > "${'$'}pnpm_log" 2>&1; then
+                    phase_step pnpm "pnpm instalado vía apk"
+                    pnpm_ok=1
+                else
+                    phase_step pnpm "apk no tiene pnpm en este mirror — usando fallback npm"
                 fi
+
+                # Intento 2: node + npm-cli.js (bypasa env+shebang)
+                if [ "${'$'}pnpm_ok" -ne 1 ]; then
+                    NPM_CLI=""
+                    for p in /usr/lib/node_modules/npm/bin/npm-cli.js \
+                             /usr/local/lib/node_modules/npm/bin/npm-cli.js; do
+                        [ -f "${'$'}p" ] && NPM_CLI="${'$'}p" && break
+                    done
+                    if [ -z "${'$'}NPM_CLI" ]; then
+                        phase_err pnpm "No se encontró npm-cli.js para fallback"
+                        exit 1
+                    fi
+                    phase_step pnpm "Ejecutando node ${'$'}NPM_CLI install -g pnpm"
+                    if ! node "${'$'}NPM_CLI" install -g pnpm 2>&1; then
+                        phase_err pnpm "Instalación de pnpm falló (apk y npm)"
+                        exit 1
+                    fi
+                fi
+
+                # Fix shebangs de pnpm/pnpx para que se puedan invocar después
+                for bin in /usr/bin/pnpm /usr/bin/pnpx \
+                           /usr/local/bin/pnpm /usr/local/bin/pnpx \
+                           /root/.local/share/pnpm/pnpm; do
+                    fix_node_shebang "${'$'}bin"
+                done
+
                 pnpm_ver=${'$'}(pnpm --version 2>/dev/null || echo "?")
                 phase_ok pnpm "pnpm ${'$'}pnpm_ver instalado"
             fi
@@ -656,6 +745,12 @@ ENVEOF
                     phase_err openclaw "pnpm add -g openclaw@beta falló"
                     exit 1
                 fi
+                # Mismo fix de shebang para el binario openclaw recién instalado
+                for bin in /root/.local/share/pnpm/openclaw \
+                           /usr/local/bin/openclaw \
+                           /usr/bin/openclaw; do
+                    fix_node_shebang "${'$'}bin"
+                done
                 phase_ok openclaw "OpenClaw beta instalado"
             fi
 
