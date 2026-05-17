@@ -13,7 +13,6 @@ Problemas comunes al usar **OpenClaw en Android** (app nativa con proot + Alpine
 - [El gateway no arranca: "gateway already running"](#el-gateway-no-arranca-gateway-already-running)
 - [Gateway desconectado: "gateway not connected"](#gateway-desconectado-gateway-not-connected)
 - [SSH fallido: "Connection refused"](#ssh-fallido-connection-refused)
-- [Proot falla: `execve(\"/bin/sh\"): Permission denied`](#proot-falla-execvebinsh-permission-denied)
 - [`openclaw --version` falla](#openclaw---version-falla)
 - ["Cannot find module glibc-compat.js" [Legacy]](#cannot-find-module-glibc-compatjs-legacy)
 - [`systemctl --user unavailable` durante el update [Legacy]](#systemctl---user-unavailable-durante-el-update-legacy)
@@ -144,7 +143,7 @@ O cierra y abre Termux por completo.
 
 ---
 
-## "Cannot find module glibc-compat.js"
+## "Cannot find module glibc-compat.js" [Legacy]
 
 ```
 Error: Cannot find module '/data/data/com.termux/files/home/.openclaw-lite/patches/glibc-compat.js'
@@ -172,7 +171,7 @@ sed -i 's/\.openclaw-lite/\.openclaw-android/g' ~/.bashrc && source ~/.bashrc
 
 ---
 
-## `systemctl --user unavailable` durante el update
+## `systemctl --user unavailable` durante el update [Legacy]
 
 ```
 Gateway service check failed: Error: systemctl --user unavailable: spawn systemctl ENOENT
@@ -198,7 +197,7 @@ Si ya estaba corriendo antes del update, quizá necesites matar el proceso antig
 
 ---
 
-## `sharp` falla durante `openclaw update`
+## `sharp` falla durante `openclaw update` [Legacy]
 
 ```
 npm error gyp ERR! not ok
@@ -231,7 +230,7 @@ oa --update && source ~/.bashrc
 
 ---
 
-## `clawdhub` falla con "Cannot find package 'undici'"
+## `clawdhub` falla con "Cannot find package 'undici'" [Legacy]
 
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'undici' imported from /data/data/com.termux/files/usr/lib/node_modules/clawdhub/dist/http.js
@@ -257,7 +256,7 @@ cd $(npm root -g)/clawdhub && npm install undici
 
 ---
 
-## "not supported on android"
+## "not supported on android" [Legacy]
 
 ```
 Gateway status failed: Error: Gateway service install not supported on android
@@ -291,7 +290,7 @@ oa --update && source ~/.bashrc
 
 ---
 
-## `openclaw update` con error de `node-llama-cpp`
+## `openclaw update` con error de `node-llama-cpp` [Legacy]
 
 ```
 [node-llama-cpp] Cloning ggml-org/llama.cpp (local bundle)
@@ -319,7 +318,7 @@ node -e "require('$(npm root -g)/openclaw/node_modules/@node-llama-cpp/linux-arm
 
 ---
 
-## OpenCode con errores `EACCES`
+## OpenCode con errores `EACCES` [Legacy]
 
 ```
 EACCES: Permission denied while installing opencode-ai
@@ -344,7 +343,7 @@ opencode --version
 
 ---
 
-## `libldlinux.so` rechaza `--disable-warning=ExperimentalWarning`
+## `libldlinux.so` rechaza `--disable-warning=ExperimentalWarning` [Legacy]
 
 ```
 .../libldlinux.so: unrecognized option '--disable-warning=ExperimentalWarning'
