@@ -38,6 +38,7 @@ object InstallScript {
         
         return """
             set +e
+            cd / 2>/dev/null || true
             # Alpine Version: $alpineVersion ($apkBranch)
             MARKER_DIR=/root/.openclaw-install
             mkdir -p "${'$'}MARKER_DIR"
@@ -327,7 +328,7 @@ ENVEOF
                 phase_skip openclaw "OpenClaw ya instalado"
             else
                 phase_start openclaw "Instalando OpenClaw ($channelLabel)"
-                cd "${'$'}MARKER_DIR" 2>/dev/null || true
+                cd / 2>/dev/null || true
                 oc_ok=0
 
                 # Intento Único: pnpm
@@ -336,10 +337,13 @@ ENVEOF
                     if pnpm_cmd=${'$'}(command -v pnpm 2>/dev/null); then
                         fix_node_shebang "${'$'}pnpm_cmd"
                     fi
-                    if pnpm add -g $ocPackage 2>&1; then
+                    
+                    pnpm_out=${'$'}(pnpm add -g $ocPackage 2>&1)
+                    if [ ${'$'}? -eq 0 ]; then
                         oc_ok=1
                     else
-                        phase_step openclaw "pnpm falló."
+                        phase_step openclaw "pnpm falló. Log:"
+                        echo "${'$'}pnpm_out"
                     fi
                 else
                     phase_step openclaw "pnpm no encontrado, no se puede instalar."
