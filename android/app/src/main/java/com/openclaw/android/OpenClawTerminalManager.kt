@@ -29,7 +29,7 @@ class OpenClawTerminalManager(private val context: Context) {
      * El TerminalSession recibe:
      *   - executable    = libproot.so (desde nativeLibraryDir)
      *   - initialDir    = /data/home/.openclaw (dentro del proot)
-     *   - arguments     = --rootfs=... --bind=... --change-id=0:0 --cwd=... /bin/sh
+     *   - arguments     = --link2symlink -0 --rootfs=... --bind=... --cwd=... /bin/sh
      *   - environment   = KEY=VALUE array (PROOT_TMP_DIR, PATH, etc.)
      *
      * Retorna null si proot no está presente o Alpine no está instalado.

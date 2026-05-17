@@ -46,14 +46,18 @@ El proceso se inicia con un entorno controlado:
 
 | Variable | Valor / Función |
 | --- | --- |
-| `PATH` | Binarios del Alpine (`/usr/bin`, `/bin`) + `$OPENCLAW_HOME`. |
-| `HOME` | Directorio del Alpine rootfs. |
-| `TMPDIR` | Cache de la app. |
-| `OPENCLAW_HOME` | Configuración del usuario (`.openclaw`). |
+| `PATH` | Binarios del Alpine (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`). |
+| `HOME` | `/root` (dentro del rootfs Alpine). |
+| `TMPDIR` | `/data/home/.openclaw/tmp` (bind mount de `home/.openclaw/tmp`). |
+| `OPENCLAW_HOME` | `/data/home/.openclaw` (bind mount de `homeDir/.openclaw`). |
 | `OPENCLAW_DASHBOARD_TOKEN` | Token dinámico para autenticar el dashboard. |
-| `TERM` | `xterm-256color`. |
-| `NODE_NO_WARNINGS` | Desactiva advertencias de Node.js. |
-| `NODE_DISABLE_COMPILE_CACHE` | Desactiva caché de compilación. |
+| `TERM` | `xterm-256color` |
+| `COLORTERM` | `truecolor` |
+| `LANG` / `LC_ALL` | `en_US.UTF-8` |
+| `PROOT_TMP_DIR` | Directorio temporal de proot en `cacheDir`. |
+| `PROOT_NO_SECCOMP` | `1` — desactiva seccomp para kernels Android restrictivos. |
+| `SSL_CERT_FILE` | `/etc/ssl/certs/ca-certificates.crt` (certificados de Alpine). |
+| `npm_config_cache` | `/tmp/npm-cache` |
 
 **Nota:** Ya no se necesita `LD_LIBRARY_PATH`, `LD_PRELOAD`, ni `OA_GLIBC`. El gateway corre dentro del Alpine Linux que provee su propia glibc.
 

@@ -48,7 +48,7 @@ androidResources {
 5. **Creación de directorios base** — se crean `/root`, `/tmp` y `/.l2s` (requerido por `--link2symlink`) dentro del rootfs.
 6. **Sanity check** — se ejecuta `/bin/sh -c 'echo ok'` dentro de proot para verificar que el contenedor funciona.
 7. **Instalación de Node.js** — `apk add nodejs npm` dentro del Alpine.
-8. **Instalación de OpenClaw** — `npm install -g openclaw@beta` dentro del Alpine.
+8. **Instalación de OpenClaw** — `pnpm add -g openclaw@beta` dentro del Alpine.
 9. **Ejecución de onboard** — `openclaw onboard` para completar la configuración inicial.
 10. **Marcar instalación completa** — se persiste la flag `KEY_ALPINE_INSTALLED`.
 
