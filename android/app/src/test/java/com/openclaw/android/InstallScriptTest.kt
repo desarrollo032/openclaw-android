@@ -8,17 +8,17 @@ import org.junit.Test
 class InstallScriptTest {
 
     @Test
-    fun `installer skips pnpm and installs openclaw with npm`() {
+    fun `installer installs pnpm via npm and uses pnpm to install openclaw`() {
         val script = InstallScript.generate()
 
-        script.shouldContain("pnpm se omite")
-        script.shouldContain("npm install -g ${'$'}ocPackage")
-        script.shouldNotContain("pnpm add -g")
+        // pnpm is installed through the bundled npm — not apk, corepack, or self-install.
+        script.shouldContain("npm install -g pnpm")
         script.shouldNotContain("apk add --no-progress pnpm")
         script.shouldNotContain("corepack prepare pnpm")
-        script.shouldNotContain("npm install -g pnpm")
-        script.shouldNotContain("No se pudo instalar OpenClaw (pnpm fallo)")
-        script.shouldNotContain("No se pudo instalar OpenClaw (pnpm falló)")
+        script.shouldNotContain("pnpm add -g")
+
+        // OpenClaw is installed via pnpm (the channel package).
+        script.shouldContain("pnpm install -g ${'$'}ocPackage")
     }
 
     @Test
