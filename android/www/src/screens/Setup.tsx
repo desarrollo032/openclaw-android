@@ -74,18 +74,41 @@ interface InstallProgressEvent {
 
 const MAX_LOG_LINES = 60
 
+const DEFAULT_PLATFORMS = [
+  { id: 'openclaw', name: 'OpenClaw Core', installed: false },
+  { id: 'code', name: 'Code Server', installed: false },
+  { id: 'browser', name: 'Chromium Browser', installed: false },
+]
+
 export function Setup({ onComplete }: Props) {
-  const [stepIdx, setStepIdx] = useState(0)
-  const [statusChecked, setStatusChecked] = useState(false)
+  // ── Initial state from bridge (synchronous, runs once at mount) ─────
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(() => {
+    if (!bridge.isAvailable()) return null
+    return bridge.callJson<SetupStatus>('getSetupStatus') ?? null
+  })
+
+  const [phaseStatus, setPhaseStatus] = useState<Record<string, PhaseStatus>>(() => {
+    if (!bridge.isAvailable()) return {}
+    const r = bridge.callJson<{ phases: string[] }>('getInstallPhases')
+    if (!r?.phases) return {}
+    const map: Record<string, PhaseStatus> = {}
+    for (const k of r.phases) {
+      map[k] = { state: 'done', message: 'Completado' }
+    }
+    return map
+  })
+
+  const [stepIdx, setStepIdx] = useState(() => {
+    if (!bridge.isAvailable()) return 0
+    const s = bridge.callJson<SetupStatus>('getSetupStatus')
+    return (s?.bootstrapInstalled && s?.alpineReady) ? 1 : 0
+  })
+
   const [error, setError] = useState('')
   const [errorPhase, setErrorPhase] = useState<string | null>(null)
-  const [platforms, setPlatforms] = useState<{ id: string; name: string; installed: boolean }[]>([])
+  const [platforms, setPlatforms] = useState(DEFAULT_PLATFORMS)
   const [animKey, setAnimKey] = useState(0)
-  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
   const [installing, setInstalling] = useState(false)
-
-  /** Estado de cada fase. Se inicializa desde getInstallPhases() en el mount. */
-  const [phaseStatus, setPhaseStatus] = useState<Record<string, PhaseStatus>>({})
   const [activePhase, setActivePhase] = useState<string | null>(null)
   const [logLines, setLogLines] = useState<string[]>([])
 
@@ -95,12 +118,13 @@ export function Setup({ onComplete }: Props) {
   // Sync ref with state inside an effect (React compiler forbids ref updates during render)
   useEffect(() => { installingRef.current = installing }, [installing])
 
-  // Derived: loading is true until the first status check completes
-  const loading = !statusChecked
+  // Derived: loading until setupStatus is populated
+  const loading = bridge.isAvailable() && setupStatus === null && stepIdx === 0
 
   const nextAnim = () => setAnimKey(k => k + 1)
   const current = STEPS[stepIdx]
 
+  /** Refresh setup status — used by polling interval and UI refresh button. */
   const refreshStatus = useCallback((): SetupStatus | null => {
     if (!bridge.isAvailable()) return null
     const s = bridge.callJson<SetupStatus>('getSetupStatus')
@@ -108,6 +132,7 @@ export function Setup({ onComplete }: Props) {
     return s
   }, [])
 
+  /** Refresh completed phases — used by polling interval and UI refresh button. */
   const refreshCompletedPhases = useCallback(() => {
     if (!bridge.isAvailable()) return
     const r = bridge.callJson<{ phases: string[] }>('getInstallPhases')
@@ -130,23 +155,9 @@ export function Setup({ onComplete }: Props) {
     })
   }, [])
 
-  // ── Initial setup detection ────────────────────────────────────────────
-  useEffect(() => {
-    if (!bridge.isAvailable()) {
-      setStatusChecked(true)
-      return
-    }
-    if (stepIdx !== 0) return
-    const s = refreshStatus()
-    refreshCompletedPhases()
-    setStatusChecked(true)
-    if (s?.bootstrapInstalled && s?.alpineReady) {
-      setStepIdx(1)
-      nextAnim()
-    }
-  }, [stepIdx, refreshStatus, refreshCompletedPhases])
-
   // ── Step 0 poll while installing ───────────────────────────────────────
+  // setState is called inside the setInterval callback (async), not
+  // synchronously in the effect body — this satisfies the React compiler.
   useEffect(() => {
     if (stepIdx !== 0) return
     if (!installing) return
@@ -162,17 +173,6 @@ export function Setup({ onComplete }: Props) {
     }, 1500)
     return () => clearInterval(id)
   }, [stepIdx, installing, refreshStatus, refreshCompletedPhases])
-
-  // ── Step 1 (platform) init ─────────────────────────────────────────────
-  useEffect(() => {
-    if (stepIdx === 1) {
-      setPlatforms([
-        { id: 'openclaw', name: 'OpenClaw Core', installed: false },
-        { id: 'code', name: 'Code Server', installed: false },
-        { id: 'browser', name: 'Chromium Browser', installed: false },
-      ])
-    }
-  }, [stepIdx])
 
   // ── Auto-scroll log feed ───────────────────────────────────────────────
   useEffect(() => {

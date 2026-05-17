@@ -261,6 +261,63 @@ El resultado debe parecer un proyecto profesional de producción listo para:
 - permitir trabajo en equipo
 - escalar sin volverse caótico
 
+---
+
+# Reglas del Compilador React (react-hooks/set-state-in-effect)
+
+## Prohibido: setState sincrónico dentro de useEffect
+
+El compilador de React prohíbe llamar `setState` directamente en el cuerpo de un effect.
+Esto incluye llamadas **indirectas** a través de funciones helper que internamente llaman `setState`.
+
+### ❌ Incorrecto
+
+```tsx
+useEffect(() => {
+  setLoading(false)          // ← error: setState directo
+  const s = refreshStatus()  // ← error: refreshStatus llama setStatus internamente
+}, [])
+```
+
+### ✅ Correcto: useState con lazy initializer
+
+```tsx
+const [status, setStatus] = useState<Status | null>(() => {
+  if (!bridge.isAvailable()) return null
+  return bridge.callJson<Status>('getStatus') ?? null
+})
+```
+
+### ✅ Correcto: setState dentro de callbacks asíncronos
+
+```tsx
+useEffect(() => {
+  const id = setInterval(() => {
+    setStatus(fetchStatus())  // ← OK: dentro de callback async
+  }, 1500)
+  return () => clearInterval(id)
+}, [])
+```
+
+### ✅ Correcto: setState en event listeners
+
+```tsx
+useEffect(() => {
+  const handler = (data: unknown) => {
+    setStatus(data as Status)  // ← OK: en callback de evento
+  }
+  const cleanup = on('event', handler)
+  return () => off('event', cleanup)
+}, [])
+```
+
+### Regla general
+
+- Inicialización → `useState(() => ...)` lazy initializer
+- Polling/suscripciones → setState dentro del callback
+- Refs durante render → mover actualización a `useEffect`
+- Estado derivable → usar `const` en vez de `useState`
+
 # Skill Especializado: Refactorización Profesional React + Tailwind en Android Embebido
 
 ## Contexto del Proyecto
