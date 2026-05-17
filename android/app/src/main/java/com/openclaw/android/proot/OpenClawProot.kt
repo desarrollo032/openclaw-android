@@ -144,10 +144,14 @@ class OpenClawProot(private val context: Context) {
         }
     }
 
-    /** `pnpm update -g openclaw@beta` dentro del proot. */
+    /** `npm install -g openclaw@beta` dentro del proot. */
     suspend fun updateOpenClaw(onProgress: (String) -> Unit): Boolean {
         val code = runInProot(
-            command = listOf("/bin/sh", "-c", "pnpm update -g openclaw@beta && openclaw --version"),
+            command = listOf(
+                "/bin/sh",
+                "-c",
+                ". /etc/profile.d/openclaw-node.sh 2>/dev/null || true; npm install -g openclaw@beta --no-audit --no-fund && openclaw --version"
+            ),
             onOutput = onProgress
         )
         return code == 0
@@ -209,14 +213,14 @@ class OpenClawProot(private val context: Context) {
             add(proot)
             add("--link2symlink")
             add("--change-id=0:0")
-            add("--rootfs=${rootfs.absolutePath}")
+            add("--rootfs=${rootfs.canonicalPath}")
             add("--bind=/proc")
             add("--bind=/dev")
             add("--bind=/sys")
             add("--bind=/dev/urandom")
-            add("--bind=${filesDir.absolutePath}:/data")
-            add("--bind=${prootTmpDir.absolutePath}:/tmp")
-            add("--cwd=/root")
+            add("--bind=${filesDir.canonicalPath}:/data")
+            add("--bind=${prootTmpDir.canonicalPath}:/tmp")
+            add("--cwd=/")
             addAll(command)
         }
 
@@ -225,20 +229,23 @@ class OpenClawProot(private val context: Context) {
             environment().apply {
                 remove("LD_PRELOAD")
                 remove("LD_LIBRARY_PATH")
-                put("PROOT_TMP_DIR",    prootTmpDir.absolutePath)
+                put("PROOT_TMP_DIR",    prootTmpDir.canonicalPath)
                 put("PROOT_NO_SECCOMP", "1")
                 put("PROOT_LOADER",     "$nativeDir/libproot_loader.so")
                 put("HOME",             "/root")
-                put("TMPDIR",           "/data/home/.openclaw/tmp")
-                put("PNPM_HOME",        "/root/.local/share/pnpm")
-                put("PATH",             "/root/.local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+                put("PWD",              "/root")
+                put("TMPDIR",           "/root/tmp")
+                put("PATH",             "/usr/local/bin:/usr/local/node/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin")
+                put("ENV",              "/root/.profile")
                 put("TERM",             "xterm-256color")
                 put("COLORTERM",        "truecolor")
                 put("LANG",             "en_US.UTF-8")
                 put("LC_ALL",           "en_US.UTF-8")
                 put("OPENCLAW_HOME",    "/data/home/.openclaw")
                 put("SSL_CERT_FILE",    "/etc/ssl/certs/ca-certificates.crt")
-                put("npm_config_cache", "/tmp/npm-cache")
+                put("NPM_CONFIG_PREFIX", "/usr/local")
+                put("npm_config_prefix", "/usr/local")
+                put("npm_config_cache", "/root/tmp/npm-cache")
             }
         }
     }
@@ -250,13 +257,13 @@ class OpenClawProot(private val context: Context) {
         proot,
         "--link2symlink",
         "--change-id=0:0",
-        "--rootfs=${rootfs.absolutePath}",
+        "--rootfs=${rootfs.canonicalPath}",
         "--bind=/proc",
         "--bind=/dev",
         "--bind=/sys",
         "--bind=/dev/urandom",
-        "--bind=${filesDir.absolutePath}:/data",
-        "--bind=${prootTmpDir.absolutePath}:/tmp",
+        "--bind=${filesDir.canonicalPath}:/data",
+        "--bind=${prootTmpDir.canonicalPath}:/tmp",
         "--cwd=/data/home/.openclaw",
         "/bin/sh",
         "-i"
@@ -264,20 +271,23 @@ class OpenClawProot(private val context: Context) {
 
     /** Environment array (formato KEY=VALUE) para el terminal interactivo. */
     fun buildShellEnv(): Array<String> = arrayOf(
-        "PROOT_TMP_DIR=${prootTmpDir.absolutePath}",
+        "PROOT_TMP_DIR=${prootTmpDir.canonicalPath}",
         "PROOT_NO_SECCOMP=1",
         "PROOT_LOADER=$nativeDir/libproot_loader.so",
         "HOME=/root",
+        "PWD=/data/home/.openclaw",
         "TMPDIR=/data/home/.openclaw/tmp",
-        "PNPM_HOME=/root/.local/share/pnpm",
-        "PATH=/root/.local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PATH=/usr/local/bin:/usr/local/node/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "ENV=/root/.profile",
         "TERM=xterm-256color",
         "COLORTERM=truecolor",
         "LANG=en_US.UTF-8",
         "LC_ALL=en_US.UTF-8",
         "OPENCLAW_HOME=/data/home/.openclaw",
         "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
-        "npm_config_cache=/tmp/npm-cache"
+        "NPM_CONFIG_PREFIX=/usr/local",
+        "npm_config_prefix=/usr/local",
+        "npm_config_cache=/root/tmp/npm-cache"
     )
 
     // ── Limpieza ─────────────────────────────────────────────────────────────

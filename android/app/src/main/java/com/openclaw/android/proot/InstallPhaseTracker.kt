@@ -11,7 +11,7 @@ import java.io.File
  * esos markers para soportar instalación resumible.
  *
  * Claves de fase:
- *   arch, apk_repos, apk_update, nodejs, npm, sys_deps,
+ *   arch, apk_repos, apk_update, sys_deps, nodejs, npm,
  *   pnpm, pnpm_env, versions, openclaw, onboard, verify
  */
 class InstallPhaseTracker(private val rootfs: File) {
@@ -44,8 +44,14 @@ class InstallPhaseTracker(private val rootfs: File) {
         }
 
         // Detección de fallback por presencia de binarios
-        if (File(rootfs, "usr/bin/node").exists()) phases += "nodejs"
-        if (File(rootfs, "usr/bin/npm").exists() || File(rootfs, "usr/bin/npm.cmd").exists()) {
+        if (File(rootfs, "usr/local/bin/node").exists() ||
+            File(rootfs, "usr/local/node/bin/node").exists() ||
+            File(rootfs, "usr/bin/node").exists()) {
+            phases += "nodejs"
+        }
+        if (File(rootfs, "usr/local/bin/npm").exists() ||
+            File(rootfs, "usr/bin/npm").exists() ||
+            File(rootfs, "usr/bin/npm.cmd").exists()) {
             phases += "npm"
         }
         if (File(rootfs, "usr/lib/node_modules/pnpm").exists() ||

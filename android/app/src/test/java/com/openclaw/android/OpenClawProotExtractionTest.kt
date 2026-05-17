@@ -1,6 +1,7 @@
 package com.openclaw.android
 
 import com.openclaw.android.proot.OpenClawProot
+import com.openclaw.android.proot.TarExtractor
 import io.kotest.matchers.shouldBe
 import java.io.File
 import java.nio.file.Files
@@ -36,7 +37,7 @@ class OpenClawProotExtractionTest {
         }
 
         val errors = mutableListOf<String>()
-        val ok = proot.extractAlpineArchive(
+        val ok = TarExtractor(proot.rootfs).extractArchive(
             tarFile = archive,
             onProgress = {},
             onError = { errors += it }

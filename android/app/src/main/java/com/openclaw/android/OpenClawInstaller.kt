@@ -15,11 +15,11 @@ private const val TAG = "OpenClawInstaller"
  * OpenClawInstaller — Instalación basada en proot + Alpine Linux.
  *
  * Descarga Alpine minirootfs vía OpenClawProot, instala
- * nodejs + npm + openclaw dentro del proot con apk.
+ * Node.js manual + npm + openclaw dentro del proot.
  *
  * Flujo:
  *   1. [isAlpineSetupComplete] → verifica Alpine + openclaw instalados
- *   2. [runSetup] → descarga Alpine + instala nodejs/openclaw
+ *   2. [runSetup] → descarga Alpine + instala Node.js/npm/openclaw
  *   3. [isOnboardComplete] → verifica si ya se hizo onboard
  */
 object OpenClawInstaller {
@@ -55,9 +55,8 @@ object OpenClawInstaller {
      *   3. Descargar + extraer Alpine minirootfs ARM64 (~10 MB) con symlinks
      *   4. Aplicar permisos de ejecución a todos los binarios del rootfs
      *   5. Sanity check: ejecutar /bin/sh dentro de proot
-     *   6. Instalar Node.js, npm, pnpm, openclaw@beta (script de 10 pasos)
-     *   7. Ejecutar openclaw onboard
-     *   8. Marcar instalación como completada en SharedPreferences
+     *   6. Instalar Node.js manual, npm y openclaw dentro de Alpine/proot
+     *   7. Abrir openclaw onboard en terminal interactivo desde la UI
      *
      * Reporta progreso vía [onProgress]. Llama [onComplete] al terminar,
      * [onError] si algo falla (con la fase específica que falló).
@@ -129,9 +128,6 @@ object OpenClawInstaller {
                     onError = { err -> onError(err) }
                 )
                 if (!ok) return@withContext
-
-                // Marcar onboard como completado para el frontend React
-                markOnboardComplete(context)
 
                 onProgress("Instalación completada ✓")
                 onComplete()
