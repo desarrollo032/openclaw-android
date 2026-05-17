@@ -274,7 +274,17 @@ export function Setup({ onComplete }: Props) {
     })
     setLogLines([])
     setInstalling(true)
-    bridge.call('startSetup', channel)
+    if (!bridge.isAvailable()) {
+      setInstalling(false)
+      setError('Bridge Android no disponible. Recarga la app.')
+      return
+    }
+    const result = bridge.call('startSetupWithChannel', channel)
+    if (result === null) {
+      setInstalling(false)
+      setError('No se pudo iniciar la instalación: método nativo no disponible.')
+      return
+    }
   }, [installing, channel])
 
   const installPlatform = useCallback((id: string) => {

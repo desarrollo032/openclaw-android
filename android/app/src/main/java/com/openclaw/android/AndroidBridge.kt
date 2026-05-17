@@ -58,10 +58,10 @@ class AndroidBridge(
     // ── Setup delegation ─────────────────────────────────────────────────────
 
     @JavascriptInterface fun getSetupStatus() = setup.getSetupStatus()
-    @JavascriptInterface fun startSetup(channel: String) = setup.startSetup(channel)
+    @JavascriptInterface fun startSetupWithChannel(channel: String) = setup.startSetup(channel)
     @JavascriptInterface fun startSetup() = setup.startSetup()
     @JavascriptInterface fun getInstallPhases() = setup.getInstallPhases()
-    @JavascriptInterface fun reinstallAlpine(channel: String) = setup.reinstallAlpine(channel)
+    @JavascriptInterface fun reinstallAlpineWithChannel(channel: String) = setup.reinstallAlpine(channel)
     @JavascriptInterface fun reinstallAlpine() = setup.reinstallAlpine()
     @JavascriptInterface fun skipPhase(key: String) = setup.skipPhase(key)
     @JavascriptInterface fun getAssetStatus() = setup.getAssetStatus()

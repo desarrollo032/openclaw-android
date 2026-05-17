@@ -336,17 +336,33 @@ object InstallScript {
                 base="@@2"
                 prefix="@@3"
                 label="@@4"
-                tarball="/root/tmp/@@{dist}.tar.xz"
+                tarball="/root/tmp/@@{dist}.tar.gz"
                 sums="/root/tmp/SHASUMS256-@@{dist}.txt"
 
                 phase_step nodejs "Descargando Node.js @@NODE_VERSION ARM64 (@@label)"
                 download_file "@@base/SHASUMS256.txt" "@@sums" || return 1
-                download_file "@@base/@@{dist}.tar.xz" "@@tarball" || return 1
-                verify_sha "@@sums" "@@tarball" "@@{dist}.tar.xz" || return 1
+                if ! download_file "@@base/@@{dist}.tar.gz" "@@tarball"; then
+                    tarball="/root/tmp/@@{dist}.tar.xz"
+                    download_file "@@base/@@{dist}.tar.xz" "@@tarball" || return 1
+                fi
+                verify_sha "@@sums" "@@tarball" "@@{dist}.tar.@@{tarball##*.}" || return 1
 
                 rm -rf "@@prefix.tmp" "@@prefix"
                 mkdir -p "@@prefix.tmp" || return 1
-                run_log tar -xJf "@@tarball" -C "@@prefix.tmp" --strip-components=1 || return 1
+                if ! run_log tar -xzf "@@tarball" -C "@@prefix.tmp" --strip-components=1 2>/dev/null; then
+                    case "@@tarball" in
+                      *.tar.xz)
+                        if command -v xz >/dev/null 2>&1; then
+                          run_log xz -dc "@@tarball" | tar -x -C "@@prefix.tmp" --strip-components=1 || return 1
+                        else
+                          run_log tar -xJf "@@tarball" -C "@@prefix.tmp" --strip-components=1 || return 1
+                        fi
+                        ;;
+                      *)
+                        return 1
+                        ;;
+                    esac
+                fi
 
                 mv "@@prefix.tmp" "@@prefix" || return 1
                 ln -sfn "@@prefix" "@@NODE_LINK" || return 1

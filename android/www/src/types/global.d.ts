@@ -18,6 +18,7 @@ declare global {
       // Setup / Installation
       getSetupStatus(): string
       startSetup(): void
+      startSetupWithChannel(channel: string): void
       pickFile(callbackId: string): void
       installFromUri(uri: string, configUri: string): void
       getAssetStatus(): string
