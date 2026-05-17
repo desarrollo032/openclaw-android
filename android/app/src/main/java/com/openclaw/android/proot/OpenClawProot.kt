@@ -382,6 +382,26 @@ class OpenClawProot(private val context: Context) {
             AndroidLog.i(TAG, "resolv.conf re-escrito antes de instalar")
         }
 
+        // Asegurar /etc/apk/repositories — el minirootfs de Alpine ship con este
+        // archivo apuntando al build mirror local o vacío. Sin repos accesibles,
+        // `apk add nodejs npm` falla con "unable to select packages". Lo
+        // sobrescribimos con los CDN públicos (main + community) para garantizar
+        // que apk pueda resolver paquetes en cualquier dispositivo.
+        val apkVersionBranch = "v" + ALPINE_VERSION.substringBeforeLast('.')   // 3.22.0 → v3.22
+        val repos = File(rootfs, "etc/apk/repositories")
+        repos.parentFile?.mkdirs()
+        repos.writeText(
+            "https://dl-cdn.alpinelinux.org/alpine/$apkVersionBranch/main\n" +
+            "https://dl-cdn.alpinelinux.org/alpine/$apkVersionBranch/community\n"
+        )
+        AndroidLog.i(TAG, "/etc/apk/repositories escrito (branch=$apkVersionBranch)")
+
+        // Crear /var/cache/apk y /tmp dentro del rootfs (apk los necesita
+        // para sus operaciones internas, incluso con --no-cache crea archivos
+        // temporales).
+        File(rootfs, "var/cache/apk").mkdirs()
+        File(rootfs, "tmp").mkdirs()
+
         // ── Sanity check: verificar que proot puede ejecutar comandos ──
         onProgress("Verificando proot...")
         var sanityOutput = StringBuilder()
@@ -421,37 +441,66 @@ class OpenClawProot(private val context: Context) {
                 *) echo "[WARN] Arquitectura no esperada: ${'$'}arch (se esperaba aarch64)" ;;
             esac
 
+            # Verificar repositorios apk (debe haber al menos un repo configurado)
+            echo "[1.5/10] Verificando /etc/apk/repositories..."
+            if [ ! -s /etc/apk/repositories ]; then
+                echo "FALLO:PASO1.5 /etc/apk/repositories vacío o ausente"
+                exit 1
+            fi
+            cat /etc/apk/repositories
+
+            # Refrescar índice de paquetes UNA SOLA VEZ. Si falla, mostramos el motivo.
+            echo "[1.6/10] apk update (refresco de índice)..."
+            apk_log=/tmp/apk-update.log
+            if ! apk update > "${'$'}apk_log" 2>&1; then
+                echo "--- apk update output ---"
+                tail -20 "${'$'}apk_log"
+                echo "FALLO:PASO1.6 apk update falló: ${'$'}(tail -1 "${'$'}apk_log")"
+                exit 1
+            fi
+            echo "apk update OK ✓"
+
             echo "[2/10] Verificando Node.js..."
             if command -v node > /dev/null 2>&1; then
-                echo "Node.js $(node --version) encontrado ✓"
+                echo "Node.js ${'$'}(node --version) encontrado ✓"
             else
-                echo "Node.js no encontrado. Instalando..."
-                apk update --no-cache 2>&1 || echo "[WARN] apk update falló"
-                if ! apk add --no-cache nodejs npm 2>&1; then
-                    echo "FALLO:PASO2 error instalando nodejs"
+                echo "Node.js no encontrado. Instalando con apk add nodejs npm..."
+                apk_log=/tmp/apk-nodejs.log
+                if ! apk add nodejs npm > "${'$'}apk_log" 2>&1; then
+                    echo "--- apk add nodejs npm output ---"
+                    tail -30 "${'$'}apk_log"
+                    apk_err=${'$'}(tail -1 "${'$'}apk_log" | tr -d '\n' | cut -c1-200)
+                    echo "FALLO:PASO2 apk add nodejs npm falló: ${'$'}apk_err"
                     exit 1
                 fi
+                echo "Node.js ${'$'}(node --version 2>/dev/null) instalado ✓"
             fi
 
             echo "[3/10] Verificando npm..."
             if command -v npm > /dev/null 2>&1; then
-                echo "npm $(npm --version) encontrado ✓"
+                echo "npm ${'$'}(npm --version) encontrado ✓"
             else
-                echo "npm no encontrado. Instalando Node.js + npm..."
-                apk update --no-cache 2>&1 || echo "[WARN] apk update falló"
-                if ! apk add --no-cache nodejs npm 2>&1; then
-                    echo "FALLO:PASO3 error instalando nodejs+npm"
+                echo "npm no encontrado. Instalando npm..."
+                apk_log=/tmp/apk-npm.log
+                if ! apk add npm > "${'$'}apk_log" 2>&1; then
+                    echo "--- apk add npm output ---"
+                    tail -30 "${'$'}apk_log"
+                    apk_err=${'$'}(tail -1 "${'$'}apk_log" | tr -d '\n' | cut -c1-200)
+                    echo "FALLO:PASO3 apk add npm falló: ${'$'}apk_err"
                     exit 1
                 fi
             fi
 
             echo "[4/10] Instalando dependencias del sistema..."
-            apk update --no-cache 2>&1 || echo "[WARN] apk update falló"
-            if ! apk add --no-cache \
+            apk_log=/tmp/apk-deps.log
+            if ! apk add \
                 python3 make g++ curl git \
                 libc6-compat libstdc++ \
-                ca-certificates bash 2>&1; then
-                echo "FALLO:PASO4 error instalando dependencias del sistema"
+                ca-certificates bash > "${'$'}apk_log" 2>&1; then
+                echo "--- apk add deps output ---"
+                tail -30 "${'$'}apk_log"
+                apk_err=${'$'}(tail -1 "${'$'}apk_log" | tr -d '\n' | cut -c1-200)
+                echo "FALLO:PASO4 apk add dependencias falló: ${'$'}apk_err"
                 exit 1
             fi
             echo "Dependencias del sistema instaladas ✓"
