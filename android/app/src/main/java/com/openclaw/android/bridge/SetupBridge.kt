@@ -58,15 +58,11 @@ class SetupBridge(
     fun startSetup(channel: String) {
         scope.launch(Dispatchers.IO) {
             OpenClawInstaller.runSetup(
-                context = activity,
-                channel = channel,
-                onProgress = { progressMsg -> emitInstallProgress(progressMsg) },
-                onComplete = {
-                    notifyReact("onInstallComplete", "{\"success\":true}")
-                },
-                onError = { error ->
-                    notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString())
-                }
+                activity,
+                channel,
+                { progressMsg -> emitInstallProgress(progressMsg) },
+                { notifyReact("onInstallComplete", "{\"success\":true}") },
+                { error -> notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString()) }
             )
         }
     }
@@ -103,15 +99,11 @@ class SetupBridge(
                 proot.wipeAlpine()
                 Log.i("SetupBridge", "Alpine rootfs wiped — starting fresh install")
                 OpenClawInstaller.runSetup(
-                    context = activity,
-                    channel = channel,
-                    onProgress = { progressMsg -> emitInstallProgress(progressMsg) },
-                    onComplete = {
-                        notifyReact("onInstallComplete", "{\"success\":true}")
-                    },
-                    onError = { error ->
-                        notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString())
-                    }
+                    activity,
+                    channel,
+                    { progressMsg -> emitInstallProgress(progressMsg) },
+                    { notifyReact("onInstallComplete", "{\"success\":true}") },
+                    { error -> notifyReact("onInstallError", JSONObject().apply { put("error", error) }.toString()) }
                 )
             } catch (e: Exception) {
                 Log.e("SetupBridge", "reinstallAlpine failed: ${e.message}", e)

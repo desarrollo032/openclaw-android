@@ -348,14 +348,23 @@ class OpenClawProot(private val context: Context) {
         val repos = File(rootfs, "etc/apk/repositories")
         repos.parentFile?.mkdirs()
         repos.writeText(
-            "https://dl-cdn.alpinelinux.org/alpine/$apkVersionBranch/main\n" +
-            "https://dl-cdn.alpinelinux.org/alpine/$apkVersionBranch/community\n"
+            "http://dl-cdn.alpinelinux.org/alpine/$apkVersionBranch/main\n" +
+            "http://dl-cdn.alpinelinux.org/alpine/$apkVersionBranch/community\n"
         )
         AndroidLog.i(TAG, "/etc/apk/repositories escrito (branch=$apkVersionBranch)")
 
         // Directorios de apk
-        File(rootfs, "var/cache/apk").mkdirs()
-        File(rootfs, "tmp").mkdirs()
+        val cacheApk = File(rootfs, "var/cache/apk")
+        cacheApk.mkdirs()
+        cacheApk.setWritable(true, false)
+        cacheApk.setReadable(true, false)
+        cacheApk.setExecutable(true, false)
+
+        val tmpDir = File(rootfs, "tmp")
+        tmpDir.mkdirs()
+        tmpDir.setWritable(true, false)
+        tmpDir.setReadable(true, false)
+        tmpDir.setExecutable(true, false)
     }
 
     private suspend fun runSanityCheck(

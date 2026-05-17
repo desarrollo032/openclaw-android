@@ -125,9 +125,9 @@ object OpenClawInstaller {
             // ── Paso 2: Node.js + npm + openclaw + onboard ───────────────────
             if (!proot.isOpenClawInstalled()) {
                 val ok = proot.installOpenClaw(
-                    channel = channel,
-                    onProgress = { msg -> onProgress(msg) },
-                    onError = { err -> onError(err) }
+                    channel,
+                    { msg -> onProgress(msg) },
+                    { err -> onError(err) }
                 )
                 if (!ok) return@withContext
 
