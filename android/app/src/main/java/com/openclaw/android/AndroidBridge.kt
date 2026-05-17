@@ -64,6 +64,7 @@ class AndroidBridge(
     @JavascriptInterface fun reinstallAlpineWithChannel(channel: String) = setup.reinstallAlpine(channel)
     @JavascriptInterface fun reinstallAlpine() = setup.reinstallAlpine()
     @JavascriptInterface fun skipPhase(key: String) = setup.skipPhase(key)
+    @JavascriptInterface fun bypassInstall() = setup.bypassInstall()
     @JavascriptInterface fun getAssetStatus() = setup.getAssetStatus()
     @JavascriptInterface fun pickFile(callbackId: String) = setup.pickFile(callbackId)
     @JavascriptInterface fun installFromUri(uri: String, configUri: String) = setup.installFromUri(uri, configUri)

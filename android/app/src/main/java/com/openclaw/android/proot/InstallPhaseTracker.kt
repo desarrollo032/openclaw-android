@@ -20,8 +20,18 @@ class InstallPhaseTracker(private val rootfs: File) {
         const val TAG = "PhaseTracker"
         private const val MARKER_DIR_PATH = "root/.openclaw-install"
 
-        /** Fases que se pueden saltar de forma segura desde la UI. */
+        /**
+         * Fases que se pueden saltar de forma segura desde la UI sin romper
+         * el resto del flujo de instalación.
+         */
         val SKIPPABLE_PHASES = setOf("pnpm", "pnpm_env", "versions", "sys_deps")
+
+        /**
+         * Fases criticas que el usuario PUEDE saltar de forma manual cuando
+         * todo falla, pero hacerlo implica que OpenClaw quedara incompleto y
+         * habra que instalar manualmente desde el dashboard o el terminal.
+         */
+        val CRITICAL_SKIPPABLE_PHASES = setOf("nodejs", "npm", "openclaw", "onboard", "verify")
     }
 
     private val markerDir: File get() = File(rootfs, MARKER_DIR_PATH)
@@ -87,6 +97,8 @@ class InstallPhaseTracker(private val rootfs: File) {
      * Verifica si una fase se puede saltar de forma segura.
      */
     fun isSkippable(phaseKey: String): Boolean = phaseKey in SKIPPABLE_PHASES
+
+    fun isCriticalSkippable(phaseKey: String): Boolean = phaseKey in CRITICAL_SKIPPABLE_PHASES
 
     private fun isRootfsPresent(): Boolean =
         File(rootfs, "bin/sh").exists() &&
