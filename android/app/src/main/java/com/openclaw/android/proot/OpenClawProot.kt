@@ -428,143 +428,266 @@ class OpenClawProot(private val context: Context) {
         AndroidLog.i(TAG, "Sanity check OK — proot puede ejecutar /bin/sh")
         onProgress("Verificación de proot OK ✓")
 
-        // ── Script de instalación completo (9 pasos) ─────────────────────────
-        // Cada paso reporta explícitamente su resultado para saber exactamente dónde falla.
-        // No usamos `set -e` porque oculta qué paso falló.
-        // La variable PNPM_HOME se añade a .bashrc para persistencia entre sesiones.
+        // ── Script de instalación completo (12 fases, resumibles) ───────────
+        // Cada fase reporta PHASE:<key>:<status>[:<detail>] para que la UI
+        // pueda renderizar un checklist en tiempo real. Estados:
+        //   start    — fase iniciada
+        //   skip     — fase saltada (ya completada en intento anterior)
+        //   step     — sub-paso (ej. paquete N de M)
+        //   ok       — fase completada
+        //   error    — fase falló (script termina)
+        //
+        // Cada fase escribe un marker file en /root/.openclaw-install/<key>.done
+        // para que reintentos posteriores puedan saltarla.
+        // El marker se borra con `wipeAlpine`, así que no persiste entre rootfs.
+        //
+        // No usamos `set -e` porque queremos controlar el flow y reportar
+        // fase por fase.
         val script = """
-            echo "[1/10] Detectando arquitectura..."
-            arch=$(uname -m)
-            echo "Arquitectura detectada: ${'$'}arch"
-            case "${'$'}arch" in
-                aarch64|arm64) echo "✓ ARM64 confirmado" ;;
-                *) echo "[WARN] Arquitectura no esperada: ${'$'}arch (se esperaba aarch64)" ;;
-            esac
+            set +e
+            MARKER_DIR=/root/.openclaw-install
+            mkdir -p "${'$'}MARKER_DIR"
 
-            # Verificar repositorios apk (debe haber al menos un repo configurado)
-            echo "[1.5/10] Verificando /etc/apk/repositories..."
-            if [ ! -s /etc/apk/repositories ]; then
-                echo "FALLO:PASO1.5 /etc/apk/repositories vacío o ausente"
-                exit 1
-            fi
-            cat /etc/apk/repositories
+            phase_start() { echo "PHASE:${'$'}1:start:${'$'}2"; }
+            phase_step()  { echo "PHASE:${'$'}1:step:${'$'}2"; }
+            phase_ok()    { touch "${'$'}MARKER_DIR/${'$'}1.done"; echo "PHASE:${'$'}1:ok:${'$'}2"; }
+            phase_skip()  { echo "PHASE:${'$'}1:skip:${'$'}2"; }
+            phase_err()   { echo "PHASE:${'$'}1:error:${'$'}2"; echo "FALLO:${'$'}1 ${'$'}2"; }
+            phase_done()  { [ -f "${'$'}MARKER_DIR/${'$'}1.done" ]; }
 
-            # Refrescar índice de paquetes UNA SOLA VEZ. Si falla, mostramos el motivo.
-            echo "[1.6/10] apk update (refresco de índice)..."
-            apk_log=/tmp/apk-update.log
-            if ! apk update > "${'$'}apk_log" 2>&1; then
-                echo "--- apk update output ---"
-                tail -20 "${'$'}apk_log"
-                echo "FALLO:PASO1.6 apk update falló: ${'$'}(tail -1 "${'$'}apk_log")"
-                exit 1
-            fi
-            echo "apk update OK ✓"
-
-            echo "[2/10] Verificando Node.js..."
-            if command -v node > /dev/null 2>&1; then
-                echo "Node.js ${'$'}(node --version) encontrado ✓"
+            # ────────────────────────────────────────────────────────────────
+            # Fase 1: arch — detectar arquitectura
+            # ────────────────────────────────────────────────────────────────
+            if phase_done arch; then
+                phase_skip arch "Arquitectura ya verificada"
             else
-                echo "Node.js no encontrado. Instalando con apk add nodejs npm..."
-                apk_log=/tmp/apk-nodejs.log
-                if ! apk add nodejs npm > "${'$'}apk_log" 2>&1; then
-                    echo "--- apk add nodejs npm output ---"
-                    tail -30 "${'$'}apk_log"
-                    apk_err=${'$'}(tail -1 "${'$'}apk_log" | tr -d '\n' | cut -c1-200)
-                    echo "FALLO:PASO2 apk add nodejs npm falló: ${'$'}apk_err"
+                phase_start arch "Detectando arquitectura"
+                arch=${'$'}(uname -m)
+                case "${'$'}arch" in
+                    aarch64|arm64)
+                        phase_ok arch "ARM64 confirmado (${'$'}arch)" ;;
+                    *)
+                        phase_ok arch "Arquitectura: ${'$'}arch (no estándar pero continuando)" ;;
+                esac
+            fi
+
+            # ────────────────────────────────────────────────────────────────
+            # Fase 2: apk_repos — verificar repositorios
+            # ────────────────────────────────────────────────────────────────
+            if phase_done apk_repos; then
+                phase_skip apk_repos "Repositorios ya configurados"
+            else
+                phase_start apk_repos "Verificando repositorios apk"
+                if [ ! -s /etc/apk/repositories ]; then
+                    phase_err apk_repos "/etc/apk/repositories vacío o ausente"
                     exit 1
                 fi
-                echo "Node.js ${'$'}(node --version 2>/dev/null) instalado ✓"
+                phase_ok apk_repos "Repositorios listos"
             fi
 
-            echo "[3/10] Verificando npm..."
-            if command -v npm > /dev/null 2>&1; then
-                echo "npm ${'$'}(npm --version) encontrado ✓"
+            # ────────────────────────────────────────────────────────────────
+            # Fase 3: apk_update — refresco de índice (con retry)
+            # ────────────────────────────────────────────────────────────────
+            if phase_done apk_update; then
+                phase_skip apk_update "Índice apk ya actualizado"
             else
-                echo "npm no encontrado. Instalando npm..."
-                apk_log=/tmp/apk-npm.log
-                if ! apk add npm > "${'$'}apk_log" 2>&1; then
-                    echo "--- apk add npm output ---"
-                    tail -30 "${'$'}apk_log"
+                phase_start apk_update "Refrescando índice de paquetes"
+                apk_log=/tmp/apk-update.log
+                rm -f "${'$'}apk_log"
+                update_ok=0
+                for attempt in 1 2 3; do
+                    if apk update > "${'$'}apk_log" 2>&1; then
+                        update_ok=1
+                        break
+                    fi
+                    phase_step apk_update "Reintento ${'$'}attempt/3"
+                    sleep 2
+                done
+                if [ "${'$'}update_ok" -ne 1 ]; then
+                    tail -20 "${'$'}apk_log"
                     apk_err=${'$'}(tail -1 "${'$'}apk_log" | tr -d '\n' | cut -c1-200)
-                    echo "FALLO:PASO3 apk add npm falló: ${'$'}apk_err"
+                    phase_err apk_update "apk update falló: ${'$'}apk_err"
                     exit 1
                 fi
+                phase_ok apk_update "Índice apk actualizado"
             fi
 
-            echo "[4/10] Instalando dependencias del sistema..."
-            apk_log=/tmp/apk-deps.log
-            if ! apk add \
-                python3 make g++ curl git \
-                libc6-compat libstdc++ \
-                ca-certificates bash > "${'$'}apk_log" 2>&1; then
-                echo "--- apk add deps output ---"
-                tail -30 "${'$'}apk_log"
-                apk_err=${'$'}(tail -1 "${'$'}apk_log" | tr -d '\n' | cut -c1-200)
-                echo "FALLO:PASO4 apk add dependencias falló: ${'$'}apk_err"
-                exit 1
-            fi
-            echo "Dependencias del sistema instaladas ✓"
+            # Helper: instalar un paquete apk individual, saltando si ya está
+            # presente. Args: 1=phase_key, 2=package_name, [3]=etiqueta
+            install_pkg() {
+                local key="${'$'}1"
+                local pkg="${'$'}2"
+                local label="${'$'}{3:-${'$'}2}"
+                if apk info -e "${'$'}pkg" >/dev/null 2>&1; then
+                    phase_step "${'$'}key" "✓ ${'$'}label (ya instalado)"
+                    return 0
+                fi
+                phase_step "${'$'}key" "↓ Instalando ${'$'}label..."
+                local log=/tmp/apk-${'$'}{pkg}.log
+                if ! apk add --no-progress "${'$'}pkg" > "${'$'}log" 2>&1; then
+                    # Retry una vez sin caché por si fue glitch transitorio
+                    if ! apk add --no-progress --no-cache "${'$'}pkg" > "${'$'}log" 2>&1; then
+                        tail -10 "${'$'}log"
+                        return 1
+                    fi
+                fi
+                phase_step "${'$'}key" "✓ ${'$'}label instalado"
+                return 0
+            }
 
-            echo "[5/10] Instalando pnpm globalmente..."
-            if command -v pnpm > /dev/null 2>&1; then
-                echo "pnpm $(pnpm --version) ya instalado ✓"
+            # ────────────────────────────────────────────────────────────────
+            # Fase 4: nodejs — instalar Node.js
+            # ────────────────────────────────────────────────────────────────
+            if phase_done nodejs && command -v node >/dev/null 2>&1; then
+                phase_skip nodejs "Node.js ya instalado (${'$'}(node --version 2>/dev/null))"
             else
+                phase_start nodejs "Instalando Node.js"
+                if ! install_pkg nodejs nodejs "Node.js"; then
+                    phase_err nodejs "apk add nodejs falló"
+                    exit 1
+                fi
+                node_ver=${'$'}(node --version 2>/dev/null || echo "?")
+                phase_ok nodejs "Node.js ${'$'}node_ver instalado"
+            fi
+
+            # ────────────────────────────────────────────────────────────────
+            # Fase 5: npm — instalar npm
+            # ────────────────────────────────────────────────────────────────
+            if phase_done npm && command -v npm >/dev/null 2>&1; then
+                phase_skip npm "npm ya instalado (${'$'}(npm --version 2>/dev/null))"
+            else
+                phase_start npm "Instalando npm"
+                if ! install_pkg npm npm "npm"; then
+                    phase_err npm "apk add npm falló"
+                    exit 1
+                fi
+                npm_ver=${'$'}(npm --version 2>/dev/null || echo "?")
+                phase_ok npm "npm ${'$'}npm_ver instalado"
+            fi
+
+            # ────────────────────────────────────────────────────────────────
+            # Fase 6: sys_deps — dependencias del sistema (instalación individual)
+            # ────────────────────────────────────────────────────────────────
+            if phase_done sys_deps; then
+                phase_skip sys_deps "Dependencias del sistema ya instaladas"
+            else
+                phase_start sys_deps "Instalando dependencias del sistema"
+                # Cada paquete se instala por separado. Si uno falla, el script
+                # continúa con los demás y reporta cuáles fallaron al final.
+                dep_failures=""
+                for pkg in python3 make g++ curl git libc6-compat libstdc++ ca-certificates bash; do
+                    if ! install_pkg sys_deps "${'$'}pkg" "${'$'}pkg"; then
+                        dep_failures="${'$'}dep_failures ${'$'}pkg"
+                    fi
+                done
+                if [ -n "${'$'}dep_failures" ]; then
+                    phase_err sys_deps "Paquetes fallidos:${'$'}dep_failures"
+                    exit 1
+                fi
+                phase_ok sys_deps "Dependencias del sistema instaladas"
+            fi
+
+            # ────────────────────────────────────────────────────────────────
+            # Fase 7: pnpm — instalar pnpm via npm global
+            # ────────────────────────────────────────────────────────────────
+            if phase_done pnpm && command -v pnpm >/dev/null 2>&1; then
+                phase_skip pnpm "pnpm ya instalado (${'$'}(pnpm --version 2>/dev/null))"
+            else
+                phase_start pnpm "Instalando pnpm vía npm"
                 if ! npm install -g pnpm 2>&1; then
-                    echo "FALLO:PASO5 npm install -g pnpm falló"
+                    phase_err pnpm "npm install -g pnpm falló"
                     exit 1
                 fi
-                echo "pnpm $(pnpm --version) instalado ✓"
+                pnpm_ver=${'$'}(pnpm --version 2>/dev/null || echo "?")
+                phase_ok pnpm "pnpm ${'$'}pnpm_ver instalado"
             fi
 
-            echo "[6/10] Configurando PNPM_HOME en .bashrc..."
-            mkdir -p /root/.local/share/pnpm
+            # ────────────────────────────────────────────────────────────────
+            # Fase 8: pnpm_env — configurar PNPM_HOME persistente
+            # ────────────────────────────────────────────────────────────────
+            if phase_done pnpm_env; then
+                phase_skip pnpm_env "PNPM_HOME ya configurado"
+            else
+                phase_start pnpm_env "Configurando PNPM_HOME"
+                mkdir -p /root/.local/share/pnpm
+                export PNPM_HOME="/root/.local/share/pnpm"
+                export PATH="${'$'}PNPM_HOME:${'$'}PATH"
+                if ! grep -q "PNPM_HOME" /root/.bashrc 2>/dev/null; then
+                    cat >> /root/.bashrc << 'ENVEOF'
+export PNPM_HOME="/root/.local/share/pnpm"
+export PATH="${'$'}PNPM_HOME:${'$'}PATH"
+ENVEOF
+                fi
+                if ! grep -q "PNPM_HOME" /root/.profile 2>/dev/null; then
+                    cat >> /root/.profile << 'ENVEOF'
+export PNPM_HOME="/root/.local/share/pnpm"
+export PATH="${'$'}PNPM_HOME:${'$'}PATH"
+ENVEOF
+                fi
+                phase_ok pnpm_env "PNPM_HOME configurado en .bashrc y .profile"
+            fi
+
+            # Reexportar PNPM_HOME en este shell para fases posteriores
             export PNPM_HOME="/root/.local/share/pnpm"
             export PATH="${'$'}PNPM_HOME:${'$'}PATH"
-            if ! grep -q "PNPM_HOME" /root/.bashrc 2>/dev/null; then
-                cat >> /root/.bashrc << 'ENVEOF'
-    export PNPM_HOME="/root/.local/share/pnpm"
-    export PATH="${'$'}PNPM_HOME:${'$'}PATH"
-    ENVEOF
-                echo "PNPM_HOME configurado en .bashrc ✓"
+
+            # ────────────────────────────────────────────────────────────────
+            # Fase 9: versions — verificar versiones
+            # ────────────────────────────────────────────────────────────────
+            phase_start versions "Verificando versiones instaladas"
+            node_v=${'$'}(node --version 2>/dev/null || echo "?")
+            npm_v=${'$'}(npm --version 2>/dev/null || echo "?")
+            pnpm_v=${'$'}(pnpm --version 2>/dev/null || echo "?")
+            phase_step versions "node ${'$'}node_v · npm ${'$'}npm_v · pnpm ${'$'}pnpm_v"
+            phase_ok versions "Versiones: node ${'$'}node_v / npm ${'$'}npm_v / pnpm ${'$'}pnpm_v"
+
+            # ────────────────────────────────────────────────────────────────
+            # Fase 10: openclaw — instalar OpenClaw vía pnpm
+            # ────────────────────────────────────────────────────────────────
+            # No usamos marker para esta fase: isOpenClawInstalled() en Kotlin
+            # ya detecta el archivo openclaw.mjs, así que esta sub-detección
+            # es delegada al wrapper.
+            if [ -f /usr/local/lib/node_modules/openclaw/openclaw.mjs ] \
+               || [ -f /usr/lib/node_modules/openclaw/openclaw.mjs ]; then
+                phase_skip openclaw "OpenClaw ya instalado"
             else
-                echo "PNPM_HOME ya está en .bashrc ✓"
-            fi
-            # También en .profile por si el shell login no carga .bashrc
-            if ! grep -q "PNPM_HOME" /root/.profile 2>/dev/null; then
-                cat >> /root/.profile << 'ENVEOF'
-    export PNPM_HOME="/root/.local/share/pnpm"
-    export PATH="${'$'}PNPM_HOME:${'$'}PATH"
-    ENVEOF
+                phase_start openclaw "Instalando OpenClaw (beta) vía pnpm"
+                if ! pnpm add -g openclaw@beta 2>&1; then
+                    phase_err openclaw "pnpm add -g openclaw@beta falló"
+                    exit 1
+                fi
+                phase_ok openclaw "OpenClaw beta instalado"
             fi
 
-            echo "[7/10] Verificando versiones..."
-            echo "node  => $(node --version 2>/dev/null || echo ERROR)"
-            echo "npm   => $(npm --version 2>/dev/null || echo ERROR)"
-            echo "pnpm  => $(pnpm --version 2>/dev/null || echo ERROR)"
-
-            echo "[8/10] Instalando OpenClaw (beta) con pnpm..."
-            if ! pnpm add -g openclaw@beta 2>&1; then
-                echo "FALLO:PASO8 pnpm add -g openclaw@beta falló"
-                exit 1
+            # ────────────────────────────────────────────────────────────────
+            # Fase 11: onboard — ejecutar openclaw onboard
+            # ────────────────────────────────────────────────────────────────
+            if phase_done onboard; then
+                phase_skip onboard "openclaw onboard ya ejecutado"
+            else
+                phase_start onboard "Configurando OpenClaw (onboard)"
+                if ! echo "" | openclaw onboard 2>&1; then
+                    phase_err onboard "openclaw onboard falló"
+                    exit 1
+                fi
+                phase_ok onboard "openclaw onboard completado"
             fi
-            echo "OpenClaw beta instalado ✓"
 
-            echo "[9/10] Ejecutando openclaw onboard..."
-            if ! echo "" | openclaw onboard 2>&1; then
-                echo "FALLO:PASO9 openclaw onboard falló"
-                exit 1
-            fi
-            echo "openclaw onboard completado ✓"
-
-            echo "[10/10] Verificación final..."
+            # ────────────────────────────────────────────────────────────────
+            # Fase 12: verify — verificación final
+            # ────────────────────────────────────────────────────────────────
+            phase_start verify "Verificación final"
             if ! openclaw --version 2>&1; then
-                echo "FALLO:PASO10 openclaw --version falló"
+                phase_err verify "openclaw --version falló"
                 exit 1
             fi
+            phase_ok verify "OpenClaw operativo"
+
             echo "DONE"
         """.trimIndent()
 
-        // Capturar la última línea FALLO: como mensaje de error específico
+        // Capturar la última fase fallida como mensaje de error específico.
+        // El nuevo formato es PHASE:<key>:error:<msg>; mantenemos compat con FALLO:
         var lastErrorLine = "Error sin diagnóstico de paso"
 
         val code = runInProot(
@@ -572,8 +695,19 @@ class OpenClawProot(private val context: Context) {
             onOutput = { line ->
                 onProgress(line)
                 log(line)
-                if (line.startsWith("FALLO:")) {
-                    lastErrorLine = line
+                when {
+                    line.startsWith("PHASE:") && line.contains(":error:") -> {
+                        // PHASE:<key>:error:<msg> → "<KEY>: <msg>"
+                        val parts = line.removePrefix("PHASE:").split(":", limit = 3)
+                        if (parts.size == 3) {
+                            lastErrorLine = "${parts[0].uppercase()}: ${parts[2]}"
+                        } else {
+                            lastErrorLine = line
+                        }
+                    }
+                    line.startsWith("FALLO:") -> {
+                        lastErrorLine = line
+                    }
                 }
             }
         )
@@ -739,6 +873,43 @@ class OpenClawProot(private val context: Context) {
     )
 
     // ── Uninstall ────────────────────────────────────────────────────────────
+
+    /**
+     * Detecta qué fases de la instalación están completadas inspeccionando
+     * el rootfs y los marker files. Se usa al cargar la UI para reanudar
+     * sin tener que re-ejecutar el script entero.
+     *
+     * Las claves coinciden con las que emite el script de [installOpenClaw].
+     */
+    fun getCompletedPhases(): Set<String> {
+        val phases = mutableSetOf<String>()
+
+        // Alpine extraído → todas las pre-fases base están cumplidas
+        if (!isAlpineInstalled()) return phases
+
+        // Marker dir (creado durante installOpenClaw)
+        val markerDir = File(rootfs, "root/.openclaw-install")
+        if (markerDir.isDirectory) {
+            markerDir.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".done") }
+                ?.forEach { phases += it.name.removeSuffix(".done") }
+        }
+
+        // Detección de fallback por presencia de binarios — útil si el marker
+        // se perdió pero el binario está. Mantiene la UI honesta.
+        if (File(rootfs, "usr/bin/node").exists()) phases += "nodejs"
+        if (File(rootfs, "usr/bin/npm").exists() || File(rootfs, "usr/bin/npm.cmd").exists()) {
+            phases += "npm"
+        }
+        if (File(rootfs, "usr/lib/node_modules/pnpm").exists() ||
+            File(rootfs, "root/.local/share/pnpm/pnpm").exists()) {
+            phases += "pnpm"
+        }
+        if (OPENCLAW_PATHS_INSIDE_ALPINE.any { File(rootfs, it).exists() }) {
+            phases += "openclaw"
+        }
+        return phases
+    }
 
     /** Borra todo el rootfs Alpine y los temporales de proot. */
     fun wipeAlpine() {

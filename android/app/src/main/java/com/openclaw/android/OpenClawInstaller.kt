@@ -60,7 +60,7 @@ object OpenClawInstaller {
      *   8. Marcar instalación como completada en SharedPreferences
      *
      * Reporta progreso vía [onProgress]. Llama [onComplete] al terminar,
-     * [onError] si algo falla (con la línea FALLO:PASOx específica).
+     * [onError] si algo falla (con la fase específica que falló).
      */
     suspend fun runSetup(
         context: Context,
@@ -75,9 +75,9 @@ object OpenClawInstaller {
         //   - "can't chdir('/data/home/.openclaw/.'): No such file or directory"
         //   - "execve('/bin/sh'): Permission denied" (por rootfs incompleto)
         //   - "Function not implemented" al hacer chmod dentro de bind-mount
-        onProgress("Preparando directorios del entorno...")
+        onProgress("PHASE:dirs:start:Preparando directorios")
         proot.ensureDirectories()
-        onProgress("Directorios listos ✓")
+        onProgress("PHASE:dirs:ok:Directorios listos")
 
         // ── Verificaciones previas ──────────────────────────────────────────
         // libproot.so debe existir y ser ejecutable
@@ -108,13 +108,18 @@ object OpenClawInstaller {
         try {
             // ── Paso 1: Alpine ───────────────────────────────────────────────
             if (!proot.isAlpineInstalled()) {
+                onProgress("PHASE:alpine:start:Descargando y extrayendo Alpine Linux")
                 val ok = proot.downloadAndExtractAlpine(
-                    onProgress = { msg -> onProgress("[Alpine] $msg") },
-                    onError = { err -> onError("[Alpine] $err") }
+                    onProgress = { msg -> onProgress("PHASE:alpine:step:$msg") },
+                    onError = { err ->
+                        onProgress("PHASE:alpine:error:$err")
+                        onError(err)
+                    }
                 )
                 if (!ok) return@withContext
+                onProgress("PHASE:alpine:ok:Alpine listo")
             } else {
-                onProgress("[Alpine] Alpine ya instalado ✓")
+                onProgress("PHASE:alpine:skip:Alpine ya instalado")
             }
 
             // ── Paso 2: Node.js + npm + openclaw + onboard ───────────────────
