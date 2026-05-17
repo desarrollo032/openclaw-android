@@ -37,7 +37,8 @@ import kotlinx.coroutines.withContext
      * dispositivos Android imponen restricciones de chmod y enlaces simbólicos
      * en filesDir, lo que provoca "Function not implemented" al ejecutar proot.
  *
- *   nativeLibraryDir/libproot.so   ← binario proot ARM64 (estático ~500 KB)
+ *   nativeLibraryDir/libproot.so    ← binario proot (green-green-avk, ~213 KB)
+ *   nativeLibraryDir/proot-loader    ← loader desacoplado (PROOT_UNBUNDLE_LOADER=1, ~5.5 KB)
  *
  * Layout visto desde dentro del proot Alpine:
  *
@@ -48,6 +49,12 @@ import kotlinx.coroutines.withContext
  * Variables CRÍTICAS:
  *   PROOT_TMP_DIR     — sin esto proot falla porque Android no tiene /tmp en host
  *   PROOT_NO_SECCOMP  — fix para kernels Android 12+ con seccomp estricto
+ *   PROOT_LOADER      — ruta al loader desacoplado (necesario para Samsung Knox)
+ *
+ * El binario proot es de green-green-avk/build-proot-android compilado con
+ * PROOT_UNBUNDLE_LOADER=1. Usa --link2symlink y -0 para compatibilidad con
+ * Samsung Knox / Android 12+. El loader estático se inyecta en cada nuevo
+ * proceso creado por proot, evitando depender del linker del sistema.
  *
  * Nunca usar LD_PRELOAD ni LD_LIBRARY_PATH: Alpine usa sus propias libs musl,
  * no las del NDK de Android.
@@ -625,6 +632,7 @@ class OpenClawProot(private val context: Context) {
                 remove("LD_LIBRARY_PATH")
                 put("PROOT_TMP_DIR",    prootTmpDir.absolutePath)
                 put("PROOT_NO_SECCOMP", "1")
+                put("PROOT_LOADER",     "$nativeDir/proot-loader")
                 put("HOME",             "/root")
                 put("TMPDIR",           "/data/home/.openclaw/tmp")
                 put("PATH",             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
@@ -666,6 +674,7 @@ class OpenClawProot(private val context: Context) {
     fun buildShellEnv(): Array<String> = arrayOf(
         "PROOT_TMP_DIR=${prootTmpDir.absolutePath}",
         "PROOT_NO_SECCOMP=1",
+        "PROOT_LOADER=$nativeDir/proot-loader",
         "HOME=/root",
         "TMPDIR=/data/home/.openclaw/tmp",
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
