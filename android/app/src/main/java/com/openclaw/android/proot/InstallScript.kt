@@ -34,9 +34,11 @@ object InstallScript {
     ): String {
         val ocPackage = if (openclawChannel == "beta") "openclaw@beta" else "openclaw"
         val channelLabel = if (openclawChannel == "beta") "beta" else "estable"
+        val apkBranch = apkVersionBranch(alpineVersion)
         
         return """
             set +e
+            # Alpine Version: $alpineVersion ($apkBranch)
             MARKER_DIR=/root/.openclaw-install
             mkdir -p "${'$'}MARKER_DIR"
 
