@@ -40,14 +40,18 @@ const INSTALL_PHASES: { key: string; label: string; skippable?: boolean }[] = [
     label: "Dependencias mínimas (libstdc++, ca-certs, bash)",
     skippable: true,
   },
-  { key: "nodejs", label: "Instalar Node.js manual" },
-  { key: "npm", label: "Configurar npm" },
-  { key: "pnpm", label: "Instalar pnpm" },
+  { key: "nodejs", label: "Instalar Node.js manual", skippable: true },
+  { key: "npm", label: "Configurar npm", skippable: true },
+  { key: "pnpm", label: "Instalar pnpm", skippable: true },
   { key: "pnpm_env", label: "Configurar entorno pnpm", skippable: true },
   { key: "versions", label: "Verificar versiones", skippable: true },
-  { key: "openclaw", label: "Instalar OpenClaw con pnpm" },
-  { key: "onboard", label: "Abrir OpenClaw onboard en terminal" },
-  { key: "verify", label: "Verificación final" },
+  { key: "openclaw", label: "Instalar OpenClaw con pnpm", skippable: true },
+  {
+    key: "onboard",
+    label: "Abrir OpenClaw onboard en terminal",
+    skippable: true,
+  },
+  { key: "verify", label: "Verificación final", skippable: true },
 ];
 
 interface SetupStatus {
@@ -262,14 +266,26 @@ export function Setup({ onComplete }: Props) {
       setError(d?.error ?? "Error desconocido durante la instalación");
     };
 
+    const hBypassed = () => {
+      setInstalling(false);
+      setActivePhase(null);
+      setError("");
+      setErrorPhase(null);
+      setStepIdx(2);
+      nextAnim();
+      setTimeout(() => onComplete(), 1200);
+    };
+
     const r1 = on("onInstallProgress", hProgress);
     const r2 = on("onInstallComplete", hComplete);
     const r3 = on("onInstallError", hError);
+    const r4 = on("onInstallBypassed", hBypassed);
 
     return () => {
       off("onInstallProgress", r1);
       off("onInstallComplete", r2);
       off("onInstallError", r3);
+      off("onInstallBypassed", r4);
     };
   }, [
     refreshStatus,
@@ -277,6 +293,7 @@ export function Setup({ onComplete }: Props) {
     appendLog,
     installing,
     activePhase,
+    onComplete,
   ]);
 
   // ── Install actions ────────────────────────────────────────────────────
@@ -342,6 +359,34 @@ export function Setup({ onComplete }: Props) {
     },
     [errorPhase],
   );
+
+  /**
+   * Saltar toda la instalación. El usuario quedará en el dashboard,
+   * donde puede instalar OpenClaw desde la card de instalación o
+   * directamente desde el terminal.
+   */
+  const handleBypassInstall = useCallback(() => {
+    if (!bridge.isAvailable()) {
+      // Modo navegador (sin bridge): solo avanzamos al dashboard
+      setInstalling(false);
+      setError("");
+      setErrorPhase(null);
+      setStepIdx(2);
+      nextAnim();
+      setTimeout(() => onComplete(), 1000);
+      return;
+    }
+    const ok = window.confirm(
+      "¿Saltar la instalación?\n\n" +
+        "OpenClaw NO quedará instalado dentro de Alpine. Podrás " +
+        "instalarlo más tarde desde el dashboard o desde el terminal.",
+    );
+    if (!ok) return;
+    setInstalling(false);
+    setError("");
+    setErrorPhase(null);
+    bridge.call("bypassInstall");
+  }, [onComplete]);
 
   // ── Phase list summary ─────────────────────────────────────────────────
   const phaseSummary = (() => {
@@ -488,7 +533,7 @@ export function Setup({ onComplete }: Props) {
 
         {/* Error banner — vinculado a la fase */}
         {error && (
-          <div className="px-3 py-2 rounded-xl bg-red-soft border border-red/10 text-[11px] text-red">
+          <div className="px-3 py-2.5 rounded-xl bg-red-soft border border-red/10 text-[11px] text-red space-y-2">
             <div className="flex items-start gap-2">
               <AlertCircle size={12} className="mt-[2px] shrink-0" />
               <div className="flex-1 min-w-0">
@@ -506,6 +551,28 @@ export function Setup({ onComplete }: Props) {
                 )}
               </div>
             </div>
+            {!installing && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {errorPhase &&
+                  INSTALL_PHASES.find((p) => p.key === errorPhase)?.skippable && (
+                    <button
+                      onClick={() => handleSkipPhase(errorPhase)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[10px] font-medium hover:bg-amber-500/30 transition-colors"
+                    >
+                      <SkipForward size={10} />
+                      Saltar esta fase
+                    </button>
+                  )}
+                <button
+                  onClick={handleBypassInstall}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-glass-bg border border-glass-border text-text-secondary text-[10px] font-medium hover:bg-bg transition-colors"
+                  title="Cancelar instalación y continuar al dashboard"
+                >
+                  <SkipForward size={10} />
+                  Saltar instalación e ir al dashboard
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -560,11 +627,11 @@ export function Setup({ onComplete }: Props) {
 
         {/* Actions */}
         {!installing && (
-          <>
+          <div className="space-y-2">
             {!isAlreadyInstalled && (
               <>
                 {showChannelSelection && (
-                  <div className="flex items-center justify-between rounded-xl bg-glass-bg border border-glass-border p-3 mb-2">
+                  <div className="flex items-center justify-between rounded-xl bg-glass-bg border border-glass-border p-3">
                     <div>
                       <div className="text-xs font-semibold text-text-primary">
                         Canal de instalación
@@ -607,7 +674,27 @@ export function Setup({ onComplete }: Props) {
               <RefreshCw size={11} />
               Revisar de nuevo
             </button>
-          </>
+
+            {/* Skip-install option: visible cuando el usuario no ha completado el
+                setup, para que pueda continuar al dashboard e instalar manualmente. */}
+            {!isAlreadyInstalled && (
+              <div className="mt-3 pt-3 border-t border-glass-border space-y-2">
+                <div className="text-[10px] text-text-muted leading-snug">
+                  ¿No quieres esperar la instalación automática? Puedes
+                  saltarla y configurar OpenClaw más tarde desde el
+                  dashboard o directamente desde el terminal de la app.
+                </div>
+                <button
+                  onClick={handleBypassInstall}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium hover:bg-amber-500/20 transition-colors"
+                  title="Saltar la instalación e ir directamente al dashboard"
+                >
+                  <SkipForward size={12} />
+                  Saltar instalación e ir al dashboard
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     );

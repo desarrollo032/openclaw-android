@@ -331,35 +331,62 @@ object InstallScript {
                 [ -n "@@expected" ] && [ "@@expected" = "@@actual" ]
             }
 
+            # Detecta si xz funciona dentro del proot. En BusyBox tar -xJf hace
+            # fork+exec de xz, lo cual proot devuelve ENOSYS ("Function not
+            # implemented") en muchos dispositivos. Si xz falla, forzamos .tar.gz.
+            xz_works() {
+                command -v xz >/dev/null 2>&1 || return 1
+                echo "" | xz -z -c >/dev/null 2>&1 || return 1
+                return 0
+            }
+
             install_node_candidate() {
                 dist="@@1"
                 base="@@2"
                 prefix="@@3"
                 label="@@4"
-                tarball="/root/tmp/@@{dist}.tar.xz"
                 sums="/root/tmp/SHASUMS256-@@{dist}.txt"
 
                 phase_step nodejs "Descargando Node.js @@NODE_VERSION ARM64 (@@label)"
                 download_file "@@base/SHASUMS256.txt" "@@sums" || return 1
-                if ! download_file "@@base/@@{dist}.tar.xz" "@@tarball"; then
+
+                # Preferir .tar.gz (BusyBox lo descomprime nativamente, sin fork→xz).
+                # Solo intentar .tar.xz si xz funciona dentro del proot.
+                tarball=""
+                if download_file "@@base/@@{dist}.tar.gz" "/root/tmp/@@{dist}.tar.gz"; then
                     tarball="/root/tmp/@@{dist}.tar.gz"
-                    download_file "@@base/@@{dist}.tar.gz" "@@tarball" || return 1
+                elif xz_works && download_file "@@base/@@{dist}.tar.xz" "/root/tmp/@@{dist}.tar.xz"; then
+                    tarball="/root/tmp/@@{dist}.tar.xz"
+                else
+                    phase_step nodejs "No se pudo descargar Node.js (@@label)"
+                    return 1
                 fi
-                verify_sha "@@sums" "@@tarball" "@@{dist}.tar.@@{tarball##*.}" || return 1
+
+                verify_sha "@@sums" "@@tarball" "@@{dist}.tar.@@{tarball##*.}" || {
+                    phase_step nodejs "Checksum invalido para @@tarball"
+                    return 1
+                }
 
                 rm -rf "@@prefix.tmp" "@@prefix"
                 mkdir -p "@@prefix.tmp" || return 1
-                
+
                 case "@@tarball" in
                   *.tar.xz)
-                    if command -v xz >/dev/null 2>&1; then
-                      xz -dc "@@tarball" | tar -x -C "@@prefix.tmp" --strip-components=1 >> "@@LOG_FILE" 2>&1 || return 1
+                    # Doble intento: primero xz | tar, luego tar -xJf
+                    if xz_works; then
+                      xz -dc "@@tarball" | tar -x -C "@@prefix.tmp" --strip-components=1 >> "@@LOG_FILE" 2>&1 || {
+                        phase_step nodejs "Fallo xz|tar; reintentando con tar -xJf"
+                        tar -xJf "@@tarball" -C "@@prefix.tmp" --strip-components=1 >> "@@LOG_FILE" 2>&1 || return 1
+                      }
                     else
                       tar -xJf "@@tarball" -C "@@prefix.tmp" --strip-components=1 >> "@@LOG_FILE" 2>&1 || return 1
                     fi
                     ;;
                   *.tar.gz)
-                    gzip -dc "@@tarball" | tar -x -C "@@prefix.tmp" --strip-components=1 >> "@@LOG_FILE" 2>&1 || return 1
+                    # BusyBox tar -xzf no necesita exec; gunzip va embebido.
+                    tar -xzf "@@tarball" -C "@@prefix.tmp" --strip-components=1 >> "@@LOG_FILE" 2>&1 || {
+                      gzip -dc "@@tarball" | tar -x -C "@@prefix.tmp" --strip-components=1 >> "@@LOG_FILE" 2>&1 || return 1
+                    }
                     ;;
                 esac
 

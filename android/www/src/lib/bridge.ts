@@ -24,6 +24,7 @@ interface OpenClawBridge {
   reinstallAlpine(channel?: string): void
   reinstallAlpineWithChannel(channel: string): void
   skipPhase(key: string): void
+  bypassInstall(): void
   pickFile(callbackId: string): void
   installFromUri(uri: string, configUri: string): void
   getAssetStatus(): string

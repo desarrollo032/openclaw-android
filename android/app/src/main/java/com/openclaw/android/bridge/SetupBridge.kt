@@ -7,6 +7,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.openclaw.android.OpenClawConstants
 import com.openclaw.android.OpenClawInstaller
 import com.openclaw.android.OpenClawLogger
+import com.openclaw.android.proot.InstallPhaseTracker
 import com.openclaw.android.proot.OpenClawProot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -122,8 +123,8 @@ class SetupBridge(
     @JavascriptInterface
     fun skipPhase(key: String) {
         logBridgeCall("skipPhase", key)
-        val safeToSkip = setOf("pnpm", "pnpm_env", "versions", "sys_deps")
-        if (key !in safeToSkip) {
+        if (key !in InstallPhaseTracker.SKIPPABLE_PHASES &&
+            key !in InstallPhaseTracker.CRITICAL_SKIPPABLE_PHASES) {
             notifyReact("onInstallError", JSONObject().apply {
                 put("error", "La fase '$key' es obligatoria y no se puede saltar")
             }.toString())
@@ -132,6 +133,31 @@ class SetupBridge(
         val proot = OpenClawProot(activity)
         proot.markPhaseSkipped(key)
         emitInstallProgress("PHASE:$key:skip:Saltado por el usuario")
+        if (key == "openclaw" || key == "onboard") {
+            runCatching { OpenClawInstaller.markOnboardComplete(activity) }
+        }
+    }
+
+    /**
+     * Saltar la instalación completa. Marca todas las fases como skipped y
+     * permite al usuario continuar al dashboard para instalar manualmente
+     * desde la card de instalación o desde el terminal.
+     */
+    @JavascriptInterface
+    fun bypassInstall() {
+        logBridgeCall("bypassInstall", null)
+        val proot = OpenClawProot(activity)
+        val allKeys = InstallPhaseTracker.SKIPPABLE_PHASES +
+            InstallPhaseTracker.CRITICAL_SKIPPABLE_PHASES
+        for (key in allKeys) {
+            proot.markPhaseSkipped(key)
+            emitInstallProgress("PHASE:$key:skip:Saltado por el usuario")
+        }
+        runCatching { OpenClawInstaller.markOnboardComplete(activity) }
+        notifyReact("onInstallBypassed", JSONObject().apply {
+            put("success", true)
+            put("message", "Instalación omitida. Puedes instalar OpenClaw desde el dashboard o el terminal.")
+        }.toString())
     }
 
     @JavascriptInterface
