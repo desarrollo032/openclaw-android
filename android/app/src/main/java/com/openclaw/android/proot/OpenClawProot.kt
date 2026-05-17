@@ -38,7 +38,7 @@ import kotlinx.coroutines.withContext
      * en filesDir, lo que provoca "Function not implemented" al ejecutar proot.
  *
  *   nativeLibraryDir/libproot.so    ← binario proot (green-green-avk, ~213 KB)
- *   nativeLibraryDir/proot-loader    ← loader desacoplado (PROOT_UNBUNDLE_LOADER=1, ~5.5 KB)
+ *   nativeLibraryDir/libproot_loader.so    ← loader desacoplado (PROOT_UNBUNDLE_LOADER=1, ~5.5 KB)
  *
  * Layout visto desde dentro del proot Alpine:
  *
@@ -632,7 +632,7 @@ class OpenClawProot(private val context: Context) {
                 remove("LD_LIBRARY_PATH")
                 put("PROOT_TMP_DIR",    prootTmpDir.absolutePath)
                 put("PROOT_NO_SECCOMP", "1")
-                put("PROOT_LOADER",     "$nativeDir/proot-loader")
+                put("PROOT_LOADER",     "$nativeDir/libproot_loader.so")
                 put("HOME",             "/root")
                 put("TMPDIR",           "/data/home/.openclaw/tmp")
                 put("PATH",             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
@@ -674,7 +674,7 @@ class OpenClawProot(private val context: Context) {
     fun buildShellEnv(): Array<String> = arrayOf(
         "PROOT_TMP_DIR=${prootTmpDir.absolutePath}",
         "PROOT_NO_SECCOMP=1",
-        "PROOT_LOADER=$nativeDir/proot-loader",
+        "PROOT_LOADER=$nativeDir/libproot_loader.so",
         "HOME=/root",
         "TMPDIR=/data/home/.openclaw/tmp",
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
