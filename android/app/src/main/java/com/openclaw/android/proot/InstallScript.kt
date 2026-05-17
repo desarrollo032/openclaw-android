@@ -314,10 +314,10 @@ object InstallScript {
                 out="@@2"
                 rm -f "@@out"
                 if command -v curl >/dev/null 2>&1; then
-                    run_log curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 600 "@@url" -o "@@out" && return 0
+                    run_log curl -4 -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 600 "@@url" -o "@@out" && return 0
                 fi
                 if command -v wget >/dev/null 2>&1; then
-                    run_log wget -O "@@out" "@@url" && return 0
+                    run_log wget -4 -O "@@out" "@@url" >/dev/null 2>&1 || run_log wget -O "@@out" "@@url" && return 0
                 fi
                 return 1
             }
