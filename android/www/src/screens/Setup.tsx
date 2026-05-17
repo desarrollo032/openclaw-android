@@ -121,6 +121,7 @@ export function Setup({ onComplete }: Props) {
 
   // Derived: loading until setupStatus is populated
   const loading = bridge.isAvailable() && setupStatus === null && stepIdx === 0
+  const isAlreadyInstalled = setupStatus?.bootstrapInstalled && setupStatus?.alpineReady
 
   const nextAnim = () => setAnimKey(k => k + 1)
   const current = STEPS[stepIdx]
@@ -319,6 +320,9 @@ export function Setup({ onComplete }: Props) {
 
   const overallPercent = Math.round((phaseSummary.done / phaseSummary.total) * 100)
   const hasPartialProgress = phaseSummary.done > 0 || phaseSummary.errored > 0
+  const showChannelSelection = !installing && !isAlreadyInstalled && (
+    phaseStatus.alpine?.state === 'done' || phaseStatus.openclaw !== undefined
+  )
 
   // ── Setup step renderer ────────────────────────────────────────────────
   const renderPhaseRow = (key: string, label: string, skippable?: boolean) => {
@@ -504,21 +508,22 @@ export function Setup({ onComplete }: Props) {
           <>
             {!isAlreadyInstalled && (
               <>
-                {/* Channel Selection */}
-                <div className="flex items-center justify-between rounded-xl bg-glass-bg border border-glass-border p-3 mb-2">
-                  <div>
-                    <div className="text-xs font-semibold text-text-primary">Canal de instalación</div>
-                    <div className="text-[10px] text-text-muted mt-0.5">Versión a descargar e instalar</div>
+                {showChannelSelection && (
+                  <div className="flex items-center justify-between rounded-xl bg-glass-bg border border-glass-border p-3 mb-2">
+                    <div>
+                      <div className="text-xs font-semibold text-text-primary">Canal de instalación</div>
+                      <div className="text-[10px] text-text-muted mt-0.5">Versión a descargar e instalar</div>
+                    </div>
+                    <select
+                      value={channel}
+                      onChange={(e) => setChannel(e.target.value as 'estable' | 'beta')}
+                      className="bg-bg border border-glass-border rounded-lg text-xs px-2 py-1 outline-none text-text-primary"
+                    >
+                      <option value="estable">Estable</option>
+                      <option value="beta">Beta</option>
+                    </select>
                   </div>
-                  <select
-                    value={channel}
-                    onChange={(e) => setChannel(e.target.value as 'estable' | 'beta')}
-                    className="bg-bg border border-glass-border rounded-lg text-xs px-2 py-1 outline-none text-text-primary"
-                  >
-                    <option value="estable">Estable</option>
-                    <option value="beta">Beta</option>
-                  </select>
-                </div>
+                )}
                 <button
                   onClick={startInstall}
                   disabled={installing || needsSpace === true}
