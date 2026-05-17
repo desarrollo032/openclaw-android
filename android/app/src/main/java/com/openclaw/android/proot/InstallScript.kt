@@ -17,17 +17,19 @@ package com.openclaw.android.proot
  */
 object InstallScript {
 
-    /** Versión de branch de Alpine para los repositorios apk. */
-    private fun apkVersionBranch(alpineVersion: String): String =
-        "v" + alpineVersion.substringBeforeLast('.')
-
     /**
      * Genera el script de instalación completo de 12 fases.
      *
-     * @param alpineVersion versión de Alpine (e.g. "3.22.0")
+     * @param openclawChannel versión a instalar: "estable" o "beta"
      * @return script shell listo para ejecutar con /bin/sh -c
      */
-    fun generate(alpineVersion: String = AlpineDownloader.ALPINE_VERSION): String = """
+    fun generate(
+        openclawChannel: String = "estable" // Puede ser "estable" o "beta"
+    ): String {
+        val ocPackage = if (openclawChannel == "beta") "openclaw@beta" else "openclaw"
+        val channelLabel = if (openclawChannel == "beta") "beta" else "estable"
+        
+        return """
             set +e
             MARKER_DIR=/root/.openclaw-install
             mkdir -p "${'$'}MARKER_DIR"
@@ -219,7 +221,7 @@ object InstallScript {
                 if [ "${'$'}pnpm_ok" -ne 1 ]; then
                     if command -v corepack >/dev/null 2>&1; then
                         phase_step pnpm "Activando pnpm vía corepack"
-                        mkdir -p /tmp/oc-build && cd /tmp/oc-build 2>/dev/null || cd /tmp
+                        cd "${'$'}MARKER_DIR" 2>/dev/null || true
                         if corepack enable 2>&1 && corepack prepare pnpm@latest --activate 2>&1; then
                             phase_step pnpm "pnpm activado vía corepack"
                             pnpm_ok=1
@@ -238,7 +240,7 @@ object InstallScript {
                     done
                     if [ -n "${'$'}NPM_CLI" ]; then
                         phase_step pnpm "Ejecutando node ${'$'}NPM_CLI install -g pnpm"
-                        mkdir -p /tmp/oc-build && cd /tmp/oc-build 2>/dev/null || cd /tmp
+                        cd "${'$'}MARKER_DIR" 2>/dev/null || true
                         if node "${'$'}NPM_CLI" install -g pnpm 2>&1; then
                             pnpm_ok=1
                         else
@@ -255,11 +257,17 @@ object InstallScript {
                                /root/.local/share/pnpm/pnpm; do
                         fix_node_shebang "${'$'}bin"
                     done
+                    if pnpm_cmd=${'$'}(command -v pnpm 2>/dev/null); then
+                        fix_node_shebang "${'$'}pnpm_cmd"
+                    fi
+                    if corepack_cmd=${'$'}(command -v corepack 2>/dev/null); then
+                        fix_node_shebang "${'$'}corepack_cmd"
+                    fi
                     pnpm_ver=${'$'}(pnpm --version 2>/dev/null || echo "?")
                     phase_ok pnpm "pnpm ${'$'}pnpm_ver instalado"
                 else
-                    phase_step pnpm "pnpm no disponible — se usará npm para instalar OpenClaw"
-                    phase_ok pnpm "Saltado (se usará npm como fallback)"
+                    phase_step pnpm "pnpm no disponible"
+                    phase_ok pnpm "Saltado"
                 fi
             fi
 
@@ -303,54 +311,34 @@ ENVEOF
             phase_ok versions "Versiones: node ${'$'}node_v / npm ${'$'}npm_v / pnpm ${'$'}pnpm_v"
 
             # ────────────────────────────────────────────────────────────────
-            # Fase 10: openclaw — instalar OpenClaw (pnpm → npm fallback)
+            # Fase 10: openclaw — instalar OpenClaw (pnpm)
             # ────────────────────────────────────────────────────────────────
             if [ -f /usr/local/lib/node_modules/openclaw/openclaw.mjs ] \
                || [ -f /usr/lib/node_modules/openclaw/openclaw.mjs ] \
                || [ -f /root/.local/share/pnpm/global/5/node_modules/openclaw/openclaw.mjs ]; then
                 phase_skip openclaw "OpenClaw ya instalado"
             else
-                phase_start openclaw "Instalando OpenClaw (beta)"
-                mkdir -p /tmp/oc-build && cd /tmp/oc-build 2>/dev/null || cd /tmp
+                phase_start openclaw "Instalando OpenClaw ($channelLabel)"
+                cd "${'$'}MARKER_DIR" 2>/dev/null || true
                 oc_ok=0
 
-                # Intento 1: pnpm
+                # Intento Único: pnpm
                 if command -v pnpm >/dev/null 2>&1; then
                     phase_step openclaw "Instalando con pnpm..."
-                    if pnpm add -g openclaw@beta 2>&1; then
+                    if pnpm_cmd=${'$'}(command -v pnpm 2>/dev/null); then
+                        fix_node_shebang "${'$'}pnpm_cmd"
+                    fi
+                    if pnpm add -g $ocPackage 2>&1; then
                         oc_ok=1
                     else
-                        phase_step openclaw "pnpm falló — intentando con npm"
+                        phase_step openclaw "pnpm falló."
                     fi
-                fi
-
-                # Intento 2: node npm-cli.js
-                if [ "${'$'}oc_ok" -ne 1 ]; then
-                    NPM_CLI=""
-                    for p in /usr/lib/node_modules/npm/bin/npm-cli.js \
-                             /usr/local/lib/node_modules/npm/bin/npm-cli.js; do
-                        [ -f "${'$'}p" ] && NPM_CLI="${'$'}p" && break
-                    done
-                    if [ -n "${'$'}NPM_CLI" ]; then
-                        phase_step openclaw "Instalando con npm..."
-                        if node "${'$'}NPM_CLI" install -g openclaw@beta 2>&1; then
-                            oc_ok=1
-                        else
-                            phase_step openclaw "node npm-cli.js falló"
-                        fi
-                    fi
-                fi
-
-                # Intento 3: npm directo
-                if [ "${'$'}oc_ok" -ne 1 ] && command -v npm >/dev/null 2>&1; then
-                    phase_step openclaw "Último intento: npm install -g"
-                    if npm install -g openclaw@beta 2>&1; then
-                        oc_ok=1
-                    fi
+                else
+                    phase_step openclaw "pnpm no encontrado, no se puede instalar."
                 fi
 
                 if [ "${'$'}oc_ok" -ne 1 ]; then
-                    phase_err openclaw "No se pudo instalar OpenClaw (pnpm y npm fallaron)"
+                    phase_err openclaw "No se pudo instalar OpenClaw (pnpm falló)"
                     exit 1
                 fi
 
@@ -359,7 +347,7 @@ ENVEOF
                            /usr/bin/openclaw; do
                     fix_node_shebang "${'$'}bin"
                 done
-                phase_ok openclaw "OpenClaw beta instalado"
+                phase_ok openclaw "OpenClaw $channelLabel instalado"
             fi
 
             # ────────────────────────────────────────────────────────────────
