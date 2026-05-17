@@ -24,6 +24,20 @@ Para evitar que Android mate el proceso cuando el usuario sale de la app, el Gat
 3. **Auto-reinicio** si el sistema llega a cerrar el servicio.
 4. **Acciones directas** desde la notificación: *Restart* y *Ver logs*.
 
+### Ejecución dentro de proot
+
+El gateway se lanza con `OpenClawProot.buildProotProcess()` usando:
+
+```
+proot --link2symlink -0 --rootfs=<rootfs> --bind=/proc --bind=/dev \
+      --bind=/sys --bind=/dev/urandom --bind=<data>:/data \
+      --bind=<tmp>:/tmp --cwd=/root /bin/sh -lc 'openclaw gateway'
+```
+
+- `--link2symlink` — necesario para que Alpine funcione en filesystems Android restrictivos (Samsung Knox).
+- `-0` — fake root sin activar restricciones SELinux extra (en lugar de `--change-id=0:0`).
+- `PROOT_NO_SECCOMP=1` — desactiva seccomp para compatibilidad con el kernel de Android.
+
 ---
 
 ## Variables de entorno

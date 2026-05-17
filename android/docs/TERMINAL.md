@@ -32,9 +32,14 @@ El terminal usa **Alpine Linux shell** (`/bin/sh`) dentro de proot.
 
 1. `OpenClawTerminalManager.createSession()` construye el comando proot:
    ```
-   proot --rootfs=<alpine_dir> --bind=/proc --bind=/dev --change-id=0:0 /bin/sh -i
+   proot --link2symlink -0 --rootfs=<alpine_dir> --bind=/proc --bind=/dev \
+         --bind=/sys --bind=/dev/urandom --bind=<data>:/data \
+         --bind=<tmp>:/tmp --cwd=/data/home/.openclaw /bin/sh -i
    ```
-2. Se inyectan las variables de entorno de Alpine (`PATH`, `TERM`, `OPENCLAW_HOME`).
+   Los flags clave:
+   - `--link2symlink` — maneja symlinks de Alpine sin depender de `symlink()` del kernel (requerido en Samsung Knox/Android 12+).
+   - `-0` — fake root compatible con Samsung Knox (en lugar de `--change-id=0:0`, que activa restricciones SELinux en Android 12+).
+2. Se inyectan las variables de entorno de Alpine (`PATH`, `TERM`, `OPENCLAW_HOME`, `PROOT_TMP_DIR`, `PROOT_NO_SECCOMP`).
 3. Node.js, npm y openclaw están disponibles directamente desde el shell.
 
 ---

@@ -68,10 +68,14 @@ Usuario escribe comando
        ↓
 OpenClawTerminalManager.createSession()
        ↓
-proot --rootfs=... --bind=/proc ...
+proot --link2symlink -0 --rootfs=... --bind=/proc ...
     → /bin/sh -i (Alpine shell)
        ↓
 Node.js, npm, openclaw disponibles directamente
 ```
+
+Flags clave:
+- `--link2symlink` — necesario para que Alpine funcione en filesystems Android restrictivos (Samsung Knox).
+- `-0` — fake root sin activar restricciones SELinux extra (reemplaza a `--change-id=0:0`).
 
 Ver [TERMINAL.md](./TERMINAL.md) para más detalles.

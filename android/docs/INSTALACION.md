@@ -18,7 +18,7 @@ Instalar OpenClaw en Android implica preparar un entorno **Alpine Linux completo
 
 | Componente | Propósito |
 | --- | --- |
-| **proot** | Traductor de llamadas al sistema que permite ejecutar Linux sin root (`chroot` simulado). |
+| **proot** | Traductor de llamadas al sistema que permite ejecutar Linux sin root. Usa `--link2symlink` (symlinks en filesystem Android) y `-0` (fake root compatible Samsung Knox). |
 | **Alpine Linux** | Distribución Linux mínima (`~5 MB` base) que contiene `sh`, `apk`, y puede instalar Node.js. |
 | **Node.js + npm** | Instalados dentro de Alpine mediante `apk add nodejs npm`. |
 | **OpenClaw** | Instalado globalmente dentro de Alpine mediante `npm install -g openclaw`. |
@@ -42,13 +42,15 @@ androidResources {
 ## Etapas de instalación
 
 1. **Verificación de espacio** — se comprueba que haya al menos 500 MB libres.
-2. **Descarga del rootfs Alpine** — se descarga la imagen Alpine mínima (`apk --root`) o se usa un rootfs incluido en assets.
-3. **Bootstrap de Alpine** — se ejecuta `apk add --initdb` y se instalan paquetes base (`busybox`, `alpine-base`).
-4. **Instalación de Node.js** — `apk add nodejs npm`.
-5. **Instalación de OpenClaw** — `npm install -g openclaw` dentro del Alpine.
-6. **Configuración del entorno** — se crean scripts wrapper para `openclaw`, `node`, `npm`.
-7. **Verificación** — se ejecuta `openclaw --version` para confirmar que todo funciona.
-8. **Marcar instalación completa** — se persiste la flag `KEY_ALPINE_INSTALLED`.
+2. **Verificación de red y proot** — se verifica que `libproot.so` esté presente y ejecutable, y que haya conexión a Internet.
+3. **Descarga del rootfs Alpine** — se descarga Alpine minirootfs ARM64 desde dl-cdn.alpinelinux.org (con fallback HTTP).
+4. **Extracción con symlinks** — se extrae el tar.gz preservando enlaces simbólicos (crítico: `bin/sh` → `busybox`). Se aplican permisos `+x` a todos los binarios en `bin/`, `sbin/`, `usr/bin/`, etc.
+5. **Creación de directorios base** — se crean `/root`, `/tmp` y `/.l2s` (requerido por `--link2symlink`) dentro del rootfs.
+6. **Sanity check** — se ejecuta `/bin/sh -c 'echo ok'` dentro de proot para verificar que el contenedor funciona.
+7. **Instalación de Node.js** — `apk add nodejs npm` dentro del Alpine.
+8. **Instalación de OpenClaw** — `npm install -g openclaw@beta` dentro del Alpine.
+9. **Ejecución de onboard** — `openclaw onboard` para completar la configuración inicial.
+10. **Marcar instalación completa** — se persiste la flag `KEY_ALPINE_INSTALLED`.
 
 ---
 
@@ -56,10 +58,10 @@ androidResources {
 
 `isAlpineSetupComplete(context)` verifica:
 
-- El directorio Alpine existe y contiene rootfs (`alpine/etc/alpine-release`).
-- `proot` es ejecutable.
-- Node.js responde dentro del proot.
-- OpenClaw responde dentro del proot.
+- El rootfs Alpine existe y contiene `/bin/sh` ejecutable.
+- `busybox` es ejecutable (target de `/bin/sh`).
+- `libproot.so` está presente y es ejecutable en `nativeLibraryDir`.
+- OpenClaw está instalado como módulo global de npm.
 
 Si todo está en orden, se actualiza la flag `KEY_ALPINE_INSTALLED` en `SharedPreferences`.
 
@@ -70,6 +72,7 @@ Si todo está en orden, se actualiza la flag `KEY_ALPINE_INSTALLED` en `SharedPr
 | Error | Causa | Solución |
 | --- | --- | --- |
 | `No hay espacio suficiente` | Menos de 500 MB libres. | Liberar espacio y reintentar. |
-| `proot: execve: Permission denied` | Android bloquea la ejecución en datos de app. | Verificar que proot esté en `nativeLibraryDir`. |
-| `apk: not found` | Alpine no se bootstrapó correctamente. | Reintentar instalación. |
+| `proot error: execve: Permission denied` | `libproot.so` incorrecto o permisos insuficientes. | Verificar que proot esté en `nativeLibraryDir` y sea ejecutable. |
+| `proot error: Function not implemented` | Flag `--change-id=0:0` en lugar de `-0`. | Usar `-0` (compatible Samsung Knox) en lugar de `--change-id=0:0`. |
+| `apk: not found` | Alpine no se bootstrapó correctamente. | Reintentar instalación o reinstalar Alpine desde Ajustes. |
 | `Connection refused (port 18789)` | Gateway no iniciado o Node.js no instalado. | Verificar instalación de Alpine + Node.js. |

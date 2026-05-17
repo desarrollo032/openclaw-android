@@ -1,6 +1,10 @@
 # Solución de problemas
 
-Problemas comunes al usar **OpenClaw** sobre Termux y sus soluciones.
+Problemas comunes al usar **OpenClaw en Android** (app nativa con proot + Alpine Linux).
+
+> **Nota:** Esta guía cubre tanto la app nativa (`com.openclaw.android`) como el stack clásico sobre Termux.
+> Los problemas marcados como **[Legacy]** solo afectan a instalaciones pre-`v1.5` (glibc-runner) o a instalaciones sobre Termux.
+> En la app nativa con proot + Alpine, Node.js corre dentro del contenedor Alpine con glibc nativa, resolviendo la mayoría de los problemas del stack legacy.
 
 ---
 
@@ -9,15 +13,16 @@ Problemas comunes al usar **OpenClaw** sobre Termux y sus soluciones.
 - [El gateway no arranca: "gateway already running"](#el-gateway-no-arranca-gateway-already-running)
 - [Gateway desconectado: "gateway not connected"](#gateway-desconectado-gateway-not-connected)
 - [SSH fallido: "Connection refused"](#ssh-fallido-connection-refused)
+- [Proot falla: `execve(\"/bin/sh\"): Permission denied`](#proot-falla-execvebinsh-permission-denied)
 - [`openclaw --version` falla](#openclaw---version-falla)
-- ["Cannot find module glibc-compat.js"](#cannot-find-module-glibc-compatjs)
-- [`systemctl --user unavailable` durante el update](#systemctl---user-unavailable-durante-el-update)
-- [`sharp` falla durante `openclaw update`](#sharp-falla-durante-openclaw-update)
-- [`clawdhub` falla con "Cannot find package 'undici'"](#clawdhub-falla-con-cannot-find-package-undici)
-- ["not supported on android"](#not-supported-on-android)
-- [`openclaw update` con error de `node-llama-cpp`](#openclaw-update-con-error-de-node-llama-cpp)
-- [OpenCode con errores `EACCES`](#opencode-con-errores-eacces)
-- [`libldlinux.so` rechaza `--disable-warning=ExperimentalWarning`](#libldlinuxso-rechaza---disable-warningexperimentalwarning)
+- ["Cannot find module glibc-compat.js" [Legacy]](#cannot-find-module-glibc-compatjs-legacy)
+- [`systemctl --user unavailable` durante el update [Legacy]](#systemctl---user-unavailable-durante-el-update-legacy)
+- [`sharp` falla durante `openclaw update` [Legacy]](#sharp-falla-durante-openclaw-update-legacy)
+- [`clawdhub` falla con "Cannot find package 'undici'" [Legacy]](#clawdhub-falla-con-cannot-find-package-undici-legacy)
+- ["not supported on android" [Legacy]](#not-supported-on-android-legacy)
+- [`openclaw update` con error de `node-llama-cpp` [Legacy]](#openclaw-update-con-error-de-node-llama-cpp-legacy)
+- [OpenCode con errores `EACCES` [Legacy]](#opencode-con-errores-eacces-legacy)
+- [`libldlinux.so` rechaza `--disable-warning=ExperimentalWarning` [Legacy]](#libldlinuxso-rechaza---disable-warningexperimentalwarning-legacy)
 
 ---
 

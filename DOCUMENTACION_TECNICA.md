@@ -97,8 +97,7 @@ Al ejecutar `./gradlew assembleDebug` (o `assembleRelease`):
 
 1. Compila el frontend (`npm run build` en `android/www`).
 2. Sincroniza `www/dist` a `android/app/src/main/assets/www`.
-3. Copia los scripts de mantenimiento (`oa.sh`, `bootstrap.sh`, etc.) a `assets/scripts`.
-4. Genera el APK con UI y runtime alineados.
+3. Genera el APK con UI y runtime alineados.
 
 > El build de Gradle ejecuta automáticamente `buildWebUI` + `copyWebUIAssets` antes del merge de assets.
 
