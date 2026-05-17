@@ -75,15 +75,7 @@ class AndroidBridge(
         scope.launch(Dispatchers.IO) {
             OpenClawInstaller.runSetup(
                 context = activity,
-                onProgress = { progressMsg ->
-                    notifyReact("onInstallProgress", JSONObject().apply {
-                        put("step", 1)
-                        put("totalSteps", 2)
-                        put("percent", 0)
-                        put("stepName", progressMsg)
-                        put("currentFile", "")
-                    }.toString())
-                },
+                onProgress = { progressMsg -> emitInstallProgress(progressMsg) },
                 onComplete = {
                     notifyReact("onInstallComplete", "{\"success\":true}")
                 },
@@ -94,33 +86,71 @@ class AndroidBridge(
         }
     }
 
+    /**
+     * Devuelve el snapshot actual de fases de instalación completadas.
+     * Las claves coinciden con las que emite el script de installOpenClaw:
+     *   alpine, arch, apk_repos, apk_update, nodejs, npm, sys_deps,
+     *   pnpm, pnpm_env, versions, openclaw, onboard, verify
+     *
+     * El frontend lo usa para pre-marcar fases como ✓ al cargar la pantalla
+     * de Setup, en vez de empezar desde cero después de un error.
+     */
+    @JavascriptInterface
+    fun getInstallPhases(): String {
+        val proot = OpenClawProot(activity)
+        val done = mutableSetOf<String>()
+
+        // Fases pre-OpenClaw (manejadas por OpenClawInstaller / Proot):
+        if (proot.isProotPresent()) done += "proot"
+        if (proot.isAlpineInstalled()) done += "alpine"
+        done += proot.getCompletedPhases()
+
+        // Si openclaw está instalado, marcar onboard/verify si SharedPref lo indica
+        if (OpenClawInstaller.isOnboardComplete(activity)) done += "onboard"
+        if (proot.isOpenClawInstalled() && done.contains("onboard")) done += "verify"
+
+        return JSONObject().apply {
+            put("phases", JSONArray(done.toList()))
+        }.toString()
+    }
+
+    /**
+     * Convierte una línea cruda de progreso en un evento estructurado para React.
+     *
+     * Si la línea es del tipo `PHASE:<key>:<status>[:<detail>]`, se emite con
+     * los campos descompuestos; cualquier otra línea va como log plano.
+     */
+    private fun emitInstallProgress(rawLine: String) {
+        val phaseRegex = Regex("^PHASE:([^:]+):([a-z]+)(?::(.*))?$")
+        val match = phaseRegex.find(rawLine)
+        val json = JSONObject()
+        if (match != null) {
+            val (key, status, detail) = match.destructured
+            json.put("phase", key)
+            json.put("phaseStatus", status)
+            json.put("message", detail)
+            json.put("logLine", rawLine)
+        } else {
+            json.put("phase", "")
+            json.put("phaseStatus", "log")
+            json.put("message", rawLine)
+            json.put("logLine", rawLine)
+        }
+        notifyReact("onInstallProgress", json.toString())
+    }
+
     @JavascriptInterface
     fun reinstallAlpine() {
         logBridgeCall("reinstallAlpine")
         scope.launch(Dispatchers.IO) {
             try {
                 val proot = OpenClawProot(activity)
-                notifyReact("onInstallProgress", JSONObject().apply {
-                    put("step", 1)
-                    put("totalSteps", 2)
-                    put("percent", 10)
-                    put("stepName", "Eliminando Alpine anterior...")
-                    put("currentFile", "")
-                }.toString())
+                emitInstallProgress("Eliminando Alpine anterior...")
                 proot.wipeAlpine()
                 Log.i("AndroidBridge", "Alpine rootfs wiped — starting fresh install")
-                // Ahora ejecuta el flujo completo de instalación
                 OpenClawInstaller.runSetup(
                     context = activity,
-                    onProgress = { progressMsg ->
-                        notifyReact("onInstallProgress", JSONObject().apply {
-                            put("step", 1)
-                            put("totalSteps", 2)
-                            put("percent", 0)
-                            put("stepName", progressMsg)
-                            put("currentFile", "")
-                        }.toString())
-                    },
+                    onProgress = { progressMsg -> emitInstallProgress(progressMsg) },
                     onComplete = {
                         notifyReact("onInstallComplete", "{\"success\":true}")
                     },
