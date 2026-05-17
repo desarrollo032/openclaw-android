@@ -376,4 +376,5 @@ ENVEOF
 
             echo "DONE"
         """.trimIndent()
+    }
 }
