@@ -24,7 +24,6 @@ object InstallScript {
 
         return """
             set +e
-            cd /root 2>/dev/null || cd / 2>/dev/null || true
 
             # Alpine Version: $alpineVersion ($apkBranch)
             NODE_VERSION="$NODE_VERSION"
@@ -37,6 +36,8 @@ object InstallScript {
 
             mkdir -p /root/tmp /root/.openclaw /usr/local /usr/local/bin /usr/local/lib /usr/local/etc "@@MARKER_DIR"
             touch "@@LOG_FILE" 2>/dev/null || true
+            cd "@@MARKER_DIR" 2>/dev/null || true
+            export PWD="@@MARKER_DIR"
 
             phase_start() { echo "PHASE:@@1:start:@@2"; }
             phase_step()  { echo "PHASE:@@1:step:@@2"; }
@@ -205,19 +206,21 @@ object InstallScript {
                 first="@@(head -n 1 "@@real" 2>/dev/null)"
                 case "@@first" in
                     "#!/usr/bin/env node"*|"#!/usr/bin/env -S node"*)
-                        sed -i '1s|^#!.*env .*node.*|#!/usr/local/bin/node|' "@@real" 2>/dev/null || true
+                        sed -i '1s|^#!.*env .*node.*|#!/usr/bin/node|' "@@real" 2>/dev/null || true
                         ;;
                 esac
             }
 
             write_node_wrappers() {
-                rm -f /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+                rm -f /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/bin/node
                 ln -sfn /usr/local/node/bin/node /usr/local/bin/node || return 1
+                ln -sfn /usr/local/bin/node /usr/bin/node || return 1
 
                 if [ -f /usr/local/node/lib/node_modules/npm/bin/npm-cli.js ]; then
+                    fix_node_shebang /usr/local/node/lib/node_modules/npm/bin/npm-cli.js
                     cat > /usr/local/bin/npm << 'NPMWRAP'
             #!/bin/sh
-            export PWD="@@{PWD:-/root}"
+            export PWD="@@{PWD:-@@MARKER_DIR}"
             export NPM_CONFIG_PREFIX="@@{NPM_CONFIG_PREFIX:-/usr/local}"
             export npm_config_prefix="@@{npm_config_prefix:-/usr/local}"
             export npm_config_cache="@@{npm_config_cache:-/root/tmp/npm-cache}"
@@ -233,9 +236,10 @@ object InstallScript {
                 fi
 
                 if [ -f /usr/local/node/lib/node_modules/npm/bin/npx-cli.js ]; then
+                    fix_node_shebang /usr/local/node/lib/node_modules/npm/bin/npx-cli.js
                     cat > /usr/local/bin/npx << 'NPXWRAP'
             #!/bin/sh
-            export PWD="@@{PWD:-/root}"
+            export PWD="@@{PWD:-@@MARKER_DIR}"
             if [ -f /root/.openclaw/proot-cwd-fix.cjs ]; then
                 case " @@{NODE_OPTIONS:-} " in
                     *" --require /root/.openclaw/proot-cwd-fix.cjs "*) ;;
@@ -251,11 +255,43 @@ object InstallScript {
                     ln -sfn /usr/local/node/bin/corepack /usr/local/bin/corepack
                     fix_node_shebang /usr/local/bin/corepack
                 fi
+
+                if [ -f /usr/local/lib/node_modules/pnpm/bin/pnpm.cjs ]; then
+                    fix_node_shebang /usr/local/lib/node_modules/pnpm/bin/pnpm.cjs
+                    cat > /usr/local/bin/pnpm << 'PNPMWRAP'
+            #!/bin/sh
+            export PWD="@@{PWD:-@@MARKER_DIR}"
+            if [ -f /root/.openclaw/proot-cwd-fix.cjs ]; then
+                case " @@{NODE_OPTIONS:-} " in
+                    *" --require /root/.openclaw/proot-cwd-fix.cjs "*) ;;
+                    *) export NODE_OPTIONS="@@{NODE_OPTIONS:-} --require /root/.openclaw/proot-cwd-fix.cjs" ;;
+                esac
+            fi
+            exec /usr/bin/node /usr/local/lib/node_modules/pnpm/bin/pnpm.cjs "@@@"
+            PNPMWRAP
+                    chmod +x /usr/local/bin/pnpm
+                fi
+
+                if [ -f /usr/local/lib/node_modules/pnpm/bin/pnpx.cjs ]; then
+                    fix_node_shebang /usr/local/lib/node_modules/pnpm/bin/pnpx.cjs
+                    cat > /usr/local/bin/pnpx << 'PNPXWRAP'
+            #!/bin/sh
+            export PWD="@@{PWD:-@@MARKER_DIR}"
+            if [ -f /root/.openclaw/proot-cwd-fix.cjs ]; then
+                case " @@{NODE_OPTIONS:-} " in
+                    *" --require /root/.openclaw/proot-cwd-fix.cjs "*) ;;
+                    *) export NODE_OPTIONS="@@{NODE_OPTIONS:-} --require /root/.openclaw/proot-cwd-fix.cjs" ;;
+                esac
+            fi
+            exec /usr/bin/node /usr/local/lib/node_modules/pnpm/bin/pnpx.cjs "@@@"
+            PNPXWRAP
+                    chmod +x /usr/local/bin/pnpx
+                fi
                 return 0
             }
 
             test_node_runtime() {
-                export PWD="@@{PWD:-/root}"
+                export PWD="@@{PWD:-@@MARKER_DIR}"
                 export NODE_OPTIONS="--require /root/.openclaw/proot-cwd-fix.cjs"
                 /usr/local/bin/node --version >/dev/null 2>&1 || return 1
                 /usr/local/bin/node -e "process.stdout.write(process.cwd())" >/dev/null 2>&1 || return 1
@@ -320,10 +356,11 @@ object InstallScript {
 
             write_openclaw_wrapper() {
                 if [ -f /usr/local/lib/node_modules/openclaw/openclaw.mjs ]; then
+                    fix_node_shebang /usr/local/lib/node_modules/openclaw/openclaw.mjs
                     rm -f /usr/local/bin/openclaw
                     cat > /usr/local/bin/openclaw << 'OCWRAP'
             #!/bin/sh
-            export PWD="@@{PWD:-/root}"
+            export PWD="@@{PWD:-@@MARKER_DIR}"
             export OPENCLAW_HOME="@@{OPENCLAW_HOME:-/data/home/.openclaw}"
             export TMPDIR="@@{TMPDIR:-/root/tmp}"
             if [ -f /root/.openclaw/proot-cwd-fix.cjs ]; then
@@ -332,7 +369,7 @@ object InstallScript {
                     *) export NODE_OPTIONS="@@{NODE_OPTIONS:-} --require /root/.openclaw/proot-cwd-fix.cjs" ;;
                 esac
             fi
-            exec /usr/local/bin/node /usr/local/lib/node_modules/openclaw/openclaw.mjs "@@@"
+            exec /usr/bin/node /usr/local/lib/node_modules/openclaw/openclaw.mjs "@@@"
             OCWRAP
                     chmod +x /usr/local/bin/openclaw
                 fi
@@ -429,58 +466,77 @@ object InstallScript {
                 phase_ok npm "npm @@npm_ver instalado"
             fi
 
-            # Phase 7: pnpm is deliberately skipped in Android/proot.
-            apk del pnpm >/dev/null 2>&1 || true
-            rm -f /usr/local/bin/pnpm /usr/local/bin/pnpx /root/.local/share/pnpm/pnpm 2>/dev/null || true
-            if phase_done pnpm; then
-                phase_skip pnpm "pnpm ya fue omitido"
+            # Phase 7: Install pnpm.
+            if phase_done pnpm && /usr/local/bin/pnpm --version >/dev/null 2>&1; then
+                phase_skip pnpm "pnpm ya instalado (@@(/usr/local/bin/pnpm --version 2>/dev/null))"
             else
-                phase_start pnpm "Saltando pnpm"
-                phase_step pnpm "pnpm se omite para evitar ENOSYS: uv_cwd en proot"
-                phase_ok pnpm "Saltado; se usara npm"
+                phase_start pnpm "Instalando pnpm"
+                cd "@@MARKER_DIR"
+                run_log /usr/local/bin/npm install -g pnpm --no-audit --no-fund
+                write_node_wrappers || true
+                if /usr/local/bin/pnpm --version >/dev/null 2>&1; then
+                    pnpm_ver="@@(/usr/local/bin/pnpm --version 2>/dev/null)"
+                    phase_ok pnpm "pnpm @@pnpm_ver instalado"
+                else
+                    phase_err pnpm "No se pudo instalar pnpm"
+                    exit 1
+                fi
             fi
 
-            # Phase 8: keep old marker key but configure npm instead of PNPM_HOME.
+            # Phase 8: Configure pnpm environment
             if phase_done pnpm_env; then
-                phase_skip pnpm_env "Entorno npm ya configurado"
+                phase_skip pnpm_env "Entorno pnpm ya configurado"
             else
-                phase_start pnpm_env "Configurando entorno npm"
-                write_node_env
-                phase_ok pnpm_env "Entorno npm configurado"
+                phase_start pnpm_env "Configurando entorno pnpm"
+                export PNPM_HOME="/usr/local/share/pnpm"
+                mkdir -p "@@PNPM_HOME"
+                export PATH="@@PNPM_HOME:@@PATH"
+                cat > /etc/profile.d/openclaw-pnpm.sh << 'PNPMEOF'
+            export PNPM_HOME="/usr/local/share/pnpm"
+            export PATH="@@{PNPM_HOME}:@@{PATH}"
+            PNPMEOF
+                touch /root/.profile /root/.bashrc
+                if ! grep -q "openclaw-pnpm.sh" /root/.profile 2>/dev/null; then
+                    echo ". /etc/profile.d/openclaw-pnpm.sh" >> /root/.profile
+                fi
+                if ! grep -q "openclaw-pnpm.sh" /root/.bashrc 2>/dev/null; then
+                    echo ". /etc/profile.d/openclaw-pnpm.sh" >> /root/.bashrc
+                fi
+                phase_ok pnpm_env "Entorno pnpm configurado"
             fi
 
             # Phase 9: versions.
             phase_start versions "Verificando versiones instaladas"
             node_v="@@(/usr/local/bin/node --version 2>/dev/null || echo "?")"
             npm_v="@@(/usr/local/bin/npm --version 2>/dev/null || echo "?")"
-            phase_step versions "node @@node_v / npm @@npm_v / pnpm omitido"
-            [ "@@node_v" != "?" ] && [ "@@npm_v" != "?" ] || { phase_err versions "Versiones invalidas"; exit 1; }
-            phase_ok versions "Versiones: node @@node_v / npm @@npm_v / pnpm omitido"
+            pnpm_v="@@(/usr/local/bin/pnpm --version 2>/dev/null || echo "?")"
+            phase_step versions "node @@node_v / npm @@npm_v / pnpm @@pnpm_v"
+            [ "@@node_v" != "?" ] && [ "@@npm_v" != "?" ] && [ "@@pnpm_v" != "?" ] || { phase_err versions "Versiones invalidas"; exit 1; }
+            phase_ok versions "Versiones: node @@node_v / npm @@npm_v / pnpm @@pnpm_v"
 
-            # Phase 10: OpenClaw install with npm only.
-            if [ -f /usr/local/lib/node_modules/openclaw/openclaw.mjs ] \
-               || [ -f /usr/lib/node_modules/openclaw/openclaw.mjs ]; then
+            # Phase 10: OpenClaw install with pnpm.
+            if [ -f /usr/local/lib/node_modules/openclaw/openclaw.mjs ]; then
                 write_openclaw_wrapper
                 phase_skip openclaw "OpenClaw ya instalado"
             else
-                phase_start openclaw "Instalando OpenClaw (@@channelLabel) con npm"
-                cd /root 2>/dev/null || cd /
-                export PWD="/root"
-                run_log /usr/local/bin/npm install -g @@ocPackage --no-audit --no-fund
+                phase_start openclaw "Instalando OpenClaw (@@channelLabel) con pnpm"
+                cd "@@MARKER_DIR"
+                export PWD="@@MARKER_DIR"
+                run_log /usr/local/bin/pnpm install -g @@ocPackage --config.fund=false --config.audit=false
                 code="@@?"
                 if [ "@@code" -ne 0 ]; then
-                    phase_step openclaw "npm fallo; limpiando cache y reintentando"
-                    /usr/local/bin/npm cache clean --force >/dev/null 2>&1 || true
-                    run_log /usr/local/bin/npm install -g @@ocPackage --no-audit --no-fund --prefer-online
+                    phase_step openclaw "pnpm fallo; limpiando store y reintentando"
+                    /usr/local/bin/pnpm store prune >/dev/null 2>&1 || true
+                    run_log /usr/local/bin/pnpm install -g @@ocPackage --config.fund=false --config.audit=false --prefer-offline
                     code="@@?"
                 fi
                 if [ "@@code" -ne 0 ]; then
-                    phase_err openclaw "No se pudo instalar OpenClaw con npm"
+                    phase_err openclaw "No se pudo instalar OpenClaw con pnpm"
                     exit 1
                 fi
                 write_openclaw_wrapper
-                /usr/local/bin/openclaw --version >/dev/null 2>&1 || { phase_err openclaw "openclaw --version fallo tras npm"; exit 1; }
-                phase_ok openclaw "OpenClaw @@channelLabel instalado con npm"
+                /usr/local/bin/openclaw --version >/dev/null 2>&1 || { phase_err openclaw "openclaw --version fallo tras pnpm"; exit 1; }
+                phase_ok openclaw "OpenClaw @@channelLabel instalado con pnpm"
             fi
 
             # Phase 11: onboard must run in the interactive terminal, not in this non-PTY installer.

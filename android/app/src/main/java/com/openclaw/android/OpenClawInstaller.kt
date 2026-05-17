@@ -63,6 +63,7 @@ object OpenClawInstaller {
      */
     suspend fun runSetup(
         context: Context,
+        channel: String = "estable",
         onProgress: (String) -> Unit,
         onComplete: () -> Unit,
         onError: (String) -> Unit
@@ -124,6 +125,7 @@ object OpenClawInstaller {
             // ── Paso 2: Node.js + npm + openclaw + onboard ───────────────────
             if (!proot.isOpenClawInstalled()) {
                 val ok = proot.installOpenClaw(
+                    channel = channel,
                     onProgress = { msg -> onProgress(msg) },
                     onError = { err -> onError(err) }
                 )

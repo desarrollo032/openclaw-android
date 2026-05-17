@@ -100,6 +100,7 @@ class OpenClawProot(private val context: Context) {
      * Cada fase es resumible gracias a los marker files.
      */
     suspend fun installOpenClaw(
+        channel: String = "estable",
         onProgress: (String) -> Unit,
         onError: (String) -> Unit
     ): Boolean {
@@ -112,7 +113,7 @@ class OpenClawProot(private val context: Context) {
         if (!runSanityCheck(onProgress, onError)) return false
 
         // Generar y ejecutar script
-        val script = InstallScript.generate()
+        val script = InstallScript.generate(openclawChannel = channel)
         var lastErrorLine = "Error sin diagnóstico de paso"
 
         val code = runInProot(

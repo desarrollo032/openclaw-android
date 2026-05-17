@@ -111,6 +111,7 @@ export function Setup({ onComplete }: Props) {
   const [installing, setInstalling] = useState(false)
   const [activePhase, setActivePhase] = useState<string | null>(null)
   const [logLines, setLogLines] = useState<string[]>([])
+  const [channel, setChannel] = useState<'estable' | 'beta'>('estable')
 
   const installingRef = useRef(false)
   const logEndRef = useRef<HTMLDivElement | null>(null)
@@ -272,8 +273,8 @@ export function Setup({ onComplete }: Props) {
     })
     setLogLines([])
     setInstalling(true)
-    bridge.call('startSetup')
-  }, [installing])
+    bridge.call('startSetup', channel)
+  }, [installing, channel])
 
   const installPlatform = useCallback((id: string) => {
     bridge.call('installPlatform', id)
@@ -502,14 +503,31 @@ export function Setup({ onComplete }: Props) {
         {!installing && (
           <>
             {!isAlreadyInstalled && (
-              <button
-                onClick={startInstall}
-                disabled={installing || needsSpace === true}
-                className={`w-full btn text-xs ${needsSpace ? 'bg-glass-bg text-text-dim cursor-not-allowed' : 'btn-primary'}`}
-              >
-                <Play size={13} />
-                {hasPartialProgress ? 'Continuar instalación' : 'Iniciar instalación'}
-              </button>
+              <>
+                {/* Channel Selection */}
+                <div className="flex items-center justify-between rounded-xl bg-glass-bg border border-glass-border p-3 mb-2">
+                  <div>
+                    <div className="text-xs font-semibold text-text-primary">Canal de instalación</div>
+                    <div className="text-[10px] text-text-muted mt-0.5">Versión a descargar e instalar</div>
+                  </div>
+                  <select
+                    value={channel}
+                    onChange={(e) => setChannel(e.target.value as 'estable' | 'beta')}
+                    className="bg-bg border border-glass-border rounded-lg text-xs px-2 py-1 outline-none text-text-primary"
+                  >
+                    <option value="estable">Estable</option>
+                    <option value="beta">Beta</option>
+                  </select>
+                </div>
+                <button
+                  onClick={startInstall}
+                  disabled={installing || needsSpace === true}
+                  className={`w-full btn text-xs ${needsSpace ? 'bg-glass-bg text-text-dim cursor-not-allowed' : 'btn-primary'}`}
+                >
+                  <Play size={13} />
+                  {hasPartialProgress ? 'Continuar instalación' : 'Iniciar instalación'}
+                </button>
+              </>
             )}
             <button
               onClick={() => { refreshStatus(); refreshCompletedPhases() }}

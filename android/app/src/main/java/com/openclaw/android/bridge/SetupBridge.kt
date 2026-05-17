@@ -55,10 +55,11 @@ class SetupBridge(
     }
 
     @JavascriptInterface
-    fun startSetup() {
+    fun startSetup(channel: String) {
         scope.launch(Dispatchers.IO) {
             OpenClawInstaller.runSetup(
                 context = activity,
+                channel = channel,
                 onProgress = { progressMsg -> emitInstallProgress(progressMsg) },
                 onComplete = {
                     notifyReact("onInstallComplete", "{\"success\":true}")
@@ -68,6 +69,11 @@ class SetupBridge(
                 }
             )
         }
+    }
+
+    @JavascriptInterface
+    fun startSetup() {
+        startSetup("estable")
     }
 
     @JavascriptInterface
@@ -88,8 +94,8 @@ class SetupBridge(
     }
 
     @JavascriptInterface
-    fun reinstallAlpine() {
-        logBridgeCall("reinstallAlpine", null)
+    fun reinstallAlpine(channel: String) {
+        logBridgeCall("reinstallAlpine", channel)
         scope.launch(Dispatchers.IO) {
             try {
                 val proot = OpenClawProot(activity)
@@ -98,6 +104,7 @@ class SetupBridge(
                 Log.i("SetupBridge", "Alpine rootfs wiped — starting fresh install")
                 OpenClawInstaller.runSetup(
                     context = activity,
+                    channel = channel,
                     onProgress = { progressMsg -> emitInstallProgress(progressMsg) },
                     onComplete = {
                         notifyReact("onInstallComplete", "{\"success\":true}")
@@ -113,6 +120,11 @@ class SetupBridge(
                 }.toString())
             }
         }
+    }
+
+    @JavascriptInterface
+    fun reinstallAlpine() {
+        reinstallAlpine("estable")
     }
 
     @JavascriptInterface

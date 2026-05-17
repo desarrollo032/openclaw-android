@@ -19,8 +19,8 @@ interface OpenClawBridge {
   // Setup / Installation
   getSetupStatus(): string
   getInstallPhases(): string
-  startSetup(): void
-  reinstallAlpine(): void
+  startSetup(channel?: string): void
+  reinstallAlpine(channel?: string): void
   skipPhase(key: string): void
   pickFile(callbackId: string): void
   installFromUri(uri: string, configUri: string): void
