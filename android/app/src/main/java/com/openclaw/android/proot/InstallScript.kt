@@ -17,13 +17,19 @@ package com.openclaw.android.proot
  */
 object InstallScript {
 
+    /** Versión de branch de Alpine para los repositorios apk. */
+    private fun apkVersionBranch(alpineVersion: String): String =
+        "v" + alpineVersion.substringBeforeLast('.')
+
     /**
      * Genera el script de instalación completo de 12 fases.
      *
+     * @param alpineVersion versión de Alpine (e.g. "3.22.0")
      * @param openclawChannel versión a instalar: "estable" o "beta"
      * @return script shell listo para ejecutar con /bin/sh -c
      */
     fun generate(
+        alpineVersion: String = AlpineDownloader.ALPINE_VERSION,
         openclawChannel: String = "estable" // Puede ser "estable" o "beta"
     ): String {
         val ocPackage = if (openclawChannel == "beta") "openclaw@beta" else "openclaw"
